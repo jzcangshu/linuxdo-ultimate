@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ultimate Linux Do 设置视觉验收</title>
+  <style>
+    :root {
+      --primary: #e5e7eb;
+      --primary-medium: #8b949e;
+      --primary-low: #34383e;
+      --primary-very-low: #222428;
+      --secondary: #18191c;
+      --tertiary: #2d7ed2;
+      --danger: #f85149;
+      --header_primary: #e5e7eb;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-up-1: 1.05rem;
+      --font-0: 1rem;
+      --font-down-1: .875rem;
+      --font-down-2: .75rem;
+    }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; background: #18191c; color: var(--primary); font-family: var(--font-family); }
+    .d-header { height: 52px; border-bottom: 1px solid #34383e; background: #111214; }
+    .d-header .contents { display: flex; height: 100%; align-items: center; justify-content: flex-end; padding: 0 16px; }
+    .d-header-icons { display: flex; align-items: center; margin: 0; padding: 0; }
+    main { width: min(980px, calc(100% - 40px)); margin: 48px auto; }
+    .preview-line { height: 14px; margin: 18px 0; border-radius: 3px; background: #222428; }
+  </style>
+  <script>window.__LDU_TEST_MODE__ = true;</script>
+</head>
+<body>
+  <header class="d-header"><div class="contents"><ul class="d-header-icons"></ul></div></header>
+  <main>
+    <div class="preview-line" style="width:72%"></div>
+    <div class="preview-line" style="width:91%"></div>
+    <div class="preview-line" style="width:64%"></div>
+  </main>
+  <script src="../dist/linuxdo-ultimate.user.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelector(".ldu-settings-host .ldu-icon-button")?.click();
+    });
+  </script>
+</body>
+</html>

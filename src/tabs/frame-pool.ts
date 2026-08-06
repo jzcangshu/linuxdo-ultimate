@@ -1,0 +1,128 @@
+import type { TopicTabState } from "../core/types";
+
+export interface FrameMessage {
+  type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open";
+  tabId: string;
+  url?: string;
+  title?: string;
+  scrollY?: number;
+  postNumber?: number;
+  categoryName?: string;
+  categoryColor?: string;
+  anchorRect?: { left: number; top: number; right: number; bottom: number; width: number; height: number };
+}
+
+interface FramePreviewConfig {
+  enabled: boolean;
+  clickMode: "double" | "single";
+}
+
+interface FrameRecord {
+  iframe: HTMLIFrameElement;
+  lastUsedAt: number;
+  reportedUrl: string | null;
+}
+
+export class TopicFramePool {
+  private readonly frames = new Map<string, FrameRecord>();
+  private liveLimit: number;
+  private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
+
+  constructor(
+    private readonly container: HTMLElement,
+    private readonly maxLiveFrames: number,
+    private readonly onMessage: (message: FrameMessage, iframe: HTMLIFrameElement) => void,
+    private readonly onSuspend: (tabId: string, iframe: HTMLIFrameElement) => void,
+  ) { this.liveLimit = Math.max(1, maxLiveFrames); }
+
+  setMaxLiveFrames(value: number): void {
+    this.liveLimit = Math.max(1, Math.min(10, Math.floor(value)));
+    this.suspendOverflow("");
+  }
+
+  setPreviewConfig(config: FramePreviewConfig): void {
+    this.previewConfig = { ...config };
+    for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
+  }
+
+  activate(tab: TopicTabState, now: number): HTMLIFrameElement {
+    let record = this.frames.get(tab.id);
+    if (!record) {
+      const iframe = document.createElement("iframe");
+      iframe.className = "ldu-topic-frame";
+      iframe.name = `ldu-topic:${tab.id}`;
+      iframe.title = tab.title;
+      iframe.dataset.tabId = tab.id;
+      iframe.addEventListener("load", () => {
+        this.sendPreviewConfig(iframe);
+        this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
+      });
+      iframe.src = tab.url;
+      record = { iframe, lastUsedAt: now, reportedUrl: null };
+      this.frames.set(tab.id, record);
+      this.container.append(iframe);
+    } else {
+      record.lastUsedAt = now;
+      record.iframe.title = tab.title;
+      const requestedUrl = new URL(tab.url, document.baseURI).href;
+      if (record.iframe.src !== requestedUrl && record.reportedUrl !== requestedUrl) {
+        record.reportedUrl = null;
+        record.iframe.src = requestedUrl;
+      }
+    }
+
+    for (const [tabId, current] of this.frames) {
+      const active = tabId === tab.id;
+      current.iframe.setAttribute("aria-hidden", String(!active));
+      current.iframe.tabIndex = active ? 0 : -1;
+    }
+    this.suspendOverflow(tab.id);
+    return record.iframe;
+  }
+
+  handleMessage(event: MessageEvent): void {
+    const data = event.data as Partial<FrameMessage> | null;
+    if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
+    const record = this.frames.get(data.tabId);
+    if (!record || event.source !== record.iframe.contentWindow) return;
+    if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
+      try {
+        record.reportedUrl = new URL(data.url, document.baseURI).href;
+      } catch {
+        record.reportedUrl = null;
+      }
+    }
+    if (data.type === "ldu:frame-ready") this.sendPreviewConfig(record.iframe);
+    this.onMessage(data as FrameMessage, record.iframe);
+  }
+
+  remove(tabId: string): void {
+    const record = this.frames.get(tabId);
+    if (!record) return;
+    record.iframe.remove();
+    this.frames.delete(tabId);
+  }
+
+  destroy(): void {
+    for (const record of this.frames.values()) record.iframe.remove();
+    this.frames.clear();
+  }
+
+  private sendPreviewConfig(iframe: HTMLIFrameElement): void {
+    iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+  }
+
+  private suspendOverflow(activeTabId: string): void {
+    while (this.frames.size > this.liveLimit) {
+      const candidates = [...this.frames.entries()]
+        .filter(([tabId]) => tabId !== activeTabId)
+        .sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt);
+      const candidate = candidates[0];
+      if (!candidate) return;
+      const [tabId, record] = candidate;
+      record.iframe.remove();
+      this.frames.delete(tabId);
+      this.onSuspend(tabId, record.iframe);
+    }
+  }
+}

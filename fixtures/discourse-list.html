@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>最新话题 - LINUX DO 夹具</title>
+  <style>
+    :root { color-scheme: light; --primary:#28323c; --secondary:#fff; --primary-low:#e7ebef; --primary-very-low:#f5f7f8; --tertiary:#1686c4; --danger:#bf3f3f; }
+    * { box-sizing: border-box; } body { margin:0; color:var(--primary); font:14px/1.45 system-ui,sans-serif; background:#edf0f2; }
+    .d-header { height:52px; display:flex; align-items:center; padding:0 20px; background:#fff; border-bottom:1px solid #d9dee2; font-weight:700; }
+    .d-header .wrap { display:flex; width:100%; align-items:center; } .d-header-icons { display:flex; gap:4px; margin:0 0 0 auto; padding:0; }
+    #main-container { width:100%; } #main-outlet-wrapper { display:grid; grid-template-columns:272px 1fr; max-width:1586px; margin:0 auto; }
+    .sidebar-wrapper { min-height:calc(100vh - 52px); padding:14px; background:#fff; }
+    .sidebar-wrapper a { display:block; padding:7px 8px; color:inherit; text-decoration:none; border-radius:4px; }
+    .sidebar-wrapper a:hover { background:var(--primary-low); }
+    #main-outlet { min-width:0; padding:24px 20px; background:#edf0f2; }
+    h1 { margin:0 0 18px; font-size:24px; } table { width:100%; border-collapse:collapse; background:#fff; }
+    th,td { padding:13px 10px; border-bottom:1px solid #e2e6e9; text-align:left; } th { font-size:12px; color:#66727d; }
+    a { color:var(--tertiary); } .posters { width:154px; } .views { width:90px; } .activity { width:100px; }
+  </style>
+</head>
+<body class="has-sidebar-page">
+  <header class="d-header"><div class="wrap">LINUX DO 夹具 <span style="margin-left:auto;font-weight:400">用于界面验证</span><ul class="d-header-icons"></ul></div></header>
+  <div id="main-container"><div id="main-outlet-wrapper">
+    <aside class="sidebar-wrapper"><strong>导航</strong><a href="/latest">话题</a><a href="/bookmarks">书签</a><a href="/c/develop/4">开发调优</a><a href="/tag/1451-tag/1451">软件开发</a></aside>
+    <main id="main-outlet"><h1>所有最新话题</h1><button id="test-open" type="button" style="margin-bottom:12px">测试打开帖子</button><table class="topic-list"><thead><tr><th>话题</th><th class="posters">参与者</th><th>回复</th><th class="views">浏览量</th><th class="activity">活动</th></tr></thead><tbody>
+      <tr class="topic-list-item"><td><a class="title" href="/t/topic/2309449/41">阅读计数修复脚本</a><div>软件开发 · 最近更新</div></td><td class="posters">头像 头像 头像</td><td>64</td><td class="views">1.7k</td><td class="activity">刚刚</td></tr>
+      <tr class="topic-list-item"><td><a class="title" href="/t/topic/2699329">链接悬浮预览</a><div>软件开发 · 3 回复</div></td><td class="posters">头像 头像</td><td>3</td><td class="views">196</td><td class="activity">11 分钟</td></tr>
+      <tr class="topic-list-item"><td><a class="title" href="/t/topic/2677763">大家都用 AI 开发了什么小工具</a><div>开发调优</div></td><td class="posters">头像 头像 头像 头像</td><td>257</td><td class="views">3.7k</td><td class="activity">1 分钟</td></tr>
+    </tbody></table></main>
+  </div></div>
+  <script>window.__LDU_TEST_MODE__=true;</script>
+  <script src="/linuxdo-ultimate.user.js"></script>
+  <script>document.getElementById('test-open').addEventListener('click',()=>window.__LDU_TEST_API__.openTopic('/t/topic/2309449/41','阅读计数修复脚本'));</script>
+</body>
+</html>

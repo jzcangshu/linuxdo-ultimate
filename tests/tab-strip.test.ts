@@ -1,19 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TopicTabState } from "../src/core/types";
 import { renderTabStrip, resolveTabCategoryColor } from "../src/tabs/tab-strip";
-
-function addCategory(href: string, name: string, color: string): void {
-  const sidebar = document.querySelector(".sidebar-wrapper") ?? document.body.appendChild(document.createElement("aside"));
-  sidebar.classList.add("sidebar-wrapper");
-  const link = document.createElement("a");
-  link.href = href;
-  const icon = document.createElement("span");
-  icon.className = "sidebar-section-link-prefix icon";
-  icon.style.color = color;
-  link.append(icon, name);
-  sidebar.append(link);
-}
 
 function tab(title: string): TopicTabState {
   return {
@@ -27,21 +15,31 @@ function tab(title: string): TopicTabState {
   };
 }
 
+afterEach(() => {
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
+});
+
 describe("topic tab category colors", () => {
-  it("reads the matching live sidebar icon color", () => {
-    addCategory("/c/startup/46", "扬帆起航", "rgb(255, 152, 56)");
+  it("uses the fixed primary-category color without waiting for the sidebar", () => {
     expect(resolveTabCategoryColor("帖子标题 - 扬帆起航 - LINUX DO")).toBe("rgb(255, 152, 56)");
   });
 
-  it("prefers the matching primary category and ignores missing categories", () => {
-    addCategory("/c/welfare/36", "福利羊毛", "rgb(1, 2, 3)");
-    addCategory("/c/welfare/welfare-lv1/60", "福利羊毛, Lv1", "rgb(4, 5, 6)");
-    expect(resolveTabCategoryColor("帖子标题 - 福利羊毛 / 福利羊毛, Lv1 - LINUX DO")).toBe("rgb(1, 2, 3)");
+  it("prefers the fixed primary category for nested category titles", () => {
+    expect(resolveTabCategoryColor("帖子标题 - 福利羊毛 / 福利羊毛, Lv1 - LINUX DO")).toBe("rgb(228, 87, 53)");
+    expect(resolveTabCategoryColor("帖子标题 - 搞七捻三, Lv1 - LINUX DO")).toBe("rgb(58, 181, 74)");
     expect(resolveTabCategoryColor("无分类帖子 - LINUX DO")).toBeNull();
   });
 
+  it("does not scan or compute colors from the live sidebar", () => {
+    const getComputedStyle = vi.spyOn(window, "getComputedStyle");
+    document.body.innerHTML = '<aside class="sidebar-wrapper"><a href="/c/develop/4"><span class="sidebar-section-link-prefix icon" style="color: red"></span>开发调优</a></aside>';
+
+    expect(resolveTabCategoryColor("帖子标题 - 开发调优 - LINUX DO")).toBe("rgb(50, 195, 195)");
+    expect(getComputedStyle).not.toHaveBeenCalled();
+  });
+
   it("applies the resolved category color as a presentation-only CSS variable", () => {
-    addCategory("/c/develop/4", "开发调优", "rgb(50, 195, 195)");
     const root = document.createElement("div");
     renderTabStrip(root, [tab("测试帖子 - 开发调优 - LINUX DO")], "topic-1", {
       onActivate: vi.fn(), onClose: vi.fn(),

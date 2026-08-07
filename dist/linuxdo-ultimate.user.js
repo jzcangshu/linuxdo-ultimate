@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.6
+// @version      0.2.7
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -1299,17 +1299,31 @@
   }
 
   // src/tabs/tab-strip.ts
-  function resolveTabCategoryColor(title, root = document) {
+  var PRIMARY_CATEGORY_COLORS = [
+    ["\u5F00\u53D1\u8C03\u4F18", "rgb(50, 195, 195)"],
+    ["\u56FD\u4EA7\u66FF\u4EE3", "rgb(209, 44, 37)"],
+    ["\u8D44\u6E90\u835F\u8403", "rgb(18, 168, 157)"],
+    ["\u6587\u6863\u5171\u5EFA", "rgb(156, 182, 196)"],
+    ["\u8DF3\u86A4\u5E02\u573A", "rgb(237, 32, 123)"],
+    ["\u79EF\u5206\u4E50\u56ED", "rgb(252, 202, 68)"],
+    ["\u975E\u6211\u83AB\u5C5E", "rgb(168, 198, 254)"],
+    ["\u8BFB\u4E66\u6210\u8BD7", "rgb(224, 217, 0)"],
+    ["\u626C\u5E06\u8D77\u822A", "rgb(255, 152, 56)"],
+    ["\u524D\u6CBF\u5FEB\u8BAF", "rgb(187, 143, 206)"],
+    ["\u7F51\u7EDC\u8BB0\u5FC6", "rgb(247, 148, 29)"],
+    ["\u798F\u5229\u7F8A\u6BDB", "rgb(228, 87, 53)"],
+    ["\u641E\u4E03\u637B\u4E09", "rgb(58, 181, 74)"],
+    ["\u793E\u533A\u5B75\u5316", "rgb(255, 187, 0)"],
+    ["\u866B\u6D1E\u5E7F\u573A", "rgb(255, 0, 247)"],
+    ["\u8FD0\u8425\u53CD\u9988", "rgb(128, 130, 129)"],
+    ["\u6DF1\u6D77\u5E7D\u57DF", "rgb(69, 183, 209)"]
+  ];
+  function resolveTabCategoryColor(title, _root = document) {
     const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
-    const matches = [...root.querySelectorAll('.sidebar-wrapper a[href^="/c/"], .sidebar-wrapper a[href*="linux.do/c/"]')].map((link) => {
-      const name = link.textContent?.trim() ?? "";
-      const matchesTitle = name && (titleWithoutSite.endsWith(` - ${name}`) || titleWithoutSite.includes(` - ${name} / `) || titleWithoutSite.endsWith(` / ${name}`));
-      if (!matchesTitle) return null;
-      const icon = link.querySelector(".sidebar-section-link-prefix.icon, .sidebar-section-link-prefix, .sidebar-section-link-icon");
-      const color = icon ? root.defaultView?.getComputedStyle(icon).color.trim() : "";
-      return color && color !== "transparent" && color !== "rgba(0, 0, 0, 0)" ? { name, color } : null;
-    }).filter((match) => match !== null).sort((a, b) => a.name.length - b.name.length);
-    return matches[0]?.color ?? null;
+    const separatorIndex = titleWithoutSite.lastIndexOf(" - ");
+    const category = titleWithoutSite.slice(separatorIndex < 0 ? 0 : separatorIndex + 3).trim();
+    const match = PRIMARY_CATEGORY_COLORS.find(([name]) => category === name || category.startsWith(`${name} /`) || category.startsWith(`${name},`));
+    return match?.[1] ?? null;
   }
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
     root.replaceChildren();
@@ -1481,6 +1495,7 @@ ${tab.url}`;
 
   // src/ui/styles.ts
   var APP_STYLE_ID = "linuxdo-ultimate-styles";
+  var EMBEDDED_STYLE_ID = "linuxdo-ultimate-embedded-styles";
   var APP_STYLES = `
 :root {
   --ldu-sidebar-width: 216px;
@@ -2245,12 +2260,55 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-credit-tooltip[hidden] { display: none; }
 
-html[data-ldu-embedded-topic="true"] #d-sidebar,
-html[data-ldu-embedded-topic="true"] .sidebar-wrapper,
-html[data-ldu-embedded-topic="true"] .d-header {
-  display: none !important;
+.ldu-action-toast {
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
+  border-radius: 8px;
+  background: var(--ldu-surface);
+  color: var(--ldu-text);
+  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
+  font-size: var(--font-down-1, .875rem);
 }
 
+.ldu-action-toast.is-error {
+  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
+  color: var(--ldu-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ldu-icon-button,
+  .ldu-resize-handle::after,
+  .ldu-settings-panel,
+  .ldu-settings-reset,
+  .ldu-settings-action,
+  .ldu-donate-menu a { transition-duration: 0ms !important; }
+  .ldu-preview-spinner { animation-duration: 1.5s; }
+}
+`;
+  var EMBEDDED_STYLES = `
+:root {
+  --ldu-sidebar-width: 216px;
+  --ldu-topic-track: 0.65fr;
+  --ldu-list-track: 0.35fr;
+  --ldu-header-height: 52px;
+  --ldu-border: var(--primary-low, #d9d9d9);
+  --ldu-surface: var(--secondary, #fff);
+  --ldu-surface-muted: var(--primary-very-low, #f5f5f5);
+  --ldu-text: var(--primary, #222);
+  --ldu-accent: var(--tertiary, #0088cc);
+  --ldu-danger: var(--danger, #d04437);
+  --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+html[data-ldu-embedded-topic="true"] #d-sidebar,
+html[data-ldu-embedded-topic="true"] .sidebar-wrapper,
+html[data-ldu-embedded-topic="true"] .d-header,
 html[data-ldu-embedded-list="true"] #d-sidebar,
 html[data-ldu-embedded-list="true"] .sidebar-wrapper,
 html[data-ldu-embedded-list="true"] .d-header {
@@ -2306,6 +2364,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet-wrapper {
 
 html[data-ldu-embedded-topic="true"] #main-outlet {
   grid-area: content !important;
+  padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
 }
 
 html[data-ldu-embedded-topic="true"] .container.posts {
@@ -2346,41 +2405,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button > button {
   width: 100% !important;
 }
-
-html[data-ldu-embedded-topic="true"] #main-outlet {
-  padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
-}
-
-.ldu-action-toast {
-  position: fixed;
-  z-index: 10001;
-  left: 50%;
-  bottom: max(24px, env(safe-area-inset-bottom));
-  translate: -50% 0;
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 9px 14px;
-  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
-  border-radius: 8px;
-  background: var(--ldu-surface);
-  color: var(--ldu-text);
-  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
-  font-size: var(--font-down-1, .875rem);
-}
-
-.ldu-action-toast.is-error {
-  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
-  color: var(--ldu-danger);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ldu-icon-button,
-  .ldu-resize-handle::after,
-  .ldu-settings-panel,
-  .ldu-settings-reset,
-  .ldu-settings-action,
-  .ldu-donate-menu a { transition-duration: 0ms !important; }
-  .ldu-preview-spinner { animation-duration: 1.5s; }
-}
 `;
   function ensureAppStyles(doc = document) {
     const existing = doc.getElementById(APP_STYLE_ID);
@@ -2388,6 +2412,15 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
     const style = doc.createElement("style");
     style.id = APP_STYLE_ID;
     style.textContent = APP_STYLES;
+    (doc.head ?? doc.documentElement).append(style);
+    return style;
+  }
+  function ensureEmbeddedStyles(doc = document) {
+    const existing = doc.getElementById(EMBEDDED_STYLE_ID);
+    if (existing instanceof HTMLStyleElement) return existing;
+    const style = doc.createElement("style");
+    style.id = EMBEDDED_STYLE_ID;
+    style.textContent = EMBEDDED_STYLES;
     (doc.head ?? doc.documentElement).append(style);
     return style;
   }
@@ -7276,7 +7309,7 @@ ${tab.url}`;
     if (!frameName.startsWith("ldu-topic:")) return;
     const tabId = frameName.slice("ldu-topic:".length);
     document.documentElement.dataset.lduEmbeddedTopic = "true";
-    ensureAppStyles(document);
+    ensureEmbeddedStyles(document);
     let timer = null;
     let lastUrl = "";
     let lastObservedUrl = location.href;
@@ -7499,7 +7532,7 @@ ${currentCategory.categoryColor}` : "";
   }
   function bootListBridge(frameId) {
     document.documentElement.dataset.lduEmbeddedList = "true";
-    ensureAppStyles(document);
+    ensureEmbeddedStyles(document);
     const DOUBLE_CLICK_DELAY_MS2 = 300;
     let timer = null;
     let clickTimer = null;

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootFrameBridge } from "../src/frame-bridge";
+import { APP_STYLE_ID, EMBEDDED_STYLE_ID } from "../src/ui/styles";
 
 describe("embedded topic preview bridge", () => {
   afterEach(() => {
@@ -9,6 +10,8 @@ describe("embedded topic preview bridge", () => {
     document.documentElement.removeAttribute("data-ldu-embedded-topic");
     document.documentElement.removeAttribute("data-ldu-embedded-list");
     document.body.replaceChildren();
+    document.getElementById(APP_STYLE_ID)?.remove();
+    document.getElementById(EMBEDDED_STYLE_ID)?.remove();
     delete window.__LDU_TEST_MODE__;
   });
 
@@ -250,6 +253,8 @@ describe("embedded topic preview bridge", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
     bootFrameBridge();
+    expect(document.getElementById(EMBEDDED_STYLE_ID)).toBeInstanceOf(HTMLStyleElement);
+    expect(document.getElementById(APP_STYLE_ID)).toBeNull();
     postMessage.mockClear();
 
     const wrapper = document.createElement("a");

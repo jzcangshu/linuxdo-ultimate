@@ -1,4 +1,4 @@
-import { ensureAppStyles } from "./ui/styles";
+import { ensureEmbeddedStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
 import { readTopicCategory, readTopicDocumentCategory } from "./discourse/category";
 
@@ -13,7 +13,7 @@ export function bootFrameBridge(): void {
   if (!frameName.startsWith("ldu-topic:")) return;
   const tabId = frameName.slice("ldu-topic:".length);
   document.documentElement.dataset.lduEmbeddedTopic = "true";
-  ensureAppStyles(document);
+  ensureEmbeddedStyles(document);
 
   let timer: number | null = null;
   let lastUrl = "";
@@ -246,7 +246,7 @@ export function bootFrameBridge(): void {
 
 function bootListBridge(frameId: string): void {
   document.documentElement.dataset.lduEmbeddedList = "true";
-  ensureAppStyles(document);
+  ensureEmbeddedStyles(document);
   const DOUBLE_CLICK_DELAY_MS = 300;
   let timer: number | null = null;
   let clickTimer: number | null = null;

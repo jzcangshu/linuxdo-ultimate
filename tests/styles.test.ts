@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/core/defaults";
-import { APP_STYLES } from "../src/ui/styles";
+import { APP_STYLES, EMBEDDED_STYLES } from "../src/ui/styles";
 
 describe("split reading styles", () => {
   it("allocates the topic and list panes with adaptive proportions", () => {
@@ -11,18 +11,27 @@ describe("split reading styles", () => {
   });
 
   it("keeps a compact Discourse timeline in embedded topic geometry", () => {
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-areas:\s*"content"/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(7\.5rem,\s*16%\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-areas:\s*"posts timeline"/s);
-    expect(APP_STYLES).not.toMatch(/data-ldu-embedded-topic[^}]+\.topic-(?:navigation|timeline)[^}]+display:\s*none/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-x:\s*hidden/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-areas:\s*"content"/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(7\.5rem,\s*16%\)/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-areas:\s*"posts timeline"/s);
+    expect(EMBEDDED_STYLES).not.toMatch(/data-ldu-embedded-topic[^}]+\.topic-(?:navigation|timeline)[^}]+display:\s*none/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-x:\s*hidden/s);
   });
 
   it("stacks timeline footer actions into a compact two-row grid", () => {
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+display:\s*grid/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.show-summary[^}]+grid-column:\s*1\s*\/\s*-1/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+display:\s*grid/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.show-summary[^}]+grid-column:\s*1\s*\/\s*-1/s);
+  });
+
+  it("keeps host and embedded rules in separate style payloads", () => {
+    expect(APP_STYLES).not.toContain("data-ldu-embedded-topic");
+    expect(APP_STYLES).not.toContain("data-ldu-embedded-list");
+    expect(EMBEDDED_STYLES).not.toContain("#ldu-layout-shell");
+    expect(EMBEDDED_STYLES).not.toContain(".ldu-settings-panel");
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.d-header[^}]+display:\s*none\s*!important/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-list[^}]+\.d-header[^}]+display:\s*none\s*!important/s);
   });
 
   it("uses the forum body size for topic tabs", () => {
@@ -56,7 +65,7 @@ describe("split reading styles", () => {
 
   it("keeps Discourse infinite loading on the independent list-frame scroll root", () => {
     expect(APP_STYLES).toMatch(/body\.ldu-layout-active\s*\{[^}]+overflow-y:\s*hidden\s*!important/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-y:\s*auto\s*!important/s);
+    expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-y:\s*auto\s*!important/s);
     expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+height:\s*100%/s);
     expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+max-height:\s*none\s*!important/s);
     expect(APP_STYLES).toMatch(/#ldu-layout-shell\s*\{[^}]+position:\s*fixed/s);

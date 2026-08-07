@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootFrameBridge } from "../src/frame-bridge";
+import { APP_STYLE_ID, EMBEDDED_STYLE_ID } from "../src/ui/styles";
 
 describe("embedded list bridge", () => {
   afterEach(async () => {
     document.documentElement.removeAttribute("data-ldu-embedded-list");
     document.body.replaceChildren();
+    document.getElementById(APP_STYLE_ID)?.remove();
+    document.getElementById(EMBEDDED_STYLE_ID)?.remove();
     delete window.__LDU_TEST_MODE__;
     await Promise.resolve();
     vi.runOnlyPendingTimers();
@@ -21,6 +24,8 @@ describe("embedded list bridge", () => {
     window.history.replaceState(null, "", "/latest");
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
     bootFrameBridge();
+    expect(document.getElementById(EMBEDDED_STYLE_ID)).toBeInstanceOf(HTMLStyleElement);
+    expect(document.getElementById(APP_STYLE_ID)).toBeNull();
     postMessage.mockClear();
     const link = document.createElement("a");
     link.href = "/t/another/2";

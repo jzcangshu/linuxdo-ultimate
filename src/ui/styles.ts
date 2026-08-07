@@ -1,4 +1,5 @@
 export const APP_STYLE_ID = "linuxdo-ultimate-styles";
+export const EMBEDDED_STYLE_ID = "linuxdo-ultimate-embedded-styles";
 
 export const APP_STYLES = `
 :root {
@@ -764,12 +765,56 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-credit-tooltip[hidden] { display: none; }
 
-html[data-ldu-embedded-topic="true"] #d-sidebar,
-html[data-ldu-embedded-topic="true"] .sidebar-wrapper,
-html[data-ldu-embedded-topic="true"] .d-header {
-  display: none !important;
+.ldu-action-toast {
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
+  border-radius: 8px;
+  background: var(--ldu-surface);
+  color: var(--ldu-text);
+  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
+  font-size: var(--font-down-1, .875rem);
 }
 
+.ldu-action-toast.is-error {
+  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
+  color: var(--ldu-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ldu-icon-button,
+  .ldu-resize-handle::after,
+  .ldu-settings-panel,
+  .ldu-settings-reset,
+  .ldu-settings-action,
+  .ldu-donate-menu a { transition-duration: 0ms !important; }
+  .ldu-preview-spinner { animation-duration: 1.5s; }
+}
+`;
+
+export const EMBEDDED_STYLES = `
+:root {
+  --ldu-sidebar-width: 216px;
+  --ldu-topic-track: 0.65fr;
+  --ldu-list-track: 0.35fr;
+  --ldu-header-height: 52px;
+  --ldu-border: var(--primary-low, #d9d9d9);
+  --ldu-surface: var(--secondary, #fff);
+  --ldu-surface-muted: var(--primary-very-low, #f5f5f5);
+  --ldu-text: var(--primary, #222);
+  --ldu-accent: var(--tertiary, #0088cc);
+  --ldu-danger: var(--danger, #d04437);
+  --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+html[data-ldu-embedded-topic="true"] #d-sidebar,
+html[data-ldu-embedded-topic="true"] .sidebar-wrapper,
+html[data-ldu-embedded-topic="true"] .d-header,
 html[data-ldu-embedded-list="true"] #d-sidebar,
 html[data-ldu-embedded-list="true"] .sidebar-wrapper,
 html[data-ldu-embedded-list="true"] .d-header {
@@ -825,6 +870,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet-wrapper {
 
 html[data-ldu-embedded-topic="true"] #main-outlet {
   grid-area: content !important;
+  padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
 }
 
 html[data-ldu-embedded-topic="true"] .container.posts {
@@ -865,41 +911,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button > button {
   width: 100% !important;
 }
-
-html[data-ldu-embedded-topic="true"] #main-outlet {
-  padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
-}
-
-.ldu-action-toast {
-  position: fixed;
-  z-index: 10001;
-  left: 50%;
-  bottom: max(24px, env(safe-area-inset-bottom));
-  translate: -50% 0;
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 9px 14px;
-  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
-  border-radius: 8px;
-  background: var(--ldu-surface);
-  color: var(--ldu-text);
-  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
-  font-size: var(--font-down-1, .875rem);
-}
-
-.ldu-action-toast.is-error {
-  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
-  color: var(--ldu-danger);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ldu-icon-button,
-  .ldu-resize-handle::after,
-  .ldu-settings-panel,
-  .ldu-settings-reset,
-  .ldu-settings-action,
-  .ldu-donate-menu a { transition-duration: 0ms !important; }
-  .ldu-preview-spinner { animation-duration: 1.5s; }
-}
 `;
 
 export function ensureAppStyles(doc: Document = document): HTMLStyleElement {
@@ -908,6 +919,16 @@ export function ensureAppStyles(doc: Document = document): HTMLStyleElement {
   const style = doc.createElement("style");
   style.id = APP_STYLE_ID;
   style.textContent = APP_STYLES;
+  (doc.head ?? doc.documentElement).append(style);
+  return style;
+}
+
+export function ensureEmbeddedStyles(doc: Document = document): HTMLStyleElement {
+  const existing = doc.getElementById(EMBEDDED_STYLE_ID);
+  if (existing instanceof HTMLStyleElement) return existing;
+  const style = doc.createElement("style");
+  style.id = EMBEDDED_STYLE_ID;
+  style.textContent = EMBEDDED_STYLES;
   (doc.head ?? doc.documentElement).append(style);
   return style;
 }

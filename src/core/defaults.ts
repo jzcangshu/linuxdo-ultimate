@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxLiveFrames: 3,
   maxOpenTabs: 50,
   paneSizes: { sidebar: 216, listRatio: 0.35 },
+  dualPaneSizes: { sidebar: 216, listRatio: 0.35 },
 };
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
@@ -32,6 +33,9 @@ export function normalizeSettings(value: unknown): Settings {
   const paneSizes = source.paneSizes && typeof source.paneSizes === "object"
     ? source.paneSizes as Partial<Settings["paneSizes"]> & { list?: unknown }
     : {};
+  const dualPaneSizes = source.dualPaneSizes && typeof source.dualPaneSizes === "object"
+    ? source.dualPaneSizes as Partial<Settings["dualPaneSizes"]>
+    : {};
   return {
     ...DEFAULT_SETTINGS,
     enabled: true,
@@ -48,6 +52,10 @@ export function normalizeSettings(value: unknown): Settings {
     paneSizes: {
       sidebar: clampSetting(paneSizes.sidebar, 160, 360, DEFAULT_SETTINGS.paneSizes.sidebar),
       listRatio: clampRatio(paneSizes.listRatio, DEFAULT_SETTINGS.paneSizes.listRatio),
+    },
+    dualPaneSizes: {
+      sidebar: clampSetting(dualPaneSizes.sidebar, 160, 360, DEFAULT_SETTINGS.dualPaneSizes.sidebar),
+      listRatio: clampRatio(dualPaneSizes.listRatio, DEFAULT_SETTINGS.dualPaneSizes.listRatio),
     },
   };
 }

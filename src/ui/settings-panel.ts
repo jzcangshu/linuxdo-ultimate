@@ -213,7 +213,7 @@ export class SettingsPanel {
 
   private readControl(control: HTMLElement): void {
     const key = control.dataset.setting as keyof Settings | undefined;
-    if (!key || key === "schemaVersion" || key === "paneSizes") return;
+    if (!key || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
     let value: Settings[keyof Settings];
     if (control instanceof HTMLInputElement && control.type === "checkbox") value = control.checked;
     else if (control instanceof HTMLInputElement && control.type === "range") value = Number(control.value);
@@ -230,7 +230,7 @@ export class SettingsPanel {
     const group = button.closest<HTMLElement>("[data-pills-setting]");
     const key = group?.dataset.pillsSetting as keyof Settings | undefined;
     const value = button.dataset.val;
-    if (!key || !value || key === "schemaVersion" || key === "paneSizes") return;
+    if (!key || !value || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
     this.settings = { ...this.settings, [key]: value } as Settings;
     this.syncPills(key, value);
     this.callbacks.onChange({ [key]: value });

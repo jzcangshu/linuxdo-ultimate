@@ -56,7 +56,8 @@ pnpm build
 - `restoreSession`：是否在新的浏览器标签页中恢复最近一次阅读会话，默认关闭；不影响当前标签页刷新恢复。
 - `colorizeTabs`：是否按帖子分类为标签添加半透明背景色，默认开启；关闭只影响显示，不清除已缓存的分类信息。
 - `layoutPreference`：自动、详情页在右或详情页在中间。
-- `paneSizes`：侧栏宽度和列表所占比例。
+- `paneSizes`：单阅读区的侧栏宽度和列表所占比例。
+- `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
 - `maxLiveFrames`：同时保留的活动内嵌页面数量，上限 10。

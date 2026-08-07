@@ -30,7 +30,7 @@ export class TopicTabStore {
     return this.session.tabs.find((tab) => tab.id === this.session.secondaryActiveTabId) ?? null;
   }
 
-  setSessionFields(fields: Partial<Pick<SessionState, "layoutMode" | "paneSizes" | "listUrl" | "listScrollY">>, now: number, notify = true): void {
+  setSessionFields(fields: Partial<Pick<SessionState, "layoutMode" | "paneSizes" | "dualPaneSizes" | "listUrl" | "listScrollY">>, now: number, notify = true): void {
     this.session = { ...this.session, ...fields, updatedAt: now };
     if (notify) this.emit();
   }

@@ -20,6 +20,7 @@ export interface Settings {
   maxLiveFrames: number;
   maxOpenTabs: number;
   paneSizes: PaneSizes;
+  dualPaneSizes: PaneSizes;
 }
 
 export interface TopicTabState {
@@ -42,6 +43,7 @@ export interface SessionState {
   listScrollY: number;
   layoutMode: LayoutMode;
   paneSizes: PaneSizes;
+  dualPaneSizes: PaneSizes;
   tabs: TopicTabState[];
   activeTabId: string | null;
   secondaryTabIds: string[];

@@ -47,4 +47,34 @@ describe("stable split shell", () => {
     expect(document.body.classList.contains("ldu-secondary-open")).toBe(false);
     expect(controller.getSecondaryPanelElement()?.hidden).toBe(true);
   });
+
+  it("remembers independent pane ratios for single and dual reading layouts", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
+    document.body.innerHTML = '<div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"></main></div>';
+    const changes: Array<{ ratio: number; layout: "single" | "dual" }> = [];
+    const controller = new LayoutController({
+      preference: "two",
+      paneSizes: { sidebar: 216, listRatio: 0.35 },
+      dualPaneSizes: { sidebar: 216, listRatio: 0.45 },
+      hidePosters: true,
+      onPaneSizesChange: (sizes, layout) => changes.push({ ratio: sizes.listRatio, layout }),
+    });
+    controller.setOpen(true);
+    controller.mount();
+    const handle = controller.getPanelElement()!.querySelector<HTMLElement>(".ldu-resize-before")!;
+
+    handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(document.documentElement.style.getPropertyValue("--ldu-list-track")).toBe("0.37fr");
+    controller.setSecondaryOpen(true);
+    expect(document.documentElement.style.getPropertyValue("--ldu-list-track")).toBe("0.45fr");
+    handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    expect(document.documentElement.style.getPropertyValue("--ldu-list-track")).toBe("0.43fr");
+
+    controller.setSecondaryOpen(false);
+    expect(document.documentElement.style.getPropertyValue("--ldu-list-track")).toBe("0.37fr");
+    expect(changes).toEqual([
+      { ratio: 0.37, layout: "single" },
+      { ratio: 0.43, layout: "dual" },
+    ]);
+  });
 });

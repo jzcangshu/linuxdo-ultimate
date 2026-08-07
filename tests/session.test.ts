@@ -26,6 +26,7 @@ describe("session state", () => {
     const restored = normalizeSession(legacy, fallback);
     expect(restored.tabs).toHaveLength(1);
     expect(restored.paneSizes).toEqual({ sidebar: 216, listRatio: 0.35 });
+    expect(restored.dualPaneSizes).toEqual({ sidebar: 216, listRatio: 0.35 });
     expect(restored.secondaryTabIds).toEqual([]);
     expect(restored.secondaryActiveTabId).toBeNull();
   });

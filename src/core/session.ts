@@ -4,12 +4,12 @@ import { normalizeCategoryColor } from "../discourse/category";
 
 const MAX_TABS = 50;
 
-function normalizePaneSizes(value: unknown): PaneSizes {
-  if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS.paneSizes };
+function normalizePaneSizes(value: unknown, fallback: PaneSizes): PaneSizes {
+  if (!value || typeof value !== "object") return { ...fallback };
   const candidate = value as Partial<PaneSizes> & { list?: unknown };
   return {
-    sidebar: clampNumber(candidate.sidebar, 160, 360, DEFAULT_SETTINGS.paneSizes.sidebar),
-    listRatio: clampRatio(candidate.listRatio, DEFAULT_SETTINGS.paneSizes.listRatio),
+    sidebar: clampNumber(candidate.sidebar, 160, 360, fallback.sidebar),
+    listRatio: clampRatio(candidate.listRatio, fallback.listRatio),
   };
 }
 
@@ -54,6 +54,7 @@ export function createSession(sessionId: string, listUrl: string, now: number): 
     listScrollY: 0,
     layoutMode: "native",
     paneSizes: { ...DEFAULT_SETTINGS.paneSizes },
+    dualPaneSizes: { ...DEFAULT_SETTINGS.dualPaneSizes },
     tabs: [],
     activeTabId: null,
     secondaryTabIds: [],
@@ -90,7 +91,8 @@ export function normalizeSession(value: unknown, fallback: SessionState): Sessio
     listUrl: typeof source.listUrl === "string" && source.listUrl ? source.listUrl : fallback.listUrl,
     listScrollY: clampNumber(source.listScrollY, 0, 10_000_000, 0),
     layoutMode: source.layoutMode === "two" || source.layoutMode === "three" ? source.layoutMode : "native",
-    paneSizes: normalizePaneSizes(source.paneSizes),
+    paneSizes: normalizePaneSizes(source.paneSizes, fallback.paneSizes),
+    dualPaneSizes: normalizePaneSizes(source.dualPaneSizes, fallback.dualPaneSizes),
     tabs: uniqueTabs,
     activeTabId,
     secondaryTabIds,

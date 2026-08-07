@@ -25,7 +25,7 @@ import { TopicFramePool, type FrameMessage } from "./tabs/frame-pool";
 import { ListFrameController, type ListFrameMessage } from "./tabs/list-frame";
 import { TopicTabStore } from "./tabs/tab-store";
 import { renderTabStrip } from "./tabs/tab-strip";
-import { LayoutController } from "./ui/layout-controller";
+import { LayoutController, type PaneLayout } from "./ui/layout-controller";
 import { SettingsPanel } from "./ui/settings-panel";
 import { ensureAppStyles } from "./ui/styles";
 import { TabContextMenu } from "./ui/tab-context-menu";
@@ -103,6 +103,7 @@ class LinuxDoApp {
     if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
     const initial = createSession(sessionId, location.href, Date.now());
     initial.paneSizes = { ...this.settings.paneSizes };
+    initial.dualPaneSizes = { ...this.settings.dualPaneSizes };
     const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
     const previousSession = !currentSession
       && classifyRoute(location.href) !== "topic"
@@ -119,8 +120,9 @@ class LinuxDoApp {
     this.layout = new LayoutController({
       preference: this.settings.layoutPreference,
       paneSizes: this.session.paneSizes,
+      dualPaneSizes: this.session.dualPaneSizes,
       hidePosters: this.settings.hidePosters,
-      onPaneSizesChange: (paneSizes) => this.persistPaneSizes(paneSizes),
+      onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout),
     });
     this.mountSettings();
     this.credit = new CreditWidget();
@@ -466,9 +468,12 @@ class LinuxDoApp {
     saveSettings(this.storage, this.settings);
     this.layout.setPreference(this.settings.layoutPreference);
     this.layout.setHidePosters(this.settings.hidePosters);
-    if (patch.paneSizes) {
-      this.layout.setPaneSizes(this.settings.paneSizes);
-      this.tabStore.setSessionFields({ paneSizes: this.settings.paneSizes }, Date.now(), false);
+    if (patch.paneSizes || patch.dualPaneSizes) {
+      this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
+      this.tabStore.setSessionFields({
+        paneSizes: this.settings.paneSizes,
+        dualPaneSizes: this.settings.dualPaneSizes,
+      }, Date.now(), false);
       saveSession(this.storage, this.tabStore.getSession());
     }
     this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
@@ -516,10 +521,15 @@ class LinuxDoApp {
     }
   }
 
-  private persistPaneSizes(paneSizes: Settings["paneSizes"]): void {
-    this.settings = normalizeSettings({ ...this.settings, paneSizes });
+  private persistPaneSizes(paneSizes: Settings["paneSizes"], layout: PaneLayout): void {
+    this.settings = normalizeSettings({
+      ...this.settings,
+      ...(layout === "dual" ? { dualPaneSizes: paneSizes } : { paneSizes }),
+    });
     saveSettings(this.storage, this.settings);
-    this.tabStore.setSessionFields({ paneSizes: this.settings.paneSizes }, Date.now(), false);
+    this.tabStore.setSessionFields(layout === "dual"
+      ? { dualPaneSizes: this.settings.dualPaneSizes }
+      : { paneSizes: this.settings.paneSizes }, Date.now(), false);
     saveSession(this.storage, this.tabStore.getSession());
     this.settingsPanel?.setSettings(this.settings);
   }

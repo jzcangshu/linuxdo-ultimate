@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.8
+// @version      0.2.9
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -32,7 +32,8 @@
     previewClickMode: "double",
     maxLiveFrames: 3,
     maxOpenTabs: 50,
-    paneSizes: { sidebar: 216, listRatio: 0.35 }
+    paneSizes: { sidebar: 216, listRatio: 0.35 },
+    dualPaneSizes: { sidebar: 216, listRatio: 0.35 }
   };
   var SESSION_SCHEMA_VERSION = 1;
   var SETTINGS_KEY = "linuxdo-ultimate:settings";
@@ -47,6 +48,7 @@
     const source = value;
     const isCurrentSchema = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
     const paneSizes = source.paneSizes && typeof source.paneSizes === "object" ? source.paneSizes : {};
+    const dualPaneSizes = source.dualPaneSizes && typeof source.dualPaneSizes === "object" ? source.dualPaneSizes : {};
     return {
       ...DEFAULT_SETTINGS,
       enabled: true,
@@ -63,6 +65,10 @@
       paneSizes: {
         sidebar: clampSetting(paneSizes.sidebar, 160, 360, DEFAULT_SETTINGS.paneSizes.sidebar),
         listRatio: clampRatio(paneSizes.listRatio, DEFAULT_SETTINGS.paneSizes.listRatio)
+      },
+      dualPaneSizes: {
+        sidebar: clampSetting(dualPaneSizes.sidebar, 160, 360, DEFAULT_SETTINGS.dualPaneSizes.sidebar),
+        listRatio: clampRatio(dualPaneSizes.listRatio, DEFAULT_SETTINGS.dualPaneSizes.listRatio)
       }
     };
   }
@@ -118,12 +124,12 @@
 
   // src/core/session.ts
   var MAX_TABS = 50;
-  function normalizePaneSizes(value) {
-    if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS.paneSizes };
+  function normalizePaneSizes(value, fallback) {
+    if (!value || typeof value !== "object") return { ...fallback };
     const candidate = value;
     return {
-      sidebar: clampNumber(candidate.sidebar, 160, 360, DEFAULT_SETTINGS.paneSizes.sidebar),
-      listRatio: clampRatio2(candidate.listRatio, DEFAULT_SETTINGS.paneSizes.listRatio)
+      sidebar: clampNumber(candidate.sidebar, 160, 360, fallback.sidebar),
+      listRatio: clampRatio2(candidate.listRatio, fallback.listRatio)
     };
   }
   function clampRatio2(value, fallback) {
@@ -156,6 +162,7 @@
       listScrollY: 0,
       layoutMode: "native",
       paneSizes: { ...DEFAULT_SETTINGS.paneSizes },
+      dualPaneSizes: { ...DEFAULT_SETTINGS.dualPaneSizes },
       tabs: [],
       activeTabId: null,
       secondaryTabIds: [],
@@ -181,7 +188,8 @@
       listUrl: typeof source.listUrl === "string" && source.listUrl ? source.listUrl : fallback.listUrl,
       listScrollY: clampNumber(source.listScrollY, 0, 1e7, 0),
       layoutMode: source.layoutMode === "two" || source.layoutMode === "three" ? source.layoutMode : "native",
-      paneSizes: normalizePaneSizes(source.paneSizes),
+      paneSizes: normalizePaneSizes(source.paneSizes, fallback.paneSizes),
+      dualPaneSizes: normalizePaneSizes(source.dualPaneSizes, fallback.dualPaneSizes),
       tabs: uniqueTabs,
       activeTabId,
       secondaryTabIds,
@@ -2452,6 +2460,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.options = options;
       this.preference = options.preference;
       this.paneSizes = { ...options.paneSizes };
+      this.dualPaneSizes = { ...options.dualPaneSizes ?? options.paneSizes };
       this.hidePosters = options.hidePosters;
     }
     shell = null;
@@ -2462,6 +2471,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     listContent = null;
     preference;
     paneSizes;
+    dualPaneSizes;
     hidePosters;
     open = false;
     secondaryOpen = false;
@@ -2513,8 +2523,9 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.preference = preference;
       this.apply();
     }
-    setPaneSizes(paneSizes) {
+    setPaneSizes(paneSizes, dualPaneSizes = this.dualPaneSizes) {
       this.paneSizes = { ...paneSizes };
+      this.dualPaneSizes = { ...dualPaneSizes };
       this.apply();
     }
     getContentElement() {
@@ -2566,10 +2577,11 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       document.body.classList.toggle("ldu-layout-three", mode === "three");
       document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
       document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
-      document.documentElement.style.setProperty("--ldu-sidebar-width", `${this.paneSizes.sidebar}px`);
-      document.documentElement.style.setProperty("--ldu-topic-track", `${1 - this.paneSizes.listRatio}fr`);
-      document.documentElement.style.setProperty("--ldu-topic-split-track", `${(1 - this.paneSizes.listRatio) / 2}fr`);
-      document.documentElement.style.setProperty("--ldu-list-track", `${this.paneSizes.listRatio}fr`);
+      const paneSizes = this.getActivePaneSizes();
+      document.documentElement.style.setProperty("--ldu-sidebar-width", `${paneSizes.sidebar}px`);
+      document.documentElement.style.setProperty("--ldu-topic-track", `${1 - paneSizes.listRatio}fr`);
+      document.documentElement.style.setProperty("--ldu-topic-split-track", `${(1 - paneSizes.listRatio) / 2}fr`);
+      document.documentElement.style.setProperty("--ldu-list-track", `${paneSizes.listRatio}fr`);
       this.updateSeparatorValues();
     }
     createPanel(secondary = false) {
@@ -2615,33 +2627,37 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         event.preventDefault();
         const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
         const mode = this.getMode();
+        const layout = this.secondaryOpen ? "dual" : "single";
+        const paneSizes = this.getActivePaneSizes();
         if (side === "before" && mode === "three" && document.body.classList.contains("has-sidebar-page")) {
-          this.paneSizes.sidebar = event.key === "Home" ? 160 : event.key === "End" ? 360 : Math.min(360, Math.max(160, this.paneSizes.sidebar + direction * 12));
+          paneSizes.sidebar = event.key === "Home" ? 160 : event.key === "End" ? 360 : Math.min(360, Math.max(160, paneSizes.sidebar + direction * 12));
         } else if (side === "after" && mode === "three" || side === "before" && mode === "two") {
           const ratioDirection = mode === "three" ? -direction : direction;
-          this.paneSizes.listRatio = event.key === "Home" ? 0.3 : event.key === "End" ? 0.7 : clampRatio3(this.paneSizes.listRatio + ratioDirection * 0.02);
+          paneSizes.listRatio = event.key === "Home" ? 0.3 : event.key === "End" ? 0.7 : clampRatio3(paneSizes.listRatio + ratioDirection * 0.02);
         } else {
           return;
         }
         this.apply();
-        this.options.onPaneSizesChange?.({ ...this.paneSizes });
+        this.options.onPaneSizesChange?.({ ...paneSizes }, layout);
       });
       handle.addEventListener("pointerdown", (event) => {
         if (!(event instanceof PointerEvent) || event.button !== 0) return;
         const startX = event.clientX;
-        const start = { ...this.paneSizes };
+        const layout = this.secondaryOpen ? "dual" : "single";
+        const paneSizes = this.getActivePaneSizes();
+        const start = { ...paneSizes };
         handle.setPointerCapture(event.pointerId);
         const move = (moveEvent) => {
           const delta = moveEvent.clientX - startX;
           const mode = this.getMode();
           const wrapper = this.panel?.parentElement;
-          const availableWidth = Math.max(1, (wrapper?.clientWidth ?? window.innerWidth) - this.paneSizes.sidebar);
+          const availableWidth = Math.max(1, (wrapper?.clientWidth ?? window.innerWidth) - paneSizes.sidebar);
           if (side === "after" && mode === "three") {
-            this.paneSizes.listRatio = clampRatio3(start.listRatio - delta / availableWidth);
+            paneSizes.listRatio = clampRatio3(start.listRatio - delta / availableWidth);
           } else if (side === "before" && mode === "two") {
-            this.paneSizes.listRatio = clampRatio3(start.listRatio + delta / availableWidth);
+            paneSizes.listRatio = clampRatio3(start.listRatio + delta / availableWidth);
           } else if (side === "before" && mode === "three" && document.body.classList.contains("has-sidebar-page")) {
-            this.paneSizes.sidebar = Math.round(Math.min(360, Math.max(160, start.sidebar + delta)));
+            paneSizes.sidebar = Math.round(Math.min(360, Math.max(160, start.sidebar + delta)));
           }
           this.apply();
         };
@@ -2649,7 +2665,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           handle.removeEventListener("pointermove", move);
           handle.removeEventListener("pointerup", finish);
           handle.removeEventListener("pointercancel", finish);
-          this.options.onPaneSizesChange?.({ ...this.paneSizes });
+          this.options.onPaneSizesChange?.({ ...paneSizes }, layout);
         };
         handle.addEventListener("pointermove", move);
         handle.addEventListener("pointerup", finish);
@@ -2659,6 +2675,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     updateSeparatorValues() {
       if (!this.panel) return;
       const mode = this.getMode();
+      const paneSizes = this.getActivePaneSizes();
       const before = this.panel.querySelector(".ldu-resize-before");
       const after = this.panel.querySelector(".ldu-resize-after");
       const set = (handle, value, min, max) => {
@@ -2668,11 +2685,14 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         handle.setAttribute("aria-valuenow", String(value));
       };
       if (mode === "three" && document.body.classList.contains("has-sidebar-page")) {
-        set(before, this.paneSizes.sidebar, 160, 360);
+        set(before, paneSizes.sidebar, 160, 360);
       } else {
-        set(before, Math.round(this.paneSizes.listRatio * 100), 30, 70);
+        set(before, Math.round(paneSizes.listRatio * 100), 30, 70);
       }
-      set(after, Math.round(this.paneSizes.listRatio * 100), 30, 70);
+      set(after, Math.round(paneSizes.listRatio * 100), 30, 70);
+    }
+    getActivePaneSizes() {
+      return this.secondaryOpen ? this.dualPaneSizes : this.paneSizes;
     }
   };
   function clampRatio3(value) {
@@ -2879,7 +2899,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     readControl(control) {
       const key = control.dataset.setting;
-      if (!key || key === "schemaVersion" || key === "paneSizes") return;
+      if (!key || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
       let value;
       if (control instanceof HTMLInputElement && control.type === "checkbox") value = control.checked;
       else if (control instanceof HTMLInputElement && control.type === "range") value = Number(control.value);
@@ -2895,7 +2915,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const group = button.closest("[data-pills-setting]");
       const key = group?.dataset.pillsSetting;
       const value = button.dataset.val;
-      if (!key || !value || key === "schemaVersion" || key === "paneSizes") return;
+      if (!key || !value || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
       this.settings = { ...this.settings, [key]: value };
       this.syncPills(key, value);
       this.callbacks.onChange({ [key]: value });
@@ -6608,6 +6628,7 @@ ${tab.url}`;
       if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
       const initial = createSession(sessionId, location.href, Date.now());
       initial.paneSizes = { ...this.settings.paneSizes };
+      initial.dualPaneSizes = { ...this.settings.dualPaneSizes };
       const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
       const previousSession = !currentSession && classifyRoute(location.href) !== "topic" && this.settings.restoreSession ? loadLatestSession(this.storage, sessionId, location.href, Date.now()) : null;
       this.session = currentSession ?? previousSession ?? initial;
@@ -6620,8 +6641,9 @@ ${tab.url}`;
       this.layout = new LayoutController({
         preference: this.settings.layoutPreference,
         paneSizes: this.session.paneSizes,
+        dualPaneSizes: this.session.dualPaneSizes,
         hidePosters: this.settings.hidePosters,
-        onPaneSizesChange: (paneSizes) => this.persistPaneSizes(paneSizes)
+        onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout)
       });
       this.mountSettings();
       this.credit = new CreditWidget();
@@ -6944,9 +6966,12 @@ ${tab.url}`;
       saveSettings(this.storage, this.settings);
       this.layout.setPreference(this.settings.layoutPreference);
       this.layout.setHidePosters(this.settings.hidePosters);
-      if (patch.paneSizes) {
-        this.layout.setPaneSizes(this.settings.paneSizes);
-        this.tabStore.setSessionFields({ paneSizes: this.settings.paneSizes }, Date.now(), false);
+      if (patch.paneSizes || patch.dualPaneSizes) {
+        this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
+        this.tabStore.setSessionFields({
+          paneSizes: this.settings.paneSizes,
+          dualPaneSizes: this.settings.dualPaneSizes
+        }, Date.now(), false);
         saveSession(this.storage, this.tabStore.getSession());
       }
       this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
@@ -6991,10 +7016,13 @@ ${tab.url}`;
         }
       }
     }
-    persistPaneSizes(paneSizes) {
-      this.settings = normalizeSettings({ ...this.settings, paneSizes });
+    persistPaneSizes(paneSizes, layout) {
+      this.settings = normalizeSettings({
+        ...this.settings,
+        ...layout === "dual" ? { dualPaneSizes: paneSizes } : { paneSizes }
+      });
       saveSettings(this.storage, this.settings);
-      this.tabStore.setSessionFields({ paneSizes: this.settings.paneSizes }, Date.now(), false);
+      this.tabStore.setSessionFields(layout === "dual" ? { dualPaneSizes: this.settings.dualPaneSizes } : { paneSizes: this.settings.paneSizes }, Date.now(), false);
       saveSession(this.storage, this.tabStore.getSession());
       this.settingsPanel?.setSettings(this.settings);
     }

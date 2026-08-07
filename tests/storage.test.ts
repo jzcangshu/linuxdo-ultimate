@@ -63,8 +63,22 @@ describe("storage", () => {
 
   it("persists a user-dragged pane ratio as a long-term setting", () => {
     const storage = new MemoryStorage();
-    saveSettings(storage, { ...DEFAULT_SETTINGS, paneSizes: { sidebar: 232, listRatio: 0.42 } });
+    saveSettings(storage, {
+      ...DEFAULT_SETTINGS,
+      paneSizes: { sidebar: 232, listRatio: 0.42 },
+      dualPaneSizes: { sidebar: 248, listRatio: 0.48 },
+    });
     expect(loadSettings(storage).paneSizes).toEqual({ sidebar: 232, listRatio: 0.42 });
+    expect(loadSettings(storage).dualPaneSizes).toEqual({ sidebar: 248, listRatio: 0.48 });
+  });
+
+  it("gives legacy settings an independent default dual-reading ratio", () => {
+    const settings = normalizeSettings({
+      schemaVersion: 2,
+      paneSizes: { sidebar: 240, listRatio: 0.52 },
+    });
+    expect(settings.paneSizes.listRatio).toBe(0.52);
+    expect(settings.dualPaneSizes.listRatio).toBe(0.35);
   });
 
   it("allows up to ten live topic pages", () => {

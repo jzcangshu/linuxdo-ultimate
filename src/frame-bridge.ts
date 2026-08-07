@@ -1,6 +1,6 @@
 import { ensureAppStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
-import { readTopicCategory } from "./discourse/category";
+import { readTopicCategory, readTopicDocumentCategory } from "./discourse/category";
 
 const DOUBLE_CLICK_DELAY_MS = 300;
 
@@ -20,7 +20,7 @@ export function bootFrameBridge(): void {
   let lastObservedUrl = location.href;
   let lastObservedTitle = document.title;
   let lastObservedCategoryKey = "";
-  let currentCategory = readTopicCategory(document, window);
+  let currentCategory = readTopicDocumentCategory(document, window);
   let previewEnabled = false;
   let previewClickMode: "double" | "single" = "double";
   let replayingClick = false;
@@ -51,7 +51,8 @@ export function bootFrameBridge(): void {
   new MutationObserver(() => {
     const urlChanged = lastObservedUrl !== location.href;
     if (urlChanged) currentCategory = null;
-    if (!currentCategory) currentCategory = readTopicCategory(document, window);
+    const observedCategory = readTopicDocumentCategory(document, window);
+    if (observedCategory) currentCategory = observedCategory;
     const categoryKey = currentCategory ? `${currentCategory.categoryName}\n${currentCategory.categoryColor}` : "";
     if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
     lastObservedUrl = location.href;
@@ -266,7 +267,8 @@ function bootListBridge(frameId: string): void {
   };
   const sendTopic = (link: HTMLAnchorElement) => {
     const info = getTopicInfo(link.href, location.href);
-    const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+    const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+    const category = row ? readTopicCategory(row, window) : null;
     window.parent.postMessage({
       type: "ldu:list-topic-open", frameId, url: link.href,
       topicId: info?.topicId, postNumber: info?.postNumber,

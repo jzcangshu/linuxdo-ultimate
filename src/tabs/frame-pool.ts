@@ -57,6 +57,29 @@ export class TopicFramePool {
   }
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
+    const record = this.ensureRecord(tab, now);
+    for (const [tabId, current] of this.frames) {
+      const active = tabId === tab.id;
+      current.iframe.setAttribute("aria-hidden", String(!active));
+      current.iframe.tabIndex = active ? 0 : -1;
+    }
+    this.suspendOverflow(tab.id);
+    return record.iframe;
+  }
+
+  prepare(tab: TopicTabState, now: number): HTMLIFrameElement {
+    const activeTabId = [...this.frames.entries()]
+      .find(([, current]) => current.iframe.getAttribute("aria-hidden") === "false")?.[0] ?? "";
+    const record = this.ensureRecord(tab, now);
+    if (tab.id !== activeTabId) {
+      record.iframe.setAttribute("aria-hidden", "true");
+      record.iframe.tabIndex = -1;
+    }
+    this.suspendOverflow(activeTabId);
+    return record.iframe;
+  }
+
+  private ensureRecord(tab: TopicTabState, now: number): FrameRecord {
     let record = this.frames.get(tab.id);
     if (!record) {
       const iframe = document.createElement("iframe");
@@ -100,13 +123,7 @@ export class TopicFramePool {
       }
     }
 
-    for (const [tabId, current] of this.frames) {
-      const active = tabId === tab.id;
-      current.iframe.setAttribute("aria-hidden", String(!active));
-      current.iframe.tabIndex = active ? 0 : -1;
-    }
-    this.suspendOverflow(tab.id);
-    return record.iframe;
+    return record;
   }
 
   handleMessage(event: MessageEvent): void {

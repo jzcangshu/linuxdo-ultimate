@@ -21,6 +21,7 @@ export const SETTINGS_KEY = "linuxdo-ultimate:settings";
 export const SESSION_KEY_PREFIX = "linuxdo-ultimate:session:";
 export const SESSION_ID_KEY = "linuxdo-ultimate:session-id";
 export const SESSION_OWNER_KEY_PREFIX = "linuxdo-ultimate:session-owner:";
+export const SESSION_INDEX_KEY = "linuxdo-ultimate:session-index";
 export const LATEST_SESSION_KEY = "linuxdo-ultimate:latest-session";
 export const LATEST_SESSION_CANDIDATE_KEY = "linuxdo-ultimate:latest-session-candidate";
 

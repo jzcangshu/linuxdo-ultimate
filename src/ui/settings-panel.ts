@@ -1,5 +1,6 @@
 import type { Settings } from "../core/types";
 import { DEFAULT_SETTINGS } from "../core/defaults";
+import { iconSvg, setIcon } from "./icons";
 
 type SettingsPatch = Partial<Omit<Settings, "schemaVersion">>;
 
@@ -22,7 +23,7 @@ export class SettingsPanel {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ldu-icon-button btn-flat no-text";
-    button.textContent = "⚙";
+    setIcon(button, "settings", 20);
     button.title = "布局与功能设置";
     button.setAttribute("aria-label", "布局与功能设置");
     button.setAttribute("aria-controls", "ldu-settings-panel");
@@ -44,7 +45,7 @@ export class SettingsPanel {
       <div class="dc-modal">
         <header class="dc-header">
           <h2 class="ldu-settings-heading">Ultimate Linux Do 设置</h2>
-          <button type="button" class="dc-close-btn ldu-settings-close" title="关闭" aria-label="关闭设置">&times;</button>
+          <button type="button" class="dc-close-btn ldu-settings-close" title="关闭" aria-label="关闭设置">${iconSvg("close", 16)}</button>
         </header>
         <div class="dc-body">
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-layout-heading">
@@ -130,9 +131,9 @@ export class SettingsPanel {
         <footer class="dc-footer ldu-settings-footer">
           <button type="button" class="dc-btn dc-btn-ghost ldu-settings-reset">恢复默认设置</button>
           <div class="dc-footer-right ldu-settings-actions">
-            <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Github</a>
+            <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer">${iconSvg("github", 14)}Github</a>
             <div class="ldu-donate-wrap">
-              <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">LDC 捐赠</button>
+              <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">${iconSvg("gift", 14)}LDC 捐赠</button>
               <div class="dc-dropdown-menu ldu-donate-menu" id="ldu-donate-menu" role="menu" aria-label="选择LDC捐赠额度" hidden>
                 <a class="dc-dropdown-item" role="menuitem" href="https://credit.linux.do/paying/online?token=87d0a248e696e18399f2458fcfec6b3c889059feedfbacb500af59382fe5416d" target="_blank" rel="noopener noreferrer">1 LDC</a>
                 <a class="dc-dropdown-item" role="menuitem" href="https://credit.linux.do/paying/online?token=06325a8a0293c81624c065fd8922f6ed591beac0c95c1ac122463d1b4bf78be8" target="_blank" rel="noopener noreferrer">5 LDC</a>

@@ -9,7 +9,7 @@ describe("preview controller", () => {
     document.body.replaceChildren();
   });
 
-  it("opens a sanitized inert cross-origin preview from a single click", async () => {
+  it("opens a cross-origin preview without iframe permission restrictions", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
       '<html><head><title>Example</title></head><body><form></form><p>Preview body</p></body></html>',
       { status: 200 },
@@ -29,7 +29,7 @@ describe("preview controller", () => {
     await vi.waitFor(() => expect(document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")?.srcdoc).toContain("Preview body"));
 
     const frame = document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")!;
-    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(frame.hasAttribute("sandbox")).toBe(false);
     expect(frame.srcdoc).not.toContain("<script");
     expect(frame.srcdoc).not.toContain("<form");
     expect(document.querySelector(".ldu-preview-title")?.textContent).toBe("Example");
@@ -137,7 +137,7 @@ describe("preview controller", () => {
     controller.close();
   });
 
-  it("uses the final redirected URL and an isolated sandbox for script-driven pages", async () => {
+  it("uses the final redirected URL without restricting script-driven pages", async () => {
     vi.stubGlobal("GM_xmlhttpRequest", vi.fn((options: {
       onload: (response: Record<string, unknown>) => void;
     }) => {
@@ -158,12 +158,11 @@ describe("preview controller", () => {
     await vi.waitFor(() => expect(document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")?.srcdoc)
       .toContain("https://cdn.example.net/application/app.js"));
     const previewFrame = document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")!;
-    expect(previewFrame.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
-    expect(previewFrame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(previewFrame.hasAttribute("sandbox")).toBe(false);
     controller.close();
   });
 
-  it("uses the upstream same-origin sandbox only after explicit opt-in", async () => {
+  it("keeps compatible previews unrestricted after explicit opt-in", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
       '<html><head><script src="/app.js"></script></head><body><main id="app"></main></body></html>',
       { status: 200, headers: { "Content-Type": "text/html" } },
@@ -180,8 +179,8 @@ describe("preview controller", () => {
 
     await vi.waitFor(() => expect(document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")?.srcdoc)
       .toContain('src="/app.js"'));
-    expect(document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")?.getAttribute("sandbox"))
-      .toBe("allow-scripts allow-same-origin allow-forms");
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")?.hasAttribute("sandbox"))
+      .toBe(false);
     const previewFrame = document.querySelector<HTMLIFrameElement>(".ldu-preview-frame")!;
     expect(previewFrame.contentWindow?.name).toBe(previewFrame.name);
     controller.close();

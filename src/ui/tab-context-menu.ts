@@ -1,3 +1,5 @@
+import { createIcon, type IconName } from "./icons";
+
 export interface TabContextMenuCallbacks {
   onMoveToSplit: (tabId: string) => void;
   onOpenBrowserTab: (tabId: string) => void;
@@ -9,17 +11,17 @@ export interface TabContextMenuCallbacks {
 
 type Action = keyof TabContextMenuCallbacks;
 
-const GROUPS: Array<Array<{ action: Action; key: string; label: string; shortcut?: string }>> = [
+const GROUPS: Array<Array<{ action: Action; key: string; label: string; icon: IconName; shortcut?: string }>> = [
   [
-    { action: "onMoveToSplit", key: "split", label: "向新的拆分视图中添加标签页" },
-    { action: "onOpenBrowserTab", key: "browser-tab", label: "在新的浏览器标签页中打开" },
+    { action: "onMoveToSplit", key: "split", label: "向新的拆分视图中添加标签页", icon: "split" },
+    { action: "onOpenBrowserTab", key: "browser-tab", label: "在新的浏览器标签页中打开", icon: "external" },
   ],
   [
-    { action: "onReload", key: "reload", label: "重新加载", shortcut: "Ctrl+R" },
-    { action: "onCopyLink", key: "copy", label: "复制链接" },
+    { action: "onReload", key: "reload", label: "重新加载当前帖子", icon: "refresh" },
+    { action: "onCopyLink", key: "copy", label: "复制链接", icon: "copy" },
   ],
-  [{ action: "onBookmark", key: "bookmark", label: "添加到书签" }],
-  [{ action: "onCloseOthers", key: "close-others", label: "关闭其他标签页" }],
+  [{ action: "onBookmark", key: "bookmark", label: "添加到书签", icon: "bookmark" }],
+  [{ action: "onCloseOthers", key: "close-others", label: "关闭其他标签页", icon: "close-others" }],
 ];
 
 export class TabContextMenu {
@@ -53,6 +55,7 @@ export class TabContextMenu {
         button.dataset.action = item.key;
         button.setAttribute("role", "menuitem");
         if (item.key === "split" && splitDisabled) button.disabled = true;
+        button.append(createIcon(document, item.icon));
         const label = document.createElement("span");
         label.textContent = item.label;
         button.append(label);

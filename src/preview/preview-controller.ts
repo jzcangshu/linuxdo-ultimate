@@ -1,4 +1,5 @@
 import { getTopicInfo } from "../discourse/routes";
+import { setIcon } from "../ui/icons";
 import {
   prepareCompatiblePreviewHtml,
   preparePreviewHtml,
@@ -202,7 +203,7 @@ export class PreviewController {
     const refresh = document.createElement("button");
     refresh.type = "button";
     refresh.className = "ldu-icon-button";
-    refresh.textContent = "↻";
+    setIcon(refresh, "refresh", 18);
     refresh.title = "刷新预览";
     refresh.setAttribute("aria-label", "刷新预览");
     refresh.addEventListener("click", () => void this.reload());
@@ -211,14 +212,14 @@ export class PreviewController {
     external.target = "_blank";
     external.rel = "noopener noreferrer";
     external.className = "ldu-icon-button";
-    external.textContent = "↗";
+    setIcon(external, "external", 18);
     external.title = "在新标签页打开";
     external.setAttribute("aria-label", "在新标签页打开");
     external.addEventListener("click", () => this.close());
     const close = document.createElement("button");
     close.type = "button";
     close.className = "ldu-icon-button";
-    close.textContent = "×";
+    setIcon(close, "close", 18);
     close.title = "关闭预览";
     close.setAttribute("aria-label", "关闭预览");
     close.addEventListener("click", () => this.close());
@@ -244,7 +245,6 @@ export class PreviewController {
       this.armReadyTimeout(container, token);
       return;
     }
-    frame.setAttribute("sandbox", "");
     const compatible = this.isCompatibilityMode();
     const cached = this.getCached(url, compatible);
     if (cached) {
@@ -344,10 +344,6 @@ export class PreviewController {
     prepared: Pick<CacheEntry, "html" | "dynamic" | "title" | "metadata">,
     token: number,
   ): void {
-    const dynamicSandbox = this.options.allowSameOrigin?.() === true
-      ? "allow-scripts allow-same-origin allow-forms"
-      : "allow-scripts allow-forms";
-    frame.setAttribute("sandbox", prepared.dynamic ? dynamicSandbox : "");
     this.setFrameToken(frame, token);
     title.textContent = prepared.title;
     this.currentMetadata = prepared.metadata;

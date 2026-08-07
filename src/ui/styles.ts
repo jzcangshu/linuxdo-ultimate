@@ -283,6 +283,27 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 .ldu-context-item:hover,
 .ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
 .ldu-context-item:disabled { opacity: 0.42; }
+.ldu-context-icon { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: center; color: var(--primary-medium, #5f6368); pointer-events: none; }
+.ldu-context-item:disabled .ldu-context-icon { opacity: .75; }
+.ldu-symbol { display: block; flex: none; pointer-events: none; }
+.ldu-symbol-fill { fill: currentColor; }
+
+.ldu-tab-item[draggable="true"] { cursor: grab; }
+.ldu-tab-item.is-dragging { opacity: .58; }
+.ldu-tab-item.is-drop-before::before,
+.ldu-tab-item.is-drop-after::after {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ldu-accent);
+  content: "";
+  pointer-events: none;
+}
+.ldu-tab-item.is-drop-before::before { left: -3px; }
+.ldu-tab-item.is-drop-after::after { right: -3px; }
 .ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
 .ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 

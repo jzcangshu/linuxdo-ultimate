@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -39,6 +39,7 @@
   var SESSION_KEY_PREFIX = "linuxdo-ultimate:session:";
   var SESSION_ID_KEY = "linuxdo-ultimate:session-id";
   var SESSION_OWNER_KEY_PREFIX = "linuxdo-ultimate:session-owner:";
+  var SESSION_INDEX_KEY = "linuxdo-ultimate:session-index";
   var LATEST_SESSION_KEY = "linuxdo-ultimate:latest-session";
   var LATEST_SESSION_CANDIDATE_KEY = "linuxdo-ultimate:latest-session-candidate";
   function normalizeSettings(value) {
@@ -78,15 +79,42 @@
     const color = value.trim();
     return /^(?:#[\da-f]{3,8}|rgba?\([\d\s.,%+-]+\)|hsla?\([\d\s.,%+-]+\))$/i.test(color) ? color : null;
   }
-  function readTopicCategory(root, view = typeof window === "undefined" ? null : window) {
-    const rootElement = root instanceof Element ? root : null;
-    const wrapper = (rootElement?.matches(".badge-category__wrapper") ? rootElement : null) ?? root.querySelector(".badge-category__wrapper");
-    if (!(wrapper instanceof HTMLElement)) return null;
+  function readWrapperCategory(wrapper, view) {
+    const htmlWrapper = wrapper;
     const categoryName = wrapper.querySelector(".badge-category__name")?.textContent?.trim() ?? "";
     const categoryColor = normalizeCategoryColor(
-      wrapper.style.getPropertyValue("--category-badge-color") || view?.getComputedStyle(wrapper).getPropertyValue("--category-badge-color")
+      htmlWrapper.style?.getPropertyValue("--category-badge-color") || view?.getComputedStyle(htmlWrapper).getPropertyValue("--category-badge-color")
     );
     return categoryName && categoryColor ? { categoryName, categoryColor } : null;
+  }
+  function readTopicCategory(root, view = typeof window === "undefined" ? null : window) {
+    const realm = view;
+    const rootElement = realm?.Element && root instanceof realm.Element ? root : null;
+    const wrappers = rootElement?.matches(".badge-category__wrapper") ? [rootElement] : [...root.querySelectorAll(".badge-category__wrapper")];
+    for (let index = wrappers.length - 1; index >= 0; index -= 1) {
+      const category = readWrapperCategory(wrappers[index], view);
+      if (category) return category;
+    }
+    return null;
+  }
+  function readTopicDocumentCategory(document2, view = document2.defaultView) {
+    let pendingName = "";
+    let result = null;
+    const metadata = document2.querySelectorAll(
+      'meta[property="og:article:section"], meta[property="og:article:section:color"]'
+    );
+    for (const meta of metadata) {
+      if (meta.getAttribute("property") === "og:article:section") {
+        pendingName = meta.content.trim();
+        continue;
+      }
+      const rawColor = meta.content.trim();
+      const categoryColor = normalizeCategoryColor(/^[\da-f]{3,8}$/i.test(rawColor) ? `#${rawColor}` : rawColor);
+      if (pendingName && categoryColor) result = { categoryName: pendingName, categoryColor };
+      pendingName = "";
+    }
+    const topicCategory = document2.querySelector(".topic-category");
+    return result ?? (topicCategory ? readTopicCategory(topicCategory, view) : null);
   }
 
   // src/core/session.ts
@@ -214,10 +242,14 @@
     }
   }
   var UserscriptStorage = class {
+    backend = typeof GM_getValue === "function" && typeof GM_setValue === "function" && typeof GM_deleteValue === "function" ? "userscript" : "local";
     get(key, fallback) {
-      try {
-        if (typeof GM_getValue === "function") return GM_getValue(key, fallback);
-      } catch {
+      if (this.backend === "userscript") {
+        try {
+          return GM_getValue(key, fallback);
+        } catch {
+          return fallback;
+        }
       }
       try {
         return safeJsonParse(window.localStorage.getItem(key), fallback);
@@ -226,12 +258,12 @@
       }
     }
     set(key, value) {
-      try {
-        if (typeof GM_setValue === "function") {
+      if (this.backend === "userscript") {
+        try {
           GM_setValue(key, value);
-          return;
+        } catch {
         }
-      } catch {
+        return;
       }
       try {
         window.localStorage.setItem(key, JSON.stringify(value));
@@ -239,12 +271,12 @@
       }
     }
     remove(key) {
-      try {
-        if (typeof GM_deleteValue === "function") {
+      if (this.backend === "userscript") {
+        try {
           GM_deleteValue(key);
-          return;
+        } catch {
         }
-      } catch {
+        return;
       }
       try {
         window.localStorage.removeItem(key);
@@ -272,6 +304,39 @@
     }
   }
   var SESSION_OWNER_TTL_MS = 5 * 6e4;
+  var SESSION_RETENTION_MS = 30 * 24 * 60 * 6e4;
+  var MAX_RESTORABLE_SESSIONS = 8;
+  function readRestorableSessions(storage) {
+    const candidate = storage.get(LATEST_SESSION_CANDIDATE_KEY, null);
+    if (Array.isArray(candidate)) {
+      return candidate.filter((entry) => Boolean(
+        entry && typeof entry === "object" && typeof entry.closedAt === "number" && entry.session && typeof entry.session.sessionId === "string"
+      ));
+    }
+    const legacy = [candidate, storage.get(LATEST_SESSION_KEY, null)].filter((value) => Boolean(
+      value && typeof value === "object" && typeof value.sessionId === "string"
+    ));
+    return legacy.map((session) => ({ session, closedAt: session.updatedAt || 0 }));
+  }
+  function writeRestorableSessions(storage, entries) {
+    storage.set(LATEST_SESSION_CANDIDATE_KEY, entries);
+    storage.remove(LATEST_SESSION_KEY);
+  }
+  function readSessionIndex(storage) {
+    const value = storage.get(SESSION_INDEX_KEY, []);
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry) => Boolean(
+      entry && typeof entry === "object" && typeof entry.sessionId === "string" && typeof entry.updatedAt === "number"
+    ));
+  }
+  function writeSessionIndex(storage, entries) {
+    storage.set(SESSION_INDEX_KEY, entries);
+  }
+  function touchSessionIndex(storage, sessionId, updatedAt) {
+    const entries = readSessionIndex(storage).filter((entry) => entry.sessionId !== sessionId);
+    entries.push({ sessionId, updatedAt });
+    writeSessionIndex(storage, entries);
+  }
   function claimSessionId(storage, tabStorage = window.sessionStorage, now = Date.now(), reuseExistingSession = false) {
     let sessionId = getSessionId(tabStorage);
     const existing = storage.get(`${SESSION_OWNER_KEY_PREFIX}${sessionId}`, null);
@@ -290,6 +355,7 @@
     const owner = storage.get(`${SESSION_OWNER_KEY_PREFIX}${lease.sessionId}`, null);
     if (owner?.ownerId === lease.ownerId) {
       storage.set(`${SESSION_OWNER_KEY_PREFIX}${lease.sessionId}`, { ...owner, updatedAt: now });
+      touchSessionIndex(storage, lease.sessionId, now);
     }
   }
   function releaseSessionLease(storage, lease) {
@@ -311,33 +377,49 @@
     return normalizeSession(stored, createSession(sessionId, listUrl, now));
   }
   function loadLatestSession(storage, sessionId, listUrl, now) {
-    const candidate = storage.get(LATEST_SESSION_CANDIDATE_KEY, null);
-    const confirmed = storage.get(LATEST_SESSION_KEY, null);
-    const stored = candidate ?? confirmed;
-    if (stored === null || stored === void 0) return null;
-    const normalized = normalizeSession(stored, createSession(sessionId, listUrl, now));
+    const entry = readRestorableSessions(storage).filter((candidate) => candidate.session.sessionId !== sessionId).sort((a, b) => a.closedAt - b.closedAt).at(-1);
+    if (!entry) return null;
+    const normalized = normalizeSession(entry.session, createSession(sessionId, listUrl, now));
+    if (normalized.sessionId !== sessionId) clearSession(storage, normalized.sessionId);
     clearRestorableSessions(storage);
     if (normalized.tabs.length === 0) return null;
     return { ...normalized, sessionId };
   }
   function saveSession(storage, session) {
     storage.set(`${SESSION_KEY_PREFIX}${session.sessionId}`, session);
+    touchSessionIndex(storage, session.sessionId, session.updatedAt);
   }
-  function stageSessionClose(storage, session) {
+  function stageSessionClose(storage, session, closedAt = Date.now()) {
     if (session.tabs.length === 0) return;
-    const previous = storage.get(LATEST_SESSION_CANDIDATE_KEY, null);
-    if (previous && previous.sessionId !== session.sessionId && previous.tabs?.length) {
-      storage.set(LATEST_SESSION_KEY, previous);
-    }
-    storage.set(LATEST_SESSION_CANDIDATE_KEY, session);
+    const entries = readRestorableSessions(storage).filter((entry) => entry.session.sessionId !== session.sessionId);
+    entries.push({ session, closedAt });
+    writeRestorableSessions(storage, entries.sort((a, b) => a.closedAt - b.closedAt).slice(-MAX_RESTORABLE_SESSIONS));
   }
   function reconcileSessionClose(storage, sessionId) {
-    const candidate = storage.get(LATEST_SESSION_CANDIDATE_KEY, null);
-    if (candidate?.sessionId === sessionId) storage.remove(LATEST_SESSION_CANDIDATE_KEY);
+    const restorable = readRestorableSessions(storage).filter((entry) => entry.session.sessionId !== sessionId);
+    if (restorable.length > 0) writeRestorableSessions(storage, restorable);
+    else clearRestorableSessions(storage);
+  }
+  function cleanupExpiredSessions(storage, now = Date.now()) {
+    const retained = [];
+    for (const entry of readSessionIndex(storage)) {
+      if (now - entry.updatedAt >= SESSION_RETENTION_MS) {
+        storage.remove(`${SESSION_KEY_PREFIX}${entry.sessionId}`);
+        storage.remove(`${SESSION_OWNER_KEY_PREFIX}${entry.sessionId}`);
+      } else {
+        retained.push(entry);
+      }
+    }
+    writeSessionIndex(storage, retained);
   }
   function clearRestorableSessions(storage) {
     storage.remove(LATEST_SESSION_CANDIDATE_KEY);
     storage.remove(LATEST_SESSION_KEY);
+  }
+  function clearSession(storage, sessionId) {
+    storage.remove(`${SESSION_KEY_PREFIX}${sessionId}`);
+    storage.remove(`${SESSION_OWNER_KEY_PREFIX}${sessionId}`);
+    writeSessionIndex(storage, readSessionIndex(storage).filter((entry) => entry.sessionId !== sessionId));
   }
 
   // src/discourse/routes.ts
@@ -405,6 +487,7 @@
   var DONE_TTL_MS = 8 * 60 * 60 * 1e3;
   var FETCH_TIMEOUT_MS = 8e3;
   var TRACKING_SESSION_KEY = `${PREFIX}session-id`;
+  var LOCK_INDEX_KEY = `${PREFIX}lock-index`;
   var ViewTracker = class {
     constructor(options) {
       this.options = options;
@@ -415,10 +498,13 @@
     fetcher;
     now;
     timeoutMs;
+    memoryLocks = /* @__PURE__ */ new Map();
     async track(info, source, referrerUrl, force = false) {
       if (info.url.origin !== "https://linux.do") return { status: "skipped" };
       const token = this.claim(info, source, force);
       if (!token) return { status: "skipped" };
+      this.options.beforeClaimConfirmation?.();
+      if (!this.owns(info, token)) return { status: "skipped" };
       const attempts = [];
       try {
         const pageview = await this.sendPageview(info, referrerUrl);
@@ -451,34 +537,93 @@
       return `${PREFIX}${info.url.hostname}:${info.topicId}`;
     }
     readState(info) {
+      const key = this.stateKey(info);
       try {
-        return JSON.parse(this.options.storage.getItem(this.stateKey(info)) ?? "null");
+        const stored = JSON.parse(this.options.storage.getItem(key) ?? "null");
+        return stored ?? this.memoryLocks.get(key) ?? null;
       } catch {
-        return null;
+        return this.memoryLocks.get(key) ?? null;
       }
     }
     claim(info, source, force) {
+      this.cleanupExpiredLocks();
       const existing = this.readState(info);
       if (!force && existing?.expiresAt && existing.expiresAt > this.now()) return null;
       const token = globalThis.crypto?.randomUUID?.() ?? `${this.now()}-${Math.random().toString(36).slice(2)}`;
-      this.options.storage.setItem(this.stateKey(info), JSON.stringify({
+      this.writeState(this.stateKey(info), {
         status: "pending",
         token,
         source,
         expiresAt: this.now() + PENDING_TTL_MS
-      }));
-      return token;
+      });
+      return this.owns(info, token) ? token : null;
     }
     complete(info, token, source, status) {
-      this.options.storage.setItem(this.stateKey(info), JSON.stringify({
+      this.writeState(this.stateKey(info), {
         status,
         token,
         source,
         expiresAt: this.now() + DONE_TTL_MS
-      }));
+      });
     }
     clearIfOwned(info, token) {
-      if (this.readState(info)?.token === token) this.options.storage.removeItem(this.stateKey(info));
+      if (this.readState(info)?.token === token) this.removeState(this.stateKey(info));
+    }
+    owns(info, token) {
+      return this.readState(info)?.token === token;
+    }
+    writeState(key, state) {
+      this.memoryLocks.set(key, state);
+      try {
+        this.options.storage.setItem(key, JSON.stringify(state));
+        const entries = this.readLockIndex().filter((entry) => entry.key !== key);
+        entries.push({ key, expiresAt: state.expiresAt });
+        this.options.storage.setItem(LOCK_INDEX_KEY, JSON.stringify(entries));
+      } catch {
+      }
+    }
+    removeState(key) {
+      this.memoryLocks.delete(key);
+      try {
+        this.options.storage.removeItem(key);
+        this.options.storage.setItem(
+          LOCK_INDEX_KEY,
+          JSON.stringify(this.readLockIndex().filter((entry) => entry.key !== key))
+        );
+      } catch {
+      }
+    }
+    readLockIndex() {
+      try {
+        const value = JSON.parse(this.options.storage.getItem(LOCK_INDEX_KEY) ?? "[]");
+        if (!Array.isArray(value)) return [];
+        return value.filter((entry) => Boolean(
+          entry && typeof entry === "object" && typeof entry.key === "string" && typeof entry.expiresAt === "number"
+        ));
+      } catch {
+        return [];
+      }
+    }
+    cleanupExpiredLocks() {
+      const now = this.now();
+      for (const [key, state] of this.memoryLocks) {
+        if (state.expiresAt <= now) this.memoryLocks.delete(key);
+      }
+      const entries = this.readLockIndex();
+      const retained = entries.filter((entry) => {
+        if (entry.expiresAt > now) return true;
+        try {
+          this.options.storage.removeItem(entry.key);
+        } catch {
+        }
+        return false;
+      });
+      if (retained.length !== entries.length) {
+        try {
+          this.options.storage.setItem(LOCK_INDEX_KEY, JSON.stringify(retained));
+        } catch {
+        }
+      }
     }
     commonHeaders() {
       const headers = {
@@ -596,6 +741,26 @@
       for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
     }
     activate(tab, now) {
+      const record = this.ensureRecord(tab, now);
+      for (const [tabId, current] of this.frames) {
+        const active = tabId === tab.id;
+        current.iframe.setAttribute("aria-hidden", String(!active));
+        current.iframe.tabIndex = active ? 0 : -1;
+      }
+      this.suspendOverflow(tab.id);
+      return record.iframe;
+    }
+    prepare(tab, now) {
+      const activeTabId = [...this.frames.entries()].find(([, current]) => current.iframe.getAttribute("aria-hidden") === "false")?.[0] ?? "";
+      const record = this.ensureRecord(tab, now);
+      if (tab.id !== activeTabId) {
+        record.iframe.setAttribute("aria-hidden", "true");
+        record.iframe.tabIndex = -1;
+      }
+      this.suspendOverflow(activeTabId);
+      return record.iframe;
+    }
+    ensureRecord(tab, now) {
       let record = this.frames.get(tab.id);
       if (!record) {
         const iframe = document.createElement("iframe");
@@ -638,13 +803,7 @@
           record.iframe.src = requestedUrl;
         }
       }
-      for (const [tabId, current] of this.frames) {
-        const active = tabId === tab.id;
-        current.iframe.setAttribute("aria-hidden", String(!active));
-        current.iframe.tabIndex = active ? 0 : -1;
-      }
-      this.suspendOverflow(tab.id);
-      return record.iframe;
+      return record;
     }
     handleMessage(event) {
       const data = event.data;
@@ -1033,6 +1192,30 @@
       this.emit();
       return removeIds;
     }
+    reorderInPane(tabId, targetTabId, position, now) {
+      if (tabId === targetTabId) return false;
+      const secondary = this.session.secondaryTabIds.includes(tabId);
+      if (secondary !== this.session.secondaryTabIds.includes(targetTabId)) return false;
+      const paneIds = (secondary ? this.getSecondaryTabs() : this.getPrimaryTabs()).map((tab) => tab.id);
+      const original = [...paneIds];
+      const sourceIndex = paneIds.indexOf(tabId);
+      if (sourceIndex < 0 || !paneIds.includes(targetTabId)) return false;
+      paneIds.splice(sourceIndex, 1);
+      const targetIndex = paneIds.indexOf(targetTabId);
+      paneIds.splice(targetIndex + (position === "after" ? 1 : 0), 0, tabId);
+      if (paneIds.every((id, index) => id === original[index])) return false;
+      const paneSet = new Set(paneIds);
+      const byId = new Map(this.session.tabs.map((tab) => [tab.id, tab]));
+      let nextPaneIndex = 0;
+      this.session = {
+        ...this.session,
+        tabs: this.session.tabs.map((tab) => paneSet.has(tab.id) ? byId.get(paneIds[nextPaneIndex++]) : tab),
+        secondaryTabIds: secondary ? paneIds : this.session.secondaryTabIds,
+        updatedAt: now
+      };
+      this.emit();
+      return true;
+    }
     update(tabId, patch, now, notify = true) {
       this.session = {
         ...this.session,
@@ -1044,9 +1227,9 @@
     suspend(tabId, now) {
       this.update(tabId, { suspended: true }, now);
     }
-    close(tabId, now) {
+    close(tabId, now, notify = true) {
       this.session = closeTopicTab(this.session, tabId, now);
-      this.emit();
+      if (notify) this.emit();
     }
     clear(now) {
       if (this.session.tabs.length === 0) return;
@@ -1070,6 +1253,40 @@
     }
   };
 
+  // src/ui/icons.ts
+  var ICON_CONTENT = {
+    settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.95 4.6 1.7 1.7 0 0 0 9.98 3.04V3h4v.08A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
+    close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    split: '<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/><path d="M12 9v6m-3-3h6"/>',
+    external: '<path d="M15 4h5v5M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>',
+    refresh: '<path d="M20 6v5h-5"/><path d="M19 11a7 7 0 1 0 1 5"/>',
+    copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    bookmark: '<path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
+    "bookmark-filled": '<path class="ldu-symbol-fill" d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
+    "close-others": '<rect x="3" y="5" width="13" height="12" rx="2"/><path d="M8 3h10a3 3 0 0 1 3 3v8"/><path d="m18 16 4 4m0-4-4 4"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    maximize: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+    restore: '<path d="M9 9H4V4M15 9h5V4M9 15H4v5M15 15h5v5"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/>',
+    "thumbs-up": '<path d="M7 10v11M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/>',
+    "thumbs-down": '<path d="M17 14V3M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-7A2 2 0 0 1 6.5 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z"/>',
+    github: '<path d="M15 22v-3.9c.04-1-.35-1.76-.8-2.2 2.6-.3 5.3-1.27 5.3-5.75A4.5 4.5 0 0 0 18.3 7c.12-.3.52-1.53-.12-3.18 0 0-.98-.31-3.2 1.2a11.1 11.1 0 0 0-5.83 0c-2.22-1.51-3.2-1.2-3.2-1.2C5.3 5.47 5.7 6.7 5.82 7a4.5 4.5 0 0 0-1.2 3.15c0 4.47 2.72 5.46 5.32 5.75-.34.3-.64.82-.75 1.59-.67.3-2.37.82-3.42-.98 0 0-.62-1.13-1.8-1.21M9 19c-2.25 1-2.5-1-3.5-1.5"/>',
+    gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v9h14v-9M7.5 8C6.1 8 5 7 5 5.7S6.1 3.5 7.5 3.5C9.6 3.5 12 8 12 8s2.4-4.5 4.5-4.5C17.9 3.5 19 4.4 19 5.7S17.9 8 16.5 8"/>'
+  };
+  function iconSvg(name, size = 20) {
+    return `<svg class="ldu-symbol ldu-symbol-${name}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICON_CONTENT[name]}</svg>`;
+  }
+  function setIcon(element, name, size = 20) {
+    element.innerHTML = iconSvg(name, size);
+  }
+  function createIcon(doc, name, size = 18) {
+    const icon = doc.createElement("span");
+    icon.className = "ldu-context-icon";
+    icon.innerHTML = iconSvg(name, size);
+    return icon;
+  }
+
   // src/tabs/tab-strip.ts
   function resolveTabCategoryColor(title, root = document) {
     const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
@@ -1086,6 +1303,54 @@
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
     root.replaceChildren();
     root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
+    let draggedTabId = null;
+    let dropTarget = null;
+    const clearDragState = () => {
+      root.querySelectorAll(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
+        item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+        item.setAttribute("aria-grabbed", "false");
+      });
+      draggedTabId = null;
+      dropTarget = null;
+    };
+    root.ondragstart = (event) => {
+      if (!callbacks.onReorder || !(event.target instanceof Element) || event.target.closest(".ldu-tab-close")) {
+        event.preventDefault();
+        return;
+      }
+      const item = event.target.closest(".ldu-tab-item[data-tab-id]");
+      if (!item?.dataset.tabId) return;
+      draggedTabId = item.dataset.tabId;
+      item.classList.add("is-dragging");
+      item.setAttribute("aria-grabbed", "true");
+      event.dataTransfer?.setData("text/plain", draggedTabId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    };
+    root.ondragover = (event) => {
+      if (!draggedTabId || !(event.target instanceof Element)) return;
+      const item = event.target.closest(".ldu-tab-item[data-tab-id]");
+      const targetTabId = item?.dataset.tabId;
+      if (!item || !targetTabId || targetTabId === draggedTabId) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      const rect = item.getBoundingClientRect();
+      const position = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+      if (dropTarget?.tabId === targetTabId && dropTarget.position === position) return;
+      root.querySelectorAll(".is-drop-before, .is-drop-after").forEach((target) => {
+        target.classList.remove("is-drop-before", "is-drop-after");
+      });
+      item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
+      dropTarget = { tabId: targetTabId, position };
+    };
+    root.ondrop = (event) => {
+      if (!draggedTabId || !dropTarget) return;
+      event.preventDefault();
+      const sourceTabId = draggedTabId;
+      const target = dropTarget;
+      clearDragState();
+      callbacks.onReorder?.(sourceTabId, target.tabId, target.position);
+    };
+    root.ondragend = clearDragState;
     const focusTab = (index) => {
       const buttons = root.querySelectorAll(".ldu-tab-button");
       buttons[Math.min(buttons.length - 1, Math.max(0, index))]?.focus();
@@ -1094,7 +1359,9 @@
       const item = document.createElement("div");
       item.className = "ldu-tab-item";
       item.dataset.tabId = tab.id;
+      item.draggable = Boolean(callbacks.onReorder);
       item.setAttribute("role", "presentation");
+      item.setAttribute("aria-grabbed", "false");
       item.classList.toggle("is-active", tab.id === activeTabId);
       item.title = `${tab.title}
 ${tab.url}`;
@@ -1134,7 +1401,8 @@ ${tab.url}`;
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ldu-tab-close";
-      close.textContent = "\xD7";
+      close.draggable = false;
+      setIcon(close, "close", 16);
       close.title = "\u5173\u95ED\u5E16\u5B50\u6807\u7B7E";
       close.setAttribute("aria-label", `\u5173\u95ED ${button.textContent}`);
       close.addEventListener("click", (event) => {
@@ -1431,6 +1699,27 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 .ldu-context-item:hover,
 .ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
 .ldu-context-item:disabled { opacity: 0.42; }
+.ldu-context-icon { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: center; color: var(--primary-medium, #5f6368); pointer-events: none; }
+.ldu-context-item:disabled .ldu-context-icon { opacity: .75; }
+.ldu-symbol { display: block; flex: none; pointer-events: none; }
+.ldu-symbol-fill { fill: currentColor; }
+
+.ldu-tab-item[draggable="true"] { cursor: grab; }
+.ldu-tab-item.is-dragging { opacity: .58; }
+.ldu-tab-item.is-drop-before::before,
+.ldu-tab-item.is-drop-after::after {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ldu-accent);
+  content: "";
+  pointer-events: none;
+}
+.ldu-tab-item.is-drop-before::before { left: -3px; }
+.ldu-tab-item.is-drop-after::after { right: -3px; }
 .ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
 .ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 
@@ -2283,7 +2572,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "ldu-icon-button btn-flat no-text";
-      button.textContent = "\u2699";
+      setIcon(button, "settings", 20);
       button.title = "\u5E03\u5C40\u4E0E\u529F\u80FD\u8BBE\u7F6E";
       button.setAttribute("aria-label", "\u5E03\u5C40\u4E0E\u529F\u80FD\u8BBE\u7F6E");
       button.setAttribute("aria-controls", "ldu-settings-panel");
@@ -2304,7 +2593,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       <div class="dc-modal">
         <header class="dc-header">
           <h2 class="ldu-settings-heading">Ultimate Linux Do \u8BBE\u7F6E</h2>
-          <button type="button" class="dc-close-btn ldu-settings-close" title="\u5173\u95ED" aria-label="\u5173\u95ED\u8BBE\u7F6E">&times;</button>
+          <button type="button" class="dc-close-btn ldu-settings-close" title="\u5173\u95ED" aria-label="\u5173\u95ED\u8BBE\u7F6E">${iconSvg("close", 16)}</button>
         </header>
         <div class="dc-body">
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-layout-heading">
@@ -2390,9 +2679,9 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
         <footer class="dc-footer ldu-settings-footer">
           <button type="button" class="dc-btn dc-btn-ghost ldu-settings-reset">\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E</button>
           <div class="dc-footer-right ldu-settings-actions">
-            <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Github</a>
+            <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer">${iconSvg("github", 14)}Github</a>
             <div class="ldu-donate-wrap">
-              <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">LDC \u6350\u8D60</button>
+              <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">${iconSvg("gift", 14)}LDC \u6350\u8D60</button>
               <div class="dc-dropdown-menu ldu-donate-menu" id="ldu-donate-menu" role="menu" aria-label="\u9009\u62E9LDC\u6350\u8D60\u989D\u5EA6" hidden>
                 <a class="dc-dropdown-item" role="menuitem" href="https://credit.linux.do/paying/online?token=87d0a248e696e18399f2458fcfec6b3c889059feedfbacb500af59382fe5416d" target="_blank" rel="noopener noreferrer">1 LDC</a>
                 <a class="dc-dropdown-item" role="menuitem" href="https://credit.linux.do/paying/online?token=06325a8a0293c81624c065fd8922f6ed591beac0c95c1ac122463d1b4bf78be8" target="_blank" rel="noopener noreferrer">5 LDC</a>
@@ -2521,15 +2810,15 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
   // src/ui/tab-context-menu.ts
   var GROUPS = [
     [
-      { action: "onMoveToSplit", key: "split", label: "\u5411\u65B0\u7684\u62C6\u5206\u89C6\u56FE\u4E2D\u6DFB\u52A0\u6807\u7B7E\u9875" },
-      { action: "onOpenBrowserTab", key: "browser-tab", label: "\u5728\u65B0\u7684\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u4E2D\u6253\u5F00" }
+      { action: "onMoveToSplit", key: "split", label: "\u5411\u65B0\u7684\u62C6\u5206\u89C6\u56FE\u4E2D\u6DFB\u52A0\u6807\u7B7E\u9875", icon: "split" },
+      { action: "onOpenBrowserTab", key: "browser-tab", label: "\u5728\u65B0\u7684\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u4E2D\u6253\u5F00", icon: "external" }
     ],
     [
-      { action: "onReload", key: "reload", label: "\u91CD\u65B0\u52A0\u8F7D", shortcut: "Ctrl+R" },
-      { action: "onCopyLink", key: "copy", label: "\u590D\u5236\u94FE\u63A5" }
+      { action: "onReload", key: "reload", label: "\u91CD\u65B0\u52A0\u8F7D\u5F53\u524D\u5E16\u5B50", icon: "refresh" },
+      { action: "onCopyLink", key: "copy", label: "\u590D\u5236\u94FE\u63A5", icon: "copy" }
     ],
-    [{ action: "onBookmark", key: "bookmark", label: "\u6DFB\u52A0\u5230\u4E66\u7B7E" }],
-    [{ action: "onCloseOthers", key: "close-others", label: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E\u9875" }]
+    [{ action: "onBookmark", key: "bookmark", label: "\u6DFB\u52A0\u5230\u4E66\u7B7E", icon: "bookmark" }],
+    [{ action: "onCloseOthers", key: "close-others", label: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E\u9875", icon: "close-others" }]
   ];
   var TabContextMenu = class {
     constructor(callbacks) {
@@ -2562,6 +2851,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
           button.dataset.action = item.key;
           button.setAttribute("role", "menuitem");
           if (item.key === "split" && splitDisabled) button.disabled = true;
+          button.append(createIcon(document, item.icon));
           const label = document.createElement("span");
           label.textContent = item.label;
           button.append(label);
@@ -2724,15 +3014,18 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
         scheduleContentReadyCheck();
       }, { once: true });
     }
-    const ICON_EXTERNAL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    const ICON_BOOKMARK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_BOOKMARK_FILLED = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_LIST = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
-    const ICON_CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-    const ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_RESTORE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_THUMBS_UP = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
-    const ICON_THUMBS_DOWN = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
+    const ICON_EXTERNAL = iconSvg("external", 16);
+    const ICON_BOOKMARK = iconSvg("bookmark", 16);
+    const ICON_BOOKMARK_FILLED = iconSvg("bookmark-filled", 16);
+    const ICON_LIST = iconSvg("list", 16);
+    const ICON_CHECK = iconSvg("check", 16);
+    const ICON_MAXIMIZE = iconSvg("maximize", 16);
+    const ICON_RESTORE = iconSvg("restore", 16);
+    const ICON_REFRESH = iconSvg("refresh", 16);
+    const ICON_CLOSE = iconSvg("close", 16);
+    const ICON_TRASH = iconSvg("trash", 16);
+    const ICON_THUMBS_UP = iconSvg("thumbs-up", 16);
+    const ICON_THUMBS_DOWN = iconSvg("thumbs-down", 16);
     const LINUX_DO_COMPACT_CSS = `
         /* \u9876\u680F\u4FDD\u7559\u539F\u641C\u7D22\u7EC4\u4EF6\uFF0C\u5E76\u5C06\u5176\u56FA\u5B9A\u5230\u9876\u90E8\u680F\u6B63\u4E2D\u592E\u3002 */
         #main-outlet > .welcome-banner {
@@ -2984,6 +3277,8 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
     let linuxTopicEnhancementInstalled = false;
     let isPreviewMaximized = loadPreviewMaximizedState();
     const cacheMap = /* @__PURE__ */ new Map();
+    let cacheCleanupTimer = null;
+    let cacheCleanupDeadline = 0;
     let lastEventTime = 0;
     const THROTTLE_LIMIT = 50;
     function loadBookmarks() {
@@ -4074,7 +4369,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       img.alt = "";
       const closeBtn = document.createElement("button");
       closeBtn.className = "agy-viewer-close";
-      closeBtn.innerHTML = "\u2715";
+      closeBtn.innerHTML = ICON_CLOSE;
       closeBtn.title = "\u5173\u95ED\u56FE\u7247 (Esc)";
       const tip = document.createElement("div");
       tip.className = "agy-viewer-tip";
@@ -4197,7 +4492,7 @@ ${b.url}`;
         titleSpan.textContent = b.title || b.url;
         const delBtn = document.createElement("button");
         delBtn.className = "agy-bm-item-del";
-        delBtn.innerHTML = "\u2715";
+        delBtn.innerHTML = ICON_TRASH;
         delBtn.title = "\u5220\u9664\u6B64\u4E66\u7B7E";
         delBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -4255,40 +4550,73 @@ ${b.url}`;
       bookmarkPanel = null;
       if (p.parentNode) p.parentNode.removeChild(p);
     }
-    function setCache(url, entry) {
-      entry.size = (entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0);
-      const now = Date.now();
-      for (const [k, v] of cacheMap) {
-        if (v.status !== "loading" && now - v.time > CACHE_EXPIRE_TIME) {
-          cacheMap.delete(k);
-        }
+    function clearCacheCleanupTimer() {
+      if (cacheCleanupTimer) clearTimeout(cacheCleanupTimer);
+      cacheCleanupTimer = null;
+      cacheCleanupDeadline = 0;
+    }
+    function scheduleCacheCleanup() {
+      let deadline = Infinity;
+      for (const entry of cacheMap.values()) {
+        if (entry.status === "loading") continue;
+        deadline = Math.min(deadline, entry.time + CACHE_EXPIRE_TIME);
       }
-      if (cacheMap.has(url)) cacheMap.delete(url);
-      cacheMap.set(url, entry);
+      if (!Number.isFinite(deadline)) {
+        clearCacheCleanupTimer();
+        return;
+      }
+      if (cacheCleanupTimer && cacheCleanupDeadline === deadline) return;
+      clearCacheCleanupTimer();
+      cacheCleanupDeadline = deadline;
+      cacheCleanupTimer = setTimeout(() => {
+        cacheCleanupTimer = null;
+        cacheCleanupDeadline = 0;
+        const now = Date.now();
+        for (const [url, entry] of cacheMap) {
+          if (entry.status !== "loading" && now - entry.time >= CACHE_EXPIRE_TIME) {
+            cacheMap.delete(url);
+          }
+        }
+        scheduleCacheCleanup();
+      }, Math.max(0, deadline - Date.now()));
+    }
+    function enforceCacheLimits() {
       let totalBytes = 0;
-      for (const v of cacheMap.values()) totalBytes += v.size || 0;
+      for (const entry of cacheMap.values()) totalBytes += entry.size || 0;
       while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
-        const protectedUrls = new Set(previewTabs.map((tab) => tab.url));
-        protectedUrls.add(url);
-        const oldestKey = Array.from(cacheMap.keys()).find((key) => !protectedUrls.has(key));
+        const oldestKey = cacheMap.keys().next().value;
         if (!oldestKey) break;
-        const old = cacheMap.get(oldestKey);
-        totalBytes -= old && old.size || 0;
-        if (old && old.xhr) {
+        const oldest = cacheMap.get(oldestKey);
+        totalBytes -= oldest && oldest.size || 0;
+        if (oldest && oldest.xhr) {
           try {
-            old.xhr.abort();
+            oldest.xhr.abort();
           } catch (e) {
           }
         }
         cacheMap.delete(oldestKey);
       }
     }
+    function setCache(url, entry) {
+      entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
+      const now = Date.now();
+      for (const [k, v] of cacheMap) {
+        if (v.status !== "loading" && now - v.time >= CACHE_EXPIRE_TIME) {
+          cacheMap.delete(k);
+        }
+      }
+      if (cacheMap.has(url)) cacheMap.delete(url);
+      cacheMap.set(url, entry);
+      enforceCacheLimits();
+      scheduleCacheCleanup();
+    }
     function ensurePreparedCacheEntry(url, entry) {
       if (!entry || entry.status !== "done") return null;
       if (!entry.html && typeof entry.rawHtml === "string") {
         entry.html = prepareDynamicHtml(entry.rawHtml, url, TOKEN_PLACEHOLDER);
         entry.rawHtml = null;
-        entry.size = entry.html.length;
+        entry.size = entry.html.length * 2;
+        enforceCacheLimits();
       }
       return entry.html;
     }
@@ -4358,6 +4686,9 @@ ${b.url}`;
             }
             entry.xhr = null;
             entry.time = Date.now();
+            entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
+            enforceCacheLimits();
+            scheduleCacheCleanup();
             const waitingTabs = previewTabs.filter((tab) => isTabLoadCurrent(tab, tab.loadToken, url) && tab.loadState === "waiting-cache");
             waitingTabs.forEach((tab) => {
               if (entry.status === "image") {
@@ -4640,7 +4971,6 @@ ${b.url}`;
       const iframe = document.createElement("iframe");
       iframe.className = "agy-preview-iframe";
       iframe.name = `${PREVIEW_FRAME_PREFIX}${tab.loadToken}`;
-      iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
       pane.appendChild(iframe);
       body.appendChild(pane);
       tab.pane = pane;
@@ -4659,7 +4989,7 @@ ${b.url}`;
       const close = document.createElement("button");
       close.type = "button";
       close.className = "agy-preview-tab-close";
-      close.textContent = "\u2715";
+      close.innerHTML = ICON_CLOSE;
       close.title = "\u5173\u95ED\u6B64\u6807\u7B7E\u9875";
       close.setAttribute("aria-label", "\u5173\u95ED\u6B64\u6807\u7B7E\u9875");
       close.addEventListener("click", (e) => {
@@ -4946,7 +5276,7 @@ ${tab.url}`;
       refreshBtn.className = "agy-preview-btn agy-refresh-btn";
       refreshBtn.title = "\u5237\u65B0\u5F53\u524D\u9884\u89C8";
       refreshBtn.setAttribute("aria-label", refreshBtn.title);
-      refreshBtn.textContent = "\u21BB";
+      refreshBtn.innerHTML = ICON_REFRESH;
       refreshBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -4963,7 +5293,7 @@ ${tab.url}`;
       const closeBtn = document.createElement("button");
       closeBtn.type = "button";
       closeBtn.className = "agy-close-btn";
-      closeBtn.innerHTML = "\u2715";
+      closeBtn.innerHTML = ICON_CLOSE;
       closeBtn.title = "\u5173\u95ED\u9884\u89C8 (Esc)";
       actions.appendChild(listBtn);
       actions.appendChild(bmBtn);
@@ -5392,9 +5722,25 @@ ${tab.url}`;
       const rect = anchorRect || { left: WINDOW_MARGIN, top: WINDOW_MARGIN, bottom: WINDOW_MARGIN };
       showPreviewWindow({ getBoundingClientRect: () => rect }, url);
     }
+    function closeAndClearCache() {
+      destroyPreview();
+      if (preheatTimer) clearTimeout(preheatTimer);
+      preheatTimer = null;
+      preheatLink = null;
+      clearCacheCleanupTimer();
+      cacheMap.forEach((entry) => {
+        if (entry && entry.xhr) {
+          try {
+            entry.xhr.abort();
+          } catch (e) {
+          }
+        }
+      });
+      cacheMap.clear();
+    }
     return {
       openFromFrame,
-      close: destroyPreview,
+      close: closeAndClearCache,
       syncClickMode
     };
   }
@@ -5442,6 +5788,9 @@ ${tab.url}`;
 
   // src/credit/credit-widget.ts
   var REFRESH_INTERVAL_MS = 3e5;
+  var SHARED_CACHE_TTL_MS = 6e4;
+  var SHARED_CACHE_KEY = "linuxdo-ultimate:credit-cache:v1";
+  var SHARED_REQUEST_LOCK = "linuxdo-ultimate:credit-refresh";
   var CreditWidget = class {
     constructor(options = {}) {
       this.options = options;
@@ -5454,13 +5803,17 @@ ${tab.url}`;
     gamificationScore = null;
     username = null;
     tooltipContent = "\u52A0\u8F7D\u4E2D...";
-    intervalId = null;
+    timeoutId = null;
+    inFlight = null;
+    requestGeneration = 0;
+    activeRequestController = null;
     mounted = false;
     enabled = false;
     mount(enabled) {
       if (this.mounted || !(this.options.isTopLevel?.() ?? window.self === window.top)) return;
       this.mounted = true;
       this.createWidget();
+      document.addEventListener("visibilitychange", () => this.handleVisibilityChange());
       this.ensureHost();
       this.setEnabled(enabled);
     }
@@ -5480,17 +5833,19 @@ ${tab.url}`;
       if (this.host) this.host.hidden = !enabled;
       if (this.tooltip) this.tooltip.hidden = true;
       if (!enabled) {
-        if (this.intervalId !== null) window.clearInterval(this.intervalId);
-        this.intervalId = null;
+        this.requestGeneration += 1;
+        this.activeRequestController?.abort();
+        this.activeRequestController = null;
+        this.inFlight = null;
+        this.clearSchedule();
         return;
       }
       this.ensureHost();
       if (this.host?.isConnected) this.startUpdates();
     }
     startUpdates() {
-      if (this.intervalId !== null) return;
-      void this.fetchData();
-      this.intervalId = window.setInterval(() => void this.fetchData(), REFRESH_INTERVAL_MS);
+      if (!this.enabled || !this.isVisible() || this.inFlight || this.timeoutId !== null) return;
+      void this.fetchData(false);
     }
     createWidget() {
       const host = document.createElement("li");
@@ -5531,39 +5886,114 @@ ${tab.url}`;
       button.addEventListener("blur", hideTooltip);
       button.addEventListener("click", () => {
         this.setLoading("\u5237\u65B0\u4E2D...");
-        void this.fetchData();
+        void this.fetchData(true);
       });
       this.host = host;
       this.button = button;
       this.value = value;
       this.tooltip = tooltip;
     }
-    async fetchData() {
-      if (!this.enabled) return;
+    fetchData(force) {
+      if (!this.enabled || !this.isVisible()) return Promise.resolve();
+      if (this.inFlight) return this.inFlight;
+      const generation = ++this.requestGeneration;
+      const startedAt = this.now();
+      const controller = new AbortController();
+      this.activeRequestController = controller;
+      const task = (async () => {
+        try {
+          const cached = !force ? this.readSharedSnapshot() : null;
+          const snapshot = cached ?? await this.fetchSnapshotCoordinated(force, startedAt, controller.signal);
+          if (!this.enabled || generation !== this.requestGeneration) return;
+          this.communityBalance = snapshot.communityBalance;
+          this.gamificationScore = snapshot.gamificationScore;
+          this.username = snapshot.username;
+          if (!cached) this.writeSharedSnapshot(snapshot);
+          this.updateDisplay();
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          console.error("[Linux.do Ultimate] LDC request failed", error);
+          if (this.enabled && generation === this.requestGeneration) this.showError();
+        }
+      })().finally(() => {
+        if (this.activeRequestController === controller) this.activeRequestController = null;
+        if (this.inFlight === task) this.inFlight = null;
+        if (this.enabled && this.isVisible() && generation === this.requestGeneration) this.scheduleNext();
+      });
+      this.inFlight = task;
+      return task;
+    }
+    async fetchSnapshot(signal) {
+      const credit = await this.request("https://credit.linux.do/api/v1/oauth/user-info", signal);
+      const rawBalance = credit?.data?.["community-balance"] ?? credit?.data?.community_balance;
+      const username = credit?.data?.username ?? credit?.data?.nickname;
+      const communityBalance = Number.parseFloat(String(rawBalance));
+      if (!username || !Number.isFinite(communityBalance)) throw new Error("invalid credit response");
+      const data = await this.request(`https://linux.do/u/${encodeURIComponent(username)}.json`, signal);
+      const gamificationScore = Number.parseFloat(String(data?.user?.gamification_score));
+      if (!Number.isFinite(gamificationScore)) throw new Error("invalid gamification response");
+      return { communityBalance, gamificationScore, username, updatedAt: this.now() };
+    }
+    async fetchSnapshotCoordinated(force, startedAt, signal) {
+      const locks = typeof navigator !== "undefined" ? navigator.locks : void 0;
+      if (!locks) return this.fetchSnapshot(signal);
+      return locks.request(SHARED_REQUEST_LOCK, { signal }, async () => {
+        const shared = this.readSharedSnapshot();
+        if (shared && (!force || shared.updatedAt >= startedAt)) return shared;
+        const snapshot = await this.fetchSnapshot(signal);
+        this.writeSharedSnapshot(snapshot);
+        return snapshot;
+      });
+    }
+    scheduleNext() {
+      this.clearSchedule();
+      this.timeoutId = window.setTimeout(() => {
+        this.timeoutId = null;
+        void this.fetchData(false);
+      }, REFRESH_INTERVAL_MS);
+    }
+    clearSchedule() {
+      if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+    handleVisibilityChange() {
+      if (!this.isVisible()) {
+        this.clearSchedule();
+        return;
+      }
+      if (this.enabled) this.startUpdates();
+    }
+    isVisible() {
+      return this.options.isVisible?.() ?? document.visibilityState !== "hidden";
+    }
+    now() {
+      return this.options.now?.() ?? Date.now();
+    }
+    readSharedSnapshot() {
       try {
-        const credit = await this.request("https://credit.linux.do/api/v1/oauth/user-info");
-        if (!credit?.data) return;
-        this.communityBalance = Number.parseFloat(String(
-          credit.data["community-balance"] ?? credit.data.community_balance ?? 0
-        ));
-        this.username = credit.data.username ?? credit.data.nickname ?? null;
-        this.updateDisplay();
-        if (this.username) await this.fetchGamification();
-      } catch (error) {
-        console.error("[Linux.do Ultimate] Credit request failed", error);
-        this.showError();
+        const raw = localStorage.getItem(SHARED_CACHE_KEY);
+        if (raw === null) return null;
+        const value = JSON.parse(raw);
+        if (!value || this.now() - Number(value.updatedAt) >= SHARED_CACHE_TTL_MS || !Number.isFinite(value.communityBalance) || !Number.isFinite(value.gamificationScore) || typeof value.username !== "string") {
+          this.clearSharedSnapshot();
+          return null;
+        }
+        return value;
+      } catch {
+        this.clearSharedSnapshot();
+        return null;
       }
     }
-    async fetchGamification() {
+    clearSharedSnapshot() {
       try {
-        const data = await this.request(
-          `https://linux.do/u/${encodeURIComponent(this.username ?? "")}.json`
-        );
-        if (data?.user?.gamification_score === void 0) return;
-        this.gamificationScore = Number.parseFloat(String(data.user.gamification_score));
-        this.updateDisplay();
-      } catch (error) {
-        console.error("[Linux.do Ultimate] Gamification request failed", error);
+        localStorage.removeItem(SHARED_CACHE_KEY);
+      } catch {
+      }
+    }
+    writeSharedSnapshot(snapshot) {
+      try {
+        localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(snapshot));
+      } catch {
       }
     }
     updateDisplay() {
@@ -5588,7 +6018,7 @@ ${tab.url}`;
       this.button?.classList.add("is-negative");
       this.tooltipContent = "\u8BF7\u6C42\u5931\u8D25\uFF0C\u8BF7\u786E\u8BA4\u5DF2\u767B\u5F55";
     }
-    request(url) {
+    request(url, signal) {
       if (this.options.request) return this.options.request(url);
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
       const headers = {
@@ -5596,19 +6026,39 @@ ${tab.url}`;
         ...csrfToken ? { "x-csrf-token": csrfToken } : {}
       };
       if (url.startsWith(location.origin)) {
-        return fetch(url, { credentials: "include", headers }).then((response) => {
+        return fetch(url, { credentials: "include", headers, signal }).then((response) => {
           if (!response.ok) throw new Error(String(response.status));
           return response.json();
-        }).catch(() => this.requestWithUserscript(url, headers));
+        }).catch((error) => signal.aborted ? Promise.reject(error) : this.requestWithUserscript(url, headers, signal));
       }
-      return this.requestWithUserscript(url, headers);
+      return this.requestWithUserscript(url, headers, signal);
     }
-    requestWithUserscript(url, headers) {
+    requestWithUserscript(url, headers, signal) {
       return new Promise((resolve, reject) => {
         if (typeof GM_xmlhttpRequest !== "function") {
           reject(new Error("GM_xmlhttpRequest is unavailable"));
           return;
         }
+        let settled = false;
+        let handle = null;
+        const finish = (callback) => {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener("abort", abort);
+          callback();
+        };
+        const abort = () => {
+          try {
+            handle?.abort();
+          } catch {
+          }
+          finish(() => reject(new DOMException("Aborted", "AbortError")));
+        };
+        if (signal.aborted) {
+          abort();
+          return;
+        }
+        signal.addEventListener("abort", abort, { once: true });
         const request = {
           method: "GET",
           url,
@@ -5617,25 +6067,27 @@ ${tab.url}`;
           timeout: 1e4,
           onload: (response) => {
             if (response.status !== 200) {
-              reject(new Error(String(response.status)));
+              finish(() => reject(new Error(String(response.status))));
               return;
             }
             try {
-              resolve(JSON.parse(response.responseText));
+              const value = JSON.parse(response.responseText);
+              finish(() => resolve(value));
             } catch (error) {
-              reject(error);
+              finish(() => reject(error));
             }
           },
-          onerror: reject,
-          ontimeout: () => reject(new Error("timeout"))
+          onerror: (error) => finish(() => reject(error)),
+          ontimeout: () => finish(() => reject(new Error("timeout")))
         };
-        GM_xmlhttpRequest(request);
+        handle = GM_xmlhttpRequest(request);
       });
     }
   };
 
   // src/app.ts
   var ROUTE_DEBOUNCE_MS = 100;
+  var SESSION_MAINTENANCE_INTERVAL_MS = 30 * 6e4;
   function startLinuxDoApp() {
     if (window.self !== window.top) return;
     const start = () => new LinuxDoApp().start();
@@ -5670,6 +6122,7 @@ ${tab.url}`;
     hasRestoredSession = false;
     sessionLease;
     leaseTimer = null;
+    sessionMaintenanceTimer = null;
     tabContextMenu;
     start() {
       this.settings = loadSettings(this.storage);
@@ -5695,8 +6148,9 @@ ${tab.url}`;
         isReloadNavigation(window.performance)
       );
       const sessionId = this.sessionLease.sessionId;
-      if (this.settings.restoreSession) reconcileSessionClose(this.storage, sessionId);
-      else clearRestorableSessions(this.storage);
+      reconcileSessionClose(this.storage, sessionId);
+      cleanupExpiredSessions(this.storage);
+      if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
       const initial = createSession(sessionId, location.href, Date.now());
       initial.paneSizes = { ...this.settings.paneSizes };
       const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
@@ -5720,6 +6174,10 @@ ${tab.url}`;
       this.lastRoute = location.href;
       this.bindGlobalEvents();
       this.leaseTimer = window.setInterval(() => refreshSessionLease(this.storage, this.sessionLease), 3e4);
+      this.sessionMaintenanceTimer = window.setInterval(
+        () => cleanupExpiredSessions(this.storage),
+        SESSION_MAINTENANCE_INTERVAL_MS
+      );
       this.syncRoute();
       if (window.__LDU_TEST_MODE__) {
         window.__LDU_TEST_API__ = {
@@ -5768,7 +6226,8 @@ ${tab.url}`;
         if (!info) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+        const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+        const category = row ? readTopicCategory(row) : null;
         this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
         return;
       }
@@ -6144,6 +6603,9 @@ ${tab.url}`;
       }
       const info = message.url ? getTopicInfo(message.url) : null;
       const sameTopic = info?.topicId === tab.topicId;
+      const categoryChanged = Boolean(
+        message.categoryName && message.categoryColor && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor)
+      );
       const patch = {
         ...message.url ? { url: message.url } : {},
         ...message.title ? { title: message.title } : {},
@@ -6152,7 +6614,7 @@ ${tab.url}`;
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       };
-      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
+      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
       if (message.type === "ldu:frame-state") this.schedulePersist();
       if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
         iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
@@ -6175,7 +6637,10 @@ ${tab.url}`;
           if (tab) this.activateFrame(tab, "primary");
         },
         onClose: (tabId) => this.closeTab(tabId, "primary"),
-        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y)
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+        onReorder: (tabId, targetTabId, position) => {
+          this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+        }
       }, { colorizeTabs: this.settings.colorizeTabs });
       const secondaryRoot = this.layout.getSecondaryTabStripElement();
       if (secondaryRoot) {
@@ -6185,7 +6650,10 @@ ${tab.url}`;
             if (tab) this.activateFrame(tab, "secondary");
           },
           onClose: (tabId) => this.closeTab(tabId, "secondary"),
-          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true)
+          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+          onReorder: (tabId, targetTabId, position) => {
+            this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+          }
         }, { colorizeTabs: this.settings.colorizeTabs });
       }
       const actions = this.layout.getActionsElement();
@@ -6193,7 +6661,7 @@ ${tab.url}`;
         const close = document.createElement("button");
         close.type = "button";
         close.className = "ldu-icon-button ldu-close-all";
-        close.textContent = "\xD7";
+        setIcon(close, "close", 18);
         close.title = "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E";
         close.setAttribute("aria-label", "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E");
         close.addEventListener("click", () => {
@@ -6211,7 +6679,7 @@ ${tab.url}`;
         const close = document.createElement("button");
         close.type = "button";
         close.className = "ldu-icon-button ldu-close-secondary";
-        close.textContent = "\xD7";
+        setIcon(close, "close", 18);
         close.title = "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A";
         close.setAttribute("aria-label", "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A\u5E76\u5C06\u6807\u7B7E\u79FB\u56DE\u4E3B\u9605\u8BFB\u533A");
         close.addEventListener("click", () => this.closeSecondaryPanel());
@@ -6228,7 +6696,13 @@ ${tab.url}`;
     }
     closeTab(tabId, pane) {
       (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
-      this.tabStore.close(tabId, Date.now());
+      this.tabStore.close(tabId, Date.now(), false);
+      if (pane === "primary" && this.tabStore.getPrimaryTabs().length === 0 && this.tabStore.getSecondaryTabs().length > 0) {
+        this.closeSecondaryPanel();
+        return;
+      }
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
       if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
     }
     moveTabToSecondary(tabId) {
@@ -6267,12 +6741,11 @@ ${tab.url}`;
     }
     reloadTab(tabId) {
       const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      this.captureLiveFrameState(tabId, secondary ? this.secondaryFrames : this.frames);
-      const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
-      if (!tab) return;
       const pool = secondary ? this.secondaryFrames : this.frames;
-      this.activateFrame(tab, secondary ? "secondary" : "primary");
-      pool?.reload(tabId);
+      const tab = this.captureLiveFrameState(tabId, pool);
+      if (!tab) return;
+      if (pool?.getFrame(tabId)) pool.reload(tabId);
+      else pool?.prepare(tab, Date.now());
     }
     async copyTabLink(tabId) {
       const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
@@ -6293,10 +6766,11 @@ ${tab.url}`;
     }
     bookmarkTab(tabId) {
       const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
       if (!tab) return;
-      this.activateFrame(tab, secondary ? "secondary" : "primary");
-      (secondary ? this.secondaryFrames : this.frames)?.sendCommand(tabId, {
+      const pool = secondary ? this.secondaryFrames : this.frames;
+      pool?.prepare(tab, Date.now());
+      pool?.sendCommand(tabId, {
         type: "ldu:bookmark",
         topicId: tab.topicId
       });
@@ -6369,6 +6843,9 @@ ${tab.url}`;
         stageSessionClose(this.storage, this.tabStore.getSession());
       }
       if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
+      if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+      this.leaseTimer = null;
+      this.sessionMaintenanceTimer = null;
       releaseSessionLease(this.storage, this.sessionLease);
     }
     schedulePersist() {
@@ -6397,7 +6874,7 @@ ${tab.url}`;
     let lastObservedUrl = location.href;
     let lastObservedTitle = document.title;
     let lastObservedCategoryKey = "";
-    let currentCategory = readTopicCategory(document, window);
+    let currentCategory = readTopicDocumentCategory(document, window);
     let previewEnabled = false;
     let previewClickMode = "double";
     let replayingClick = false;
@@ -6427,7 +6904,8 @@ ${tab.url}`;
     new MutationObserver(() => {
       const urlChanged = lastObservedUrl !== location.href;
       if (urlChanged) currentCategory = null;
-      if (!currentCategory) currentCategory = readTopicCategory(document, window);
+      const observedCategory = readTopicDocumentCategory(document, window);
+      if (observedCategory) currentCategory = observedCategory;
       const categoryKey = currentCategory ? `${currentCategory.categoryName}
 ${currentCategory.categoryColor}` : "";
       if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
@@ -6637,7 +7115,8 @@ ${currentCategory.categoryColor}` : "";
     };
     const sendTopic = (link) => {
       const info = getTopicInfo(link.href, location.href);
-      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+      const category = row ? readTopicCategory(row, window) : null;
       window.parent.postMessage({
         type: "ldu:list-topic-open",
         frameId,

@@ -43,4 +43,32 @@ describe("topic tab store", () => {
     expect(store.getActive()).toBeNull();
     expect(changes).toBe(1);
   });
+
+  it("can close without an intermediate render while panes are being reconciled", () => {
+    let changes = 0;
+    const store = new TopicTabStore(createSession("a", "/latest", 1), 50, () => { changes += 1; });
+    store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
+    changes = 0;
+
+    store.close("topic-1", 3, false);
+
+    expect(store.getTabs()).toHaveLength(0);
+    expect(changes).toBe(0);
+  });
+
+  it("reorders tabs inside one reading pane without changing the other pane", () => {
+    const store = new TopicTabStore(createSession("a", "/latest", 1), 50);
+    store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
+    store.open({ topicId: "2", url: "/t/topic/2", title: "Two" }, 3);
+    store.open({ topicId: "3", url: "/t/topic/3", title: "Three" }, 4);
+    store.open({ topicId: "4", url: "/t/topic/4", title: "Four" }, 5);
+    store.moveToSecondary("topic-3", 6);
+    store.moveToSecondary("topic-4", 7);
+
+    expect(store.reorderInPane("topic-2", "topic-1", "before", 8)).toBe(true);
+    expect(store.getPrimaryTabs().map((tab) => tab.id)).toEqual(["topic-2", "topic-1"]);
+    expect(store.getSecondaryTabs().map((tab) => tab.id)).toEqual(["topic-3", "topic-4"]);
+    expect(store.reorderInPane("topic-4", "topic-3", "before", 9)).toBe(true);
+    expect(store.getSecondaryTabs().map((tab) => tab.id)).toEqual(["topic-4", "topic-3"]);
+  });
 });

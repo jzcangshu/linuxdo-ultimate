@@ -191,6 +191,19 @@ describe("topic frame pool", () => {
     expect(new URL(frame.src).pathname).toBe("/t/topic/1/18");
   });
 
+  it("prepares a background frame without changing the active frame", () => {
+    const host = document.createElement("div");
+    const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());
+    const active = pool.activate(tab("1"), 1);
+
+    const background = pool.prepare(tab("2"), 2);
+
+    expect(active.getAttribute("aria-hidden")).toBe("false");
+    expect(active.tabIndex).toBe(0);
+    expect(background.getAttribute("aria-hidden")).toBe("true");
+    expect(background.tabIndex).toBe(-1);
+  });
+
   it("restores the captured scroll position after a transferred frame reloads", () => {
     vi.useFakeTimers();
     const firstHost = document.createElement("div");

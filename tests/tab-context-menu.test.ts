@@ -21,9 +21,9 @@ describe("tab context menu", () => {
       "split", "browser-tab", "reload", "copy", "bookmark", "close-others",
     ]);
     expect(root.querySelectorAll(".ldu-context-separator")).toHaveLength(3);
+    expect(root.querySelectorAll(".ldu-context-item .ldu-symbol")).toHaveLength(6);
     expect(root.textContent).toContain("向新的拆分视图中添加标签页");
     expect(root.textContent).toContain("在新的浏览器标签页中打开");
-    expect(root.textContent).toContain("Ctrl+R");
     root.querySelector<HTMLButtonElement>('[data-action="reload"]')!.click();
     expect(onReload).toHaveBeenCalledWith("topic-1");
     expect(document.querySelector(".ldu-tab-context-menu")).toBeNull();

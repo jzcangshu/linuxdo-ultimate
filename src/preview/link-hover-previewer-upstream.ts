@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { iconSvg } from "../ui/icons";
+
 // Vendored from Link Hover Previewer 4.12.2. Keep upstream behavior intact;
 // project-specific adaptations are marked with LDU ADAPTATION comments.
 // ==UserScript==
@@ -164,16 +166,19 @@ export function installLinkHoverPreviewer(options) {
         }, { once: true });
     }
 
-    // 简约线条图标
-    const ICON_EXTERNAL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    const ICON_BOOKMARK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_BOOKMARK_FILLED = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_LIST = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
-    const ICON_CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-    const ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_RESTORE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_THUMBS_UP = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
-    const ICON_THUMBS_DOWN = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
+    // LDU ADAPTATION: all project controls share one icon family.
+    const ICON_EXTERNAL = iconSvg('external', 16);
+    const ICON_BOOKMARK = iconSvg('bookmark', 16);
+    const ICON_BOOKMARK_FILLED = iconSvg('bookmark-filled', 16);
+    const ICON_LIST = iconSvg('list', 16);
+    const ICON_CHECK = iconSvg('check', 16);
+    const ICON_MAXIMIZE = iconSvg('maximize', 16);
+    const ICON_RESTORE = iconSvg('restore', 16);
+    const ICON_REFRESH = iconSvg('refresh', 16);
+    const ICON_CLOSE = iconSvg('close', 16);
+    const ICON_TRASH = iconSvg('trash', 16);
+    const ICON_THUMBS_UP = iconSvg('thumbs-up', 16);
+    const ICON_THUMBS_DOWN = iconSvg('thumbs-down', 16);
 
     // linux.do 列表紧凑布局：保留原生搜索组件，只调整其位置和周围空间。
     // 通过 CSS 网格重排统计列，避免改写 Discourse 的列表 DOM 与事件模型。
@@ -436,6 +441,8 @@ export function installLinkHoverPreviewer(options) {
     let isPreviewMaximized = loadPreviewMaximizedState();
 
     const cacheMap = new Map(); // 内存缓存 Map (存储跨域获取的 HTML 数据)
+    let cacheCleanupTimer = null;
+    let cacheCleanupDeadline = 0;
 
     let lastEventTime = 0;
     const THROTTLE_LIMIT = 50;  // hover 事件节流锁 (毫秒)
@@ -1590,7 +1597,7 @@ export function installLinkHoverPreviewer(options) {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'agy-viewer-close';
-        closeBtn.innerHTML = '✕';
+        closeBtn.innerHTML = ICON_CLOSE;
         closeBtn.title = '关闭图片 (Esc)';
 
         const tip = document.createElement('div');
@@ -1743,7 +1750,7 @@ export function installLinkHoverPreviewer(options) {
 
             const delBtn = document.createElement('button');
             delBtn.className = 'agy-bm-item-del';
-            delBtn.innerHTML = '✕';
+            delBtn.innerHTML = ICON_TRASH;
             delBtn.title = '删除此书签';
             delBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1818,16 +1825,63 @@ export function installLinkHoverPreviewer(options) {
         if (p.parentNode) p.parentNode.removeChild(p);
     }
 
+    function clearCacheCleanupTimer() {
+        if (cacheCleanupTimer) clearTimeout(cacheCleanupTimer);
+        cacheCleanupTimer = null;
+        cacheCleanupDeadline = 0;
+    }
+
+    function scheduleCacheCleanup() {
+        let deadline = Infinity;
+        for (const entry of cacheMap.values()) {
+            if (entry.status === 'loading') continue;
+            deadline = Math.min(deadline, entry.time + CACHE_EXPIRE_TIME);
+        }
+        if (!Number.isFinite(deadline)) {
+            clearCacheCleanupTimer();
+            return;
+        }
+        if (cacheCleanupTimer && cacheCleanupDeadline === deadline) return;
+        clearCacheCleanupTimer();
+        cacheCleanupDeadline = deadline;
+        cacheCleanupTimer = setTimeout(() => {
+            cacheCleanupTimer = null;
+            cacheCleanupDeadline = 0;
+            const now = Date.now();
+            for (const [url, entry] of cacheMap) {
+                if (entry.status !== 'loading' && now - entry.time >= CACHE_EXPIRE_TIME) {
+                    cacheMap.delete(url);
+                }
+            }
+            scheduleCacheCleanup();
+        }, Math.max(0, deadline - Date.now()));
+    }
+
+    function enforceCacheLimits() {
+        let totalBytes = 0;
+        for (const entry of cacheMap.values()) totalBytes += entry.size || 0;
+        while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
+            const oldestKey = cacheMap.keys().next().value;
+            if (!oldestKey) break;
+            const oldest = cacheMap.get(oldestKey);
+            totalBytes -= (oldest && oldest.size) || 0;
+            if (oldest && oldest.xhr) {
+                try { oldest.xhr.abort(); } catch (e) {}
+            }
+            cacheMap.delete(oldestKey);
+        }
+    }
+
     /**
      * LRU 写缓存：超出上限时淘汰最旧条目并中止其未完成请求
      */
     function setCache(url, entry) {
-        entry.size = (entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0);
+        entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
 
         // 顺手清扫过期条目，长期挂机不留陈旧大字符串
         const now = Date.now();
         for (const [k, v] of cacheMap) {
-            if (v.status !== 'loading' && now - v.time > CACHE_EXPIRE_TIME) {
+            if (v.status !== 'loading' && now - v.time >= CACHE_EXPIRE_TIME) {
                 cacheMap.delete(k);
             }
         }
@@ -1835,21 +1889,8 @@ export function installLinkHoverPreviewer(options) {
         if (cacheMap.has(url)) cacheMap.delete(url);
         cacheMap.set(url, entry);
 
-        let totalBytes = 0;
-        for (const v of cacheMap.values()) totalBytes += v.size || 0;
-
-        while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
-            const protectedUrls = new Set(previewTabs.map(tab => tab.url));
-            protectedUrls.add(url);
-            const oldestKey = Array.from(cacheMap.keys()).find(key => !protectedUrls.has(key));
-            if (!oldestKey) break;
-            const old = cacheMap.get(oldestKey);
-            totalBytes -= (old && old.size) || 0;
-            if (old && old.xhr) {
-                try { old.xhr.abort(); } catch (e) {}
-            }
-            cacheMap.delete(oldestKey);
-        }
+        enforceCacheLimits();
+        scheduleCacheCleanup();
     }
 
     /**
@@ -1860,7 +1901,8 @@ export function installLinkHoverPreviewer(options) {
         if (!entry.html && typeof entry.rawHtml === 'string') {
             entry.html = prepareDynamicHtml(entry.rawHtml, url, TOKEN_PLACEHOLDER);
             entry.rawHtml = null;
-            entry.size = entry.html.length;
+            entry.size = entry.html.length * 2;
+            enforceCacheLimits();
         }
         return entry.html;
     }
@@ -1951,6 +1993,9 @@ export function installLinkHoverPreviewer(options) {
                     }
                     entry.xhr = null;
                     entry.time = Date.now();
+                    entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
+                    enforceCacheLimits();
+                    scheduleCacheCleanup();
                     const waitingTabs = previewTabs.filter(tab => (
                         isTabLoadCurrent(tab, tab.loadToken, url)
                         && tab.loadState === 'waiting-cache'
@@ -2305,7 +2350,6 @@ export function installLinkHoverPreviewer(options) {
         const iframe = document.createElement('iframe');
         iframe.className = 'agy-preview-iframe';
         iframe.name = `${PREVIEW_FRAME_PREFIX}${tab.loadToken}`;
-        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
 
         pane.appendChild(iframe);
         body.appendChild(pane);
@@ -2329,7 +2373,7 @@ export function installLinkHoverPreviewer(options) {
         const close = document.createElement('button');
         close.type = 'button';
         close.className = 'agy-preview-tab-close';
-        close.textContent = '✕';
+        close.innerHTML = ICON_CLOSE;
         close.title = '关闭此标签页';
         close.setAttribute('aria-label', '关闭此标签页');
         close.addEventListener('click', e => {
@@ -2664,7 +2708,7 @@ export function installLinkHoverPreviewer(options) {
         refreshBtn.className = 'agy-preview-btn agy-refresh-btn';
         refreshBtn.title = '刷新当前预览';
         refreshBtn.setAttribute('aria-label', refreshBtn.title);
-        refreshBtn.textContent = '↻';
+        refreshBtn.innerHTML = ICON_REFRESH;
         refreshBtn.addEventListener('click', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -2683,7 +2727,7 @@ export function installLinkHoverPreviewer(options) {
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
         closeBtn.className = 'agy-close-btn';
-        closeBtn.innerHTML = '✕';
+        closeBtn.innerHTML = ICON_CLOSE;
         closeBtn.title = '关闭预览 (Esc)';
 
         actions.appendChild(listBtn);
@@ -3165,9 +3209,23 @@ export function installLinkHoverPreviewer(options) {
         showPreviewWindow({ getBoundingClientRect: () => rect }, url);
     }
 
+    function closeAndClearCache() {
+        destroyPreview();
+        if (preheatTimer) clearTimeout(preheatTimer);
+        preheatTimer = null;
+        preheatLink = null;
+        clearCacheCleanupTimer();
+        cacheMap.forEach(entry => {
+            if (entry && entry.xhr) {
+                try { entry.xhr.abort(); } catch (e) {}
+            }
+        });
+        cacheMap.clear();
+    }
+
     return {
         openFromFrame,
-        close: destroyPreview,
+        close: closeAndClearCache,
         syncClickMode
     };
 }

@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, normalizeSettings } from "./core/defaults";
 import {
   UserscriptStorage,
   clearRestorableSessions,
+  cleanupExpiredSessions,
   claimSessionId,
   isReloadNavigation,
   loadSessionIfPresent,
@@ -28,10 +29,12 @@ import { LayoutController } from "./ui/layout-controller";
 import { SettingsPanel } from "./ui/settings-panel";
 import { ensureAppStyles } from "./ui/styles";
 import { TabContextMenu } from "./ui/tab-context-menu";
+import { setIcon } from "./ui/icons";
 import { PreviewController } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
 
 const ROUTE_DEBOUNCE_MS = 100;
+const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
 
 export function startLinuxDoApp(): void {
   if (window.self !== window.top) return;
@@ -68,6 +71,7 @@ class LinuxDoApp {
   private hasRestoredSession = false;
   private sessionLease!: SessionLease;
   private leaseTimer: number | null = null;
+  private sessionMaintenanceTimer: number | null = null;
   private tabContextMenu!: TabContextMenu;
 
   start(): void {
@@ -94,8 +98,9 @@ class LinuxDoApp {
       isReloadNavigation(window.performance),
     );
     const sessionId = this.sessionLease.sessionId;
-    if (this.settings.restoreSession) reconcileSessionClose(this.storage, sessionId);
-    else clearRestorableSessions(this.storage);
+    reconcileSessionClose(this.storage, sessionId);
+    cleanupExpiredSessions(this.storage);
+    if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
     const initial = createSession(sessionId, location.href, Date.now());
     initial.paneSizes = { ...this.settings.paneSizes };
     const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
@@ -123,6 +128,10 @@ class LinuxDoApp {
     this.lastRoute = location.href;
     this.bindGlobalEvents();
     this.leaseTimer = window.setInterval(() => refreshSessionLease(this.storage, this.sessionLease), 30_000);
+    this.sessionMaintenanceTimer = window.setInterval(
+      () => cleanupExpiredSessions(this.storage),
+      SESSION_MAINTENANCE_INTERVAL_MS,
+    );
     this.syncRoute();
     if (window.__LDU_TEST_MODE__) {
       window.__LDU_TEST_API__ = {
@@ -173,7 +182,8 @@ class LinuxDoApp {
       if (!info) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+      const category = row ? readTopicCategory(row) : null;
       this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined);
       return;
     }
@@ -577,6 +587,10 @@ class LinuxDoApp {
     }
     const info = message.url ? getTopicInfo(message.url) : null;
     const sameTopic = info?.topicId === tab.topicId;
+    const categoryChanged = Boolean(
+      message.categoryName && message.categoryColor
+      && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor),
+    );
     const patch = {
       ...(message.url ? { url: message.url } : {}),
       ...(message.title ? { title: message.title } : {}),
@@ -587,7 +601,7 @@ class LinuxDoApp {
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     };
-    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
+    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
     if (message.type === "ldu:frame-state") this.schedulePersist();
     if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
       iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
@@ -612,6 +626,9 @@ class LinuxDoApp {
       },
       onClose: (tabId) => this.closeTab(tabId, "primary"),
       onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+      onReorder: (tabId, targetTabId, position) => {
+        this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+      },
     }, { colorizeTabs: this.settings.colorizeTabs });
     const secondaryRoot = this.layout.getSecondaryTabStripElement();
     if (secondaryRoot) {
@@ -622,6 +639,9 @@ class LinuxDoApp {
         },
         onClose: (tabId) => this.closeTab(tabId, "secondary"),
         onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+        onReorder: (tabId, targetTabId, position) => {
+          this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+        },
       }, { colorizeTabs: this.settings.colorizeTabs });
     }
     const actions = this.layout.getActionsElement();
@@ -629,7 +649,7 @@ class LinuxDoApp {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ldu-icon-button ldu-close-all";
-      close.textContent = "×";
+      setIcon(close, "close", 18);
       close.title = "关闭所有帖子标签";
       close.setAttribute("aria-label", "关闭所有帖子标签");
       close.addEventListener("click", () => {
@@ -647,7 +667,7 @@ class LinuxDoApp {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ldu-icon-button ldu-close-secondary";
-      close.textContent = "×";
+      setIcon(close, "close", 18);
       close.title = "关闭第二阅读区";
       close.setAttribute("aria-label", "关闭第二阅读区并将标签移回主阅读区");
       close.addEventListener("click", () => this.closeSecondaryPanel());
@@ -665,7 +685,13 @@ class LinuxDoApp {
 
   private closeTab(tabId: string, pane: "primary" | "secondary"): void {
     (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
-    this.tabStore.close(tabId, Date.now());
+    this.tabStore.close(tabId, Date.now(), false);
+    if (pane === "primary" && this.tabStore.getPrimaryTabs().length === 0 && this.tabStore.getSecondaryTabs().length > 0) {
+      this.closeSecondaryPanel();
+      return;
+    }
+    saveSession(this.storage, this.tabStore.getSession());
+    this.renderTabs();
     if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
   }
 
@@ -708,12 +734,11 @@ class LinuxDoApp {
 
   private reloadTab(tabId: string): void {
     const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-    this.captureLiveFrameState(tabId, secondary ? this.secondaryFrames : this.frames);
-    const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
-    if (!tab) return;
     const pool = secondary ? this.secondaryFrames : this.frames;
-    this.activateFrame(tab, secondary ? "secondary" : "primary");
-    pool?.reload(tabId);
+    const tab = this.captureLiveFrameState(tabId, pool);
+    if (!tab) return;
+    if (pool?.getFrame(tabId)) pool.reload(tabId);
+    else pool?.prepare(tab, Date.now());
   }
 
   private async copyTabLink(tabId: string): Promise<void> {
@@ -736,10 +761,11 @@ class LinuxDoApp {
 
   private bookmarkTab(tabId: string): void {
     const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-    const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
     if (!tab) return;
-    this.activateFrame(tab, secondary ? "secondary" : "primary");
-    (secondary ? this.secondaryFrames : this.frames)?.sendCommand(tabId, {
+    const pool = secondary ? this.secondaryFrames : this.frames;
+    pool?.prepare(tab, Date.now());
+    pool?.sendCommand(tabId, {
       type: "ldu:bookmark",
       topicId: tab.topicId,
     });
@@ -818,6 +844,9 @@ class LinuxDoApp {
       stageSessionClose(this.storage, this.tabStore.getSession());
     }
     if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
+    if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+    this.leaseTimer = null;
+    this.sessionMaintenanceTimer = null;
     releaseSessionLease(this.storage, this.sessionLease);
   }
 

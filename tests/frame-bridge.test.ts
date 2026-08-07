@@ -232,13 +232,36 @@ describe("embedded topic preview bridge", () => {
     name.className = "badge-category__name";
     name.textContent = "扬帆起航";
     wrapper.append(name);
-    document.body.append(wrapper);
+    const topicCategory = document.createElement("div");
+    topicCategory.className = "topic-category";
+    topicCategory.append(wrapper);
+    document.body.append(topicCategory);
     await Promise.resolve();
     vi.runAllTimers();
 
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       categoryName: "扬帆起航",
       categoryColor: "#ff9838",
+    }), location.origin);
+  });
+
+  it("ignores category badges outside the topic title area", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    bootFrameBridge();
+    postMessage.mockClear();
+
+    const wrapper = document.createElement("a");
+    wrapper.className = "badge-category__wrapper";
+    wrapper.style.setProperty("--category-badge-color", "#808281");
+    wrapper.innerHTML = '<span class="badge-category__name">运营反馈</span>';
+    document.body.append(wrapper);
+    await Promise.resolve();
+    vi.runAllTimers();
+
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      categoryName: "运营反馈",
     }), location.origin);
   });
 });

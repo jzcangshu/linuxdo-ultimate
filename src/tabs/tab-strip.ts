@@ -1,9 +1,11 @@
 import type { TopicTabState } from "../core/types";
+import { setIcon } from "../ui/icons";
 
 export interface TabStripCallbacks {
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onContextMenu?: (tabId: string, clientX: number, clientY: number) => void;
+  onReorder?: (tabId: string, targetTabId: string, position: "before" | "after") => void;
 }
 
 export interface TabStripOptions {
@@ -41,6 +43,54 @@ export function renderTabStrip(
 ): void {
   root.replaceChildren();
   root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
+  let draggedTabId: string | null = null;
+  let dropTarget: { tabId: string; position: "before" | "after" } | null = null;
+  const clearDragState = () => {
+    root.querySelectorAll<HTMLElement>(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
+      item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+      item.setAttribute("aria-grabbed", "false");
+    });
+    draggedTabId = null;
+    dropTarget = null;
+  };
+  root.ondragstart = (event) => {
+    if (!callbacks.onReorder || !(event.target instanceof Element) || event.target.closest(".ldu-tab-close")) {
+      event.preventDefault();
+      return;
+    }
+    const item = event.target.closest<HTMLElement>(".ldu-tab-item[data-tab-id]");
+    if (!item?.dataset.tabId) return;
+    draggedTabId = item.dataset.tabId;
+    item.classList.add("is-dragging");
+    item.setAttribute("aria-grabbed", "true");
+    event.dataTransfer?.setData("text/plain", draggedTabId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  };
+  root.ondragover = (event) => {
+    if (!draggedTabId || !(event.target instanceof Element)) return;
+    const item = event.target.closest<HTMLElement>(".ldu-tab-item[data-tab-id]");
+    const targetTabId = item?.dataset.tabId;
+    if (!item || !targetTabId || targetTabId === draggedTabId) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    const rect = item.getBoundingClientRect();
+    const position = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    if (dropTarget?.tabId === targetTabId && dropTarget.position === position) return;
+    root.querySelectorAll(".is-drop-before, .is-drop-after").forEach((target) => {
+      target.classList.remove("is-drop-before", "is-drop-after");
+    });
+    item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
+    dropTarget = { tabId: targetTabId, position };
+  };
+  root.ondrop = (event) => {
+    if (!draggedTabId || !dropTarget) return;
+    event.preventDefault();
+    const sourceTabId = draggedTabId;
+    const target = dropTarget;
+    clearDragState();
+    callbacks.onReorder?.(sourceTabId, target.tabId, target.position);
+  };
+  root.ondragend = clearDragState;
   const focusTab = (index: number) => {
     const buttons = root.querySelectorAll<HTMLButtonElement>(".ldu-tab-button");
     buttons[Math.min(buttons.length - 1, Math.max(0, index))]?.focus();
@@ -49,7 +99,9 @@ export function renderTabStrip(
     const item = document.createElement("div");
     item.className = "ldu-tab-item";
     item.dataset.tabId = tab.id;
+    item.draggable = Boolean(callbacks.onReorder);
     item.setAttribute("role", "presentation");
+    item.setAttribute("aria-grabbed", "false");
     item.classList.toggle("is-active", tab.id === activeTabId);
     item.title = `${tab.title}\n${tab.url}`;
     item.addEventListener("contextmenu", (event) => {
@@ -90,7 +142,8 @@ export function renderTabStrip(
     const close = document.createElement("button");
     close.type = "button";
     close.className = "ldu-tab-close";
-    close.textContent = "×";
+    close.draggable = false;
+    setIcon(close, "close", 16);
     close.title = "关闭帖子标签";
     close.setAttribute("aria-label", `关闭 ${button.textContent}`);
     close.addEventListener("click", (event) => {

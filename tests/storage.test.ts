@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, normalizeSettings } from "../src/core/defaults";
 import {
   MemoryStorage,
+  UserscriptStorage,
   claimSessionId,
   clearRestorableSessions,
   clearSession,
+  cleanupExpiredSessions,
   isReloadNavigation,
   loadLatestSession,
   loadSession,
@@ -19,6 +21,8 @@ import {
 import { createSession } from "../src/core/session";
 
 describe("storage", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("normalizes malformed settings without changing defaults", () => {
     const settings = normalizeSettings({ layoutPreference: "invalid", paneSizes: { sidebar: 2 } });
     expect(settings.layoutPreference).toBe("auto");
@@ -78,6 +82,17 @@ describe("storage", () => {
     expect(loadSession(storage, "a", "/", 2)).toEqual(session);
     clearSession(storage, "a");
     expect(loadSession(storage, "a", "/", 2).listUrl).toBe("/");
+  });
+
+  it("uses one storage backend for the adapter lifetime", () => {
+    vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(() => { throw new Error("userscript storage failed"); }));
+    vi.stubGlobal("GM_deleteValue", vi.fn());
+    const storage = new UserscriptStorage();
+
+    storage.set("only-userscript", { value: 1 });
+
+    expect(storage.get("only-userscript", "fallback")).toBe("fallback");
   });
 
   it("restores the current browser-tab session independently of the next-visit preference", () => {
@@ -195,6 +210,25 @@ describe("storage", () => {
     stageSessionClose(storage, session);
     clearRestorableSessions(storage);
     expect(loadLatestSession(storage, "new-window", "https://linux.do/", 3)).toBeNull();
+  });
+
+  it("reclaims abandoned session data after the retention period", () => {
+    const storage = new MemoryStorage();
+    const session = createSession("abandoned-tab", "https://linux.do/latest", 1_000);
+    saveSession(storage, session);
+
+    cleanupExpiredSessions(storage, 31 * 24 * 60 * 60_000);
+
+    expect(loadSessionIfPresent(storage, session.sessionId, "/", 0)).toBeNull();
+  });
+
+  it("removes cleared sessions from the maintenance index", () => {
+    const storage = new MemoryStorage();
+    const session = createSession("cleared-tab", "https://linux.do/latest", 1_000);
+    saveSession(storage, session);
+    clearSession(storage, session.sessionId);
+
+    expect(storage.snapshot()).not.toContain("cleared-tab");
   });
 });
 

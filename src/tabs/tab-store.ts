@@ -137,6 +137,31 @@ export class TopicTabStore {
     return removeIds;
   }
 
+  reorderInPane(tabId: string, targetTabId: string, position: "before" | "after", now: number): boolean {
+    if (tabId === targetTabId) return false;
+    const secondary = this.session.secondaryTabIds.includes(tabId);
+    if (secondary !== this.session.secondaryTabIds.includes(targetTabId)) return false;
+    const paneIds = (secondary ? this.getSecondaryTabs() : this.getPrimaryTabs()).map((tab) => tab.id);
+    const original = [...paneIds];
+    const sourceIndex = paneIds.indexOf(tabId);
+    if (sourceIndex < 0 || !paneIds.includes(targetTabId)) return false;
+    paneIds.splice(sourceIndex, 1);
+    const targetIndex = paneIds.indexOf(targetTabId);
+    paneIds.splice(targetIndex + (position === "after" ? 1 : 0), 0, tabId);
+    if (paneIds.every((id, index) => id === original[index])) return false;
+    const paneSet = new Set(paneIds);
+    const byId = new Map(this.session.tabs.map((tab) => [tab.id, tab]));
+    let nextPaneIndex = 0;
+    this.session = {
+      ...this.session,
+      tabs: this.session.tabs.map((tab) => paneSet.has(tab.id) ? byId.get(paneIds[nextPaneIndex++]!)! : tab),
+      secondaryTabIds: secondary ? paneIds : this.session.secondaryTabIds,
+      updatedAt: now,
+    };
+    this.emit();
+    return true;
+  }
+
   update(tabId: string, patch: TabPatch, now: number, notify = true): void {
     this.session = {
       ...this.session,
@@ -150,9 +175,9 @@ export class TopicTabStore {
     this.update(tabId, { suspended: true }, now);
   }
 
-  close(tabId: string, now: number): void {
+  close(tabId: string, now: number, notify = true): void {
     this.session = closeTopicTab(this.session, tabId, now);
-    this.emit();
+    if (notify) this.emit();
   }
 
   clear(now: number): void {

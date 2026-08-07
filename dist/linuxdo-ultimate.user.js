@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.9
+// @version      0.2.10
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -1045,9 +1045,9 @@
     }
     handleMessage(event) {
       const data = event.data;
-      if (!data || !["ldu:list-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
+      if (!data || !["ldu:list-ready", "ldu:list-visual-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
       if (data.frameId !== this.frameId || !this.iframe || event.source !== this.iframe.contentWindow || event.origin !== location.origin) return;
-      if ((data.type === "ldu:list-ready" || data.type === "ldu:list-state") && data.url) {
+      if ((data.type === "ldu:list-ready" || data.type === "ldu:list-visual-ready" || data.type === "ldu:list-state") && data.url) {
         try {
           this.reportedUrl = new URL(data.url, document.baseURI).href;
         } catch {
@@ -1347,8 +1347,93 @@
     const match = PRIMARY_CATEGORY_COLORS.find(([name]) => category === name || category.startsWith(`${name} /`) || category.startsWith(`${name},`));
     return match?.[1] ?? null;
   }
+  var tabStripStates = /* @__PURE__ */ new WeakMap();
+  function createTabItem(root) {
+    const item = document.createElement("div");
+    item.className = "ldu-tab-item";
+    item.setAttribute("role", "presentation");
+    item.setAttribute("aria-grabbed", "false");
+    item.addEventListener("contextmenu", (event) => {
+      const tabId = item.dataset.tabId;
+      const state = tabStripStates.get(root);
+      if (!tabId || !state) return;
+      event.preventDefault();
+      event.stopPropagation();
+      state.callbacks.onContextMenu?.(tabId, event.clientX, event.clientY);
+    });
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ldu-tab-button";
+    button.setAttribute("role", "tab");
+    button.addEventListener("click", () => {
+      const tabId = item.dataset.tabId;
+      const state = tabStripStates.get(root);
+      if (tabId && state) state.callbacks.onActivate(tabId);
+    });
+    button.addEventListener("keydown", (event) => {
+      const tabId = item.dataset.tabId;
+      const state = tabStripStates.get(root);
+      if (!tabId || !state) return;
+      const index = state.tabs.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return;
+      let next = index;
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        next = (index + (event.key === "ArrowRight" ? 1 : -1) + state.tabs.length) % state.tabs.length;
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        next = event.key === "Home" ? 0 : state.tabs.length - 1;
+      } else if (event.key === "Delete") {
+        event.preventDefault();
+        state.callbacks.onClose(tabId);
+        return;
+      } else {
+        return;
+      }
+      state.callbacks.onActivate(state.tabs[next].id);
+      root.querySelectorAll(".ldu-tab-button")[next]?.focus();
+    });
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "ldu-tab-close";
+    close.draggable = false;
+    setIcon(close, "close", 16);
+    close.title = "\u5173\u95ED\u5E16\u5B50\u6807\u7B7E";
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const tabId = item.dataset.tabId;
+      const state = tabStripStates.get(root);
+      if (tabId && state) state.callbacks.onClose(tabId);
+    });
+    item.append(button, close);
+    return item;
+  }
+  function updateTabItem(item, tab, activeTabId, callbacks, root) {
+    const active = tab.id === activeTabId;
+    const title = tab.title || `\u4E3B\u9898 ${tab.topicId}`;
+    item.dataset.tabId = tab.id;
+    item.draggable = Boolean(callbacks.onReorder);
+    item.classList.toggle("is-active", active);
+    item.title = `${tab.title}
+${tab.url}`;
+    const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
+    if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
+    else item.style.removeProperty("--ldu-tab-category-color");
+    const button = item.querySelector(".ldu-tab-button");
+    button.textContent = title;
+    button.id = `ldu-tab-${tab.id}`;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+    button.setAttribute("aria-label", `\u6253\u5F00 ${title}`);
+    item.querySelector(".ldu-tab-close")?.setAttribute("aria-label", `\u5173\u95ED ${title}`);
+  }
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
-    root.replaceChildren();
+    tabStripStates.set(root, { tabs, callbacks });
+    root.querySelectorAll(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
+      item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+      item.setAttribute("aria-grabbed", "false");
+      item.style.transform = "";
+    });
     root.classList.remove("is-reordering");
     root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
     let draggedTabId = null;
@@ -1452,67 +1537,26 @@
       callbacks.onReorder?.(sourceTabId, target.tabId, target.position);
     };
     root.ondragend = clearDragState;
-    const focusTab = (index) => {
-      const buttons = root.querySelectorAll(".ldu-tab-button");
-      buttons[Math.min(buttons.length - 1, Math.max(0, index))]?.focus();
-    };
-    tabs.forEach((tab, index) => {
-      const item = document.createElement("div");
-      item.className = "ldu-tab-item";
-      item.dataset.tabId = tab.id;
-      item.draggable = Boolean(callbacks.onReorder);
-      item.setAttribute("role", "presentation");
-      item.setAttribute("aria-grabbed", "false");
-      item.classList.toggle("is-active", tab.id === activeTabId);
-      item.title = `${tab.title}
-${tab.url}`;
-      item.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        callbacks.onContextMenu?.(tab.id, event.clientX, event.clientY);
-      });
-      const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
-      if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "ldu-tab-button";
-      button.textContent = tab.title || `\u4E3B\u9898 ${tab.topicId}`;
-      button.id = `ldu-tab-${tab.id}`;
-      button.setAttribute("role", "tab");
-      button.setAttribute("aria-selected", String(tab.id === activeTabId));
-      button.tabIndex = tab.id === activeTabId ? 0 : -1;
-      button.setAttribute("aria-label", `\u6253\u5F00 ${button.textContent}`);
-      button.addEventListener("click", () => callbacks.onActivate(tab.id));
-      button.addEventListener("keydown", (event) => {
-        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-          event.preventDefault();
-          const next = (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-          callbacks.onActivate(tabs[next].id);
-          focusTab(next);
-        } else if (event.key === "Home" || event.key === "End") {
-          event.preventDefault();
-          const next = event.key === "Home" ? 0 : tabs.length - 1;
-          callbacks.onActivate(tabs[next].id);
-          focusTab(next);
-        } else if (event.key === "Delete") {
-          event.preventDefault();
-          callbacks.onClose(tab.id);
-        }
-      });
-      const close = document.createElement("button");
-      close.type = "button";
-      close.className = "ldu-tab-close";
-      close.draggable = false;
-      setIcon(close, "close", 16);
-      close.title = "\u5173\u95ED\u5E16\u5B50\u6807\u7B7E";
-      close.setAttribute("aria-label", `\u5173\u95ED ${button.textContent}`);
-      close.addEventListener("click", (event) => {
-        event.stopPropagation();
-        callbacks.onClose(tab.id);
-      });
-      item.append(button, close);
-      root.append(item);
+    const requestedIds = new Set(tabs.map((tab) => tab.id));
+    const existing = new Map(
+      [...root.querySelectorAll(":scope > .ldu-tab-item[data-tab-id]")].map((item) => [item.dataset.tabId, item])
+    );
+    for (const [tabId, item] of existing) {
+      if (!requestedIds.has(tabId)) {
+        item.remove();
+        existing.delete(tabId);
+      }
+    }
+    const desiredItems = tabs.map((tab) => {
+      const item = existing.get(tab.id) ?? createTabItem(root);
+      updateTabItem(item, tab, activeTabId, callbacks, root);
+      return item;
     });
+    let cursor = root.firstElementChild;
+    for (const item of desiredItems) {
+      if (item !== cursor) root.insertBefore(item, cursor);
+      cursor = item.nextElementSibling;
+    }
   }
 
   // src/ui/styles.ts
@@ -1657,6 +1701,26 @@ body.ldu-layout-active #main-outlet {
   pointer-events: auto;
   background: var(--ldu-surface);
   border-inline: 1px solid var(--ldu-border);
+}
+
+.ldu-list-content.is-native-handoff {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ldu-list-content.is-native-handoff > #main-outlet {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 100% !important;
+  margin: 0 !important;
+  padding-inline: 8px !important;
+  box-sizing: border-box;
+}
+
+.ldu-list-content.is-native-handoff > .ldu-list-frame {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .ldu-list-frame {
@@ -2475,6 +2539,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     hidePosters;
     open = false;
     secondaryOpen = false;
+    listHandoff = null;
     resizeListener = () => this.apply();
     mount() {
       ensureAppStyles();
@@ -2498,6 +2563,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       return true;
     }
     destroy() {
+      this.finishListHandoff();
       window.removeEventListener("resize", this.resizeListener);
       this.shell?.remove();
       this.shell = null;
@@ -2539,6 +2605,35 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     getShellElement() {
       return this.shell;
+    }
+    beginListHandoff(scrollY) {
+      if (this.listHandoff || !this.listContent) return false;
+      const outlet = document.querySelector("#main-outlet");
+      const parent = outlet?.parentElement;
+      if (!outlet || !parent || parent === this.listContent) return false;
+      this.listHandoff = {
+        outlet,
+        parent,
+        nextSibling: outlet.nextSibling,
+        scrollY: Math.max(0, scrollY)
+      };
+      this.listContent.classList.add("is-native-handoff");
+      this.listContent.prepend(outlet);
+      this.listContent.scrollTop = this.listHandoff.scrollY;
+      return true;
+    }
+    finishListHandoff() {
+      const handoff = this.listHandoff;
+      if (!handoff) return null;
+      this.listHandoff = null;
+      if (handoff.nextSibling?.parentNode === handoff.parent) {
+        handoff.parent.insertBefore(handoff.outlet, handoff.nextSibling);
+      } else {
+        handoff.parent.append(handoff.outlet);
+      }
+      this.listContent?.classList.remove("is-native-handoff");
+      if (this.listContent) this.listContent.scrollTop = 0;
+      return handoff.scrollY;
     }
     getTabStripElement() {
       return this.panel?.querySelector(".ldu-tab-strip") ?? null;
@@ -6227,7 +6322,7 @@ ${tab.url}`;
     }
     api = null;
     mount() {
-      if (this.api) return;
+      if (this.api || !this.options.isEnabled()) return;
       this.api = installLinkHoverPreviewer({
         isEnabled: this.options.isEnabled,
         clickMode: this.options.clickMode,
@@ -6239,10 +6334,13 @@ ${tab.url}`;
       this.api?.close();
     }
     syncClickMode() {
+      this.mount();
       this.api?.syncClickMode();
     }
     openFromFrame(url, iframe, anchorRect) {
-      if (!this.api || !this.options.isEnabled() || !this.isPreviewable(url, null)) return;
+      if (!this.options.isEnabled() || !this.isPreviewable(url, null)) return;
+      this.mount();
+      if (!this.api) return;
       const frameRect = iframe.getBoundingClientRect();
       const rect = anchorRect ?? { left: 0, bottom: 0 };
       this.api.openFromFrame(url, {
@@ -6563,6 +6661,7 @@ ${tab.url}`;
   // src/app.ts
   var ROUTE_DEBOUNCE_MS = 100;
   var SESSION_MAINTENANCE_INTERVAL_MS = 30 * 6e4;
+  var LIST_HANDOFF_TIMEOUT_MS = 3e3;
   function startLinuxDoApp() {
     if (window.self !== window.top) return;
     const start = () => new LinuxDoApp().start();
@@ -6599,6 +6698,7 @@ ${tab.url}`;
     leaseTimer = null;
     sessionMaintenanceTimer = null;
     tabContextMenu;
+    listHandoffTimer = null;
     start() {
       this.settings = loadSettings(this.storage);
       ensureAppStyles();
@@ -6721,9 +6821,20 @@ ${tab.url}`;
       this.navigateList(targetUrl.href);
     }
     openTopic(topicId, url, title, postNumber, category, pane = "primary") {
+      const shouldHandoffList = this.tabStore.getTabs().length === 0 && classifyRoute(location.href) !== "topic" && this.layout.getMode() === "native";
+      const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
       if (!this.layout.mount()) return;
+      if (shouldHandoffList) {
+        this.tabStore.setSessionFields({
+          listUrl: location.href,
+          listScrollY: nativeListScrollY
+        }, Date.now(), false);
+      }
       this.ensureListFrame();
       this.ensureFrames();
+      if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
+        this.scheduleListHandoffFallback();
+      }
       this.layout.setOpen(true);
       const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
       if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
@@ -6907,6 +7018,11 @@ ${tab.url}`;
         this.listFrame?.restoreScroll(savedScrollY);
         this.schedulePersist();
       }
+      if (message.type === "ldu:list-visual-ready") {
+        const handoffScrollY = this.finishListHandoff();
+        if (handoffScrollY !== null) this.listFrame?.restoreScroll(handoffScrollY);
+        this.schedulePersist();
+      }
     }
     ensureFrames() {
       const content = this.layout.getContentElement();
@@ -6992,6 +7108,7 @@ ${tab.url}`;
       this.settingsPanel?.setSettings(this.settings);
       this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
       if (patch.previewClickMode !== void 0) this.preview.syncClickMode();
+      if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
       if (patch.restoreSession === false) clearRestorableSessions(this.storage);
       if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
       if (patch.colorizeTabs !== void 0) this.renderTabs();
@@ -7309,6 +7426,7 @@ ${tab.url}`;
       window.setTimeout(() => toast.remove(), 2800);
     }
     disposeSplitRuntime() {
+      this.finishListHandoff();
       this.preview?.close();
       this.frames?.destroy();
       this.frames = null;
@@ -7318,6 +7436,19 @@ ${tab.url}`;
       this.listFrame?.destroy();
       this.listFrame = null;
       this.layout?.destroy();
+    }
+    scheduleListHandoffFallback() {
+      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+      this.listHandoffTimer = window.setTimeout(() => {
+        this.listHandoffTimer = null;
+        const scrollY = this.layout?.finishListHandoff() ?? null;
+        if (scrollY !== null) this.listFrame?.restoreScroll(scrollY);
+      }, LIST_HANDOFF_TIMEOUT_MS);
+    }
+    finishListHandoff() {
+      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+      this.listHandoffTimer = null;
+      return this.layout?.finishListHandoff() ?? null;
     }
     handlePageHide(event) {
       this.persistSession();
@@ -7658,6 +7789,8 @@ ${currentCategory.categoryColor}` : "";
     const DOUBLE_CLICK_DELAY_MS2 = 300;
     let timer = null;
     let clickTimer = null;
+    let visualReadySent = false;
+    let visualReadyTimer = null;
     let previewEnabled = false;
     let previewClickMode = "double";
     let replayingClick = false;
@@ -7672,6 +7805,29 @@ ${currentCategory.categoryColor}` : "";
         lastTitle = document.title;
         window.parent.postMessage(payload, location.origin);
       }, type === "ldu:list-ready" ? 0 : 100);
+    };
+    const hasRenderedListContent = () => {
+      if (document.readyState === "loading") return false;
+      const outlet = document.querySelector("#main-outlet");
+      if (!outlet) return false;
+      return [...outlet.children].some((child) => !child.matches(
+        ".loading-container, .spinner, .spinner-container, .loading-indicator"
+      ));
+    };
+    const scheduleVisualReady = () => {
+      if (visualReadySent || visualReadyTimer !== null || !hasRenderedListContent()) return;
+      visualReadyTimer = window.setTimeout(() => {
+        visualReadyTimer = null;
+        if (visualReadySent || !hasRenderedListContent()) return;
+        visualReadySent = true;
+        window.parent.postMessage({
+          type: "ldu:list-visual-ready",
+          frameId,
+          url: location.href,
+          title: document.title,
+          scrollY: window.scrollY
+        }, location.origin);
+      }, 0);
     };
     const cancelPendingClick = () => {
       if (clickTimer !== null) window.clearTimeout(clickTimer);
@@ -7726,14 +7882,21 @@ ${currentCategory.categoryColor}` : "";
       if (!previewEnabled) cancelPendingClick();
     });
     window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });
-    window.addEventListener("load", () => send("ldu:list-ready"), { once: true });
-    document.addEventListener("DOMContentLoaded", () => send("ldu:list-ready"), { once: true });
+    window.addEventListener("load", () => {
+      send("ldu:list-ready");
+      scheduleVisualReady();
+    }, { once: true });
+    document.addEventListener("DOMContentLoaded", () => {
+      send("ldu:list-ready");
+      scheduleVisualReady();
+    }, { once: true });
     window.addEventListener("popstate", () => send("ldu:list-state"));
     window.addEventListener("hashchange", () => send("ldu:list-state"));
     document.addEventListener("pointerdown", () => {
       window.parent.postMessage({ type: "ldu:list-interaction", frameId }, location.origin);
     }, true);
     new MutationObserver(() => {
+      scheduleVisualReady();
       if (lastUrl === location.href && lastTitle === document.title) return;
       send("ldu:list-state");
     }).observe(document.documentElement, { childList: true, subtree: true });
@@ -7782,6 +7945,7 @@ ${currentCategory.categoryColor}` : "";
       window.parent.postMessage({ type: "ldu:list-preview-dismiss", frameId }, location.origin);
     }, true);
     send("ldu:list-ready");
+    scheduleVisualReady();
   }
 
   // src/main.ts

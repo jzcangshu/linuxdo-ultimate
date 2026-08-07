@@ -43,6 +43,17 @@ describe("browser smoke", () => {
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
     const retainedTopicFrame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;
+    const listFrame = document.querySelector<HTMLIFrameElement>(".ldu-list-frame")!;
+    expect(document.querySelector(".ldu-list-content > #main-outlet")).not.toBeNull();
+    listFrame.dispatchEvent(new Event("load"));
+    expect(document.querySelector(".ldu-list-content > #main-outlet")).not.toBeNull();
+    const visuallyReady = new MessageEvent("message", {
+      data: { type: "ldu:list-visual-ready", frameId: listFrame.dataset.frameId, url: listFrame.src },
+      origin: location.origin,
+    });
+    Object.defineProperty(visuallyReady, "source", { value: listFrame.contentWindow });
+    window.dispatchEvent(visuallyReady);
+    expect(document.querySelector("#main-outlet-wrapper > #main-outlet")).not.toBeNull();
     document.querySelector<HTMLAnchorElement>(".category-link")!.dispatchEvent(new MouseEvent("click", {
       bubbles: true,
       cancelable: true,

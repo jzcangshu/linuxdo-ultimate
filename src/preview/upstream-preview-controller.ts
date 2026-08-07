@@ -19,7 +19,7 @@ export class PreviewController {
   constructor(private readonly options: PreviewOptions) {}
 
   mount(): void {
-    if (this.api) return;
+    if (this.api || !this.options.isEnabled()) return;
     this.api = installLinkHoverPreviewer({
       isEnabled: this.options.isEnabled,
       clickMode: this.options.clickMode,
@@ -33,6 +33,7 @@ export class PreviewController {
   }
 
   syncClickMode(): void {
+    this.mount();
     this.api?.syncClickMode();
   }
 
@@ -41,7 +42,9 @@ export class PreviewController {
     iframe: HTMLIFrameElement,
     anchorRect: { left: number; bottom: number } | undefined,
   ): void {
-    if (!this.api || !this.options.isEnabled() || !this.isPreviewable(url, null)) return;
+    if (!this.options.isEnabled() || !this.isPreviewable(url, null)) return;
+    this.mount();
+    if (!this.api) return;
     const frameRect = iframe.getBoundingClientRect();
     const rect = anchorRect ?? { left: 0, bottom: 0 };
     this.api.openFromFrame(url, {

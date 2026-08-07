@@ -317,6 +317,8 @@ function bootListBridge(frameId: string): void {
   const DOUBLE_CLICK_DELAY_MS = 300;
   let timer: number | null = null;
   let clickTimer: number | null = null;
+  let visualReadySent = false;
+  let visualReadyTimer: number | null = null;
   let previewEnabled = false;
   let previewClickMode: "double" | "single" = "double";
   let replayingClick = false;
@@ -331,6 +333,29 @@ function bootListBridge(frameId: string): void {
       lastTitle = document.title;
       window.parent.postMessage(payload, location.origin);
     }, type === "ldu:list-ready" ? 0 : 100);
+  };
+  const hasRenderedListContent = () => {
+    if (document.readyState === "loading") return false;
+    const outlet = document.querySelector<HTMLElement>("#main-outlet");
+    if (!outlet) return false;
+    return [...outlet.children].some((child) => !child.matches(
+      ".loading-container, .spinner, .spinner-container, .loading-indicator",
+    ));
+  };
+  const scheduleVisualReady = () => {
+    if (visualReadySent || visualReadyTimer !== null || !hasRenderedListContent()) return;
+    visualReadyTimer = window.setTimeout(() => {
+      visualReadyTimer = null;
+      if (visualReadySent || !hasRenderedListContent()) return;
+      visualReadySent = true;
+      window.parent.postMessage({
+        type: "ldu:list-visual-ready",
+        frameId,
+        url: location.href,
+        title: document.title,
+        scrollY: window.scrollY,
+      }, location.origin);
+    }, 0);
   };
   const cancelPendingClick = () => {
     if (clickTimer !== null) window.clearTimeout(clickTimer);
@@ -378,14 +403,21 @@ function bootListBridge(frameId: string): void {
     if (!previewEnabled) cancelPendingClick();
   });
   window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });
-  window.addEventListener("load", () => send("ldu:list-ready"), { once: true });
-  document.addEventListener("DOMContentLoaded", () => send("ldu:list-ready"), { once: true });
+  window.addEventListener("load", () => {
+    send("ldu:list-ready");
+    scheduleVisualReady();
+  }, { once: true });
+  document.addEventListener("DOMContentLoaded", () => {
+    send("ldu:list-ready");
+    scheduleVisualReady();
+  }, { once: true });
   window.addEventListener("popstate", () => send("ldu:list-state"));
   window.addEventListener("hashchange", () => send("ldu:list-state"));
   document.addEventListener("pointerdown", () => {
     window.parent.postMessage({ type: "ldu:list-interaction", frameId }, location.origin);
   }, true);
   new MutationObserver(() => {
+    scheduleVisualReady();
     if (lastUrl === location.href && lastTitle === document.title) return;
     send("ldu:list-state");
   }).observe(document.documentElement, { childList: true, subtree: true });
@@ -427,4 +459,5 @@ function bootListBridge(frameId: string): void {
     window.parent.postMessage({ type: "ldu:list-preview-dismiss", frameId }, location.origin);
   }, true);
   send("ldu:list-ready");
+  scheduleVisualReady();
 }

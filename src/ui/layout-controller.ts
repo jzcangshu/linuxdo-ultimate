@@ -5,6 +5,13 @@ const NARROW_BREAKPOINT = 1100;
 const WIDE_BREAKPOINT = 1680;
 export type PaneLayout = "single" | "dual";
 
+interface ListHandoff {
+  outlet: HTMLElement;
+  parent: HTMLElement;
+  nextSibling: Node | null;
+  scrollY: number;
+}
+
 export function resolveLayoutMode(preference: LayoutPreference, viewportWidth: number): LayoutMode {
   if (viewportWidth < NARROW_BREAKPOINT) return "native";
   if (preference === "two" || preference === "three") return preference;
@@ -32,6 +39,7 @@ export class LayoutController {
   private hidePosters: boolean;
   private open = false;
   private secondaryOpen = false;
+  private listHandoff: ListHandoff | null = null;
   private readonly resizeListener = () => this.apply();
 
   constructor(private readonly options: LayoutControllerOptions) {
@@ -64,6 +72,7 @@ export class LayoutController {
   }
 
   destroy(): void {
+    this.finishListHandoff();
     window.removeEventListener("resize", this.resizeListener);
     this.shell?.remove();
     this.shell = null;
@@ -107,6 +116,37 @@ export class LayoutController {
 
   getListContentElement(): HTMLElement | null { return this.listContent; }
   getShellElement(): HTMLElement | null { return this.shell; }
+
+  beginListHandoff(scrollY: number): boolean {
+    if (this.listHandoff || !this.listContent) return false;
+    const outlet = document.querySelector<HTMLElement>("#main-outlet");
+    const parent = outlet?.parentElement;
+    if (!outlet || !parent || parent === this.listContent) return false;
+    this.listHandoff = {
+      outlet,
+      parent,
+      nextSibling: outlet.nextSibling,
+      scrollY: Math.max(0, scrollY),
+    };
+    this.listContent.classList.add("is-native-handoff");
+    this.listContent.prepend(outlet);
+    this.listContent.scrollTop = this.listHandoff.scrollY;
+    return true;
+  }
+
+  finishListHandoff(): number | null {
+    const handoff = this.listHandoff;
+    if (!handoff) return null;
+    this.listHandoff = null;
+    if (handoff.nextSibling?.parentNode === handoff.parent) {
+      handoff.parent.insertBefore(handoff.outlet, handoff.nextSibling);
+    } else {
+      handoff.parent.append(handoff.outlet);
+    }
+    this.listContent?.classList.remove("is-native-handoff");
+    if (this.listContent) this.listContent.scrollTop = 0;
+    return handoff.scrollY;
+  }
 
   getTabStripElement(): HTMLElement | null {
     return this.panel?.querySelector<HTMLElement>(".ldu-tab-strip") ?? null;

@@ -35,6 +35,7 @@ import { CreditWidget } from "./credit/credit-widget";
 
 const ROUTE_DEBOUNCE_MS = 100;
 const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
+const LIST_HANDOFF_TIMEOUT_MS = 3_000;
 
 export function startLinuxDoApp(): void {
   if (window.self !== window.top) return;
@@ -73,6 +74,7 @@ class LinuxDoApp {
   private leaseTimer: number | null = null;
   private sessionMaintenanceTimer: number | null = null;
   private tabContextMenu!: TabContextMenu;
+  private listHandoffTimer: number | null = null;
 
   start(): void {
     this.settings = loadSettings(this.storage);
@@ -206,9 +208,22 @@ class LinuxDoApp {
     category?: TopicCategoryPresentation,
     pane: "primary" | "secondary" = "primary",
   ): void {
+    const shouldHandoffList = this.tabStore.getTabs().length === 0
+      && classifyRoute(location.href) !== "topic"
+      && this.layout.getMode() === "native";
+    const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
     if (!this.layout.mount()) return;
+    if (shouldHandoffList) {
+      this.tabStore.setSessionFields({
+        listUrl: location.href,
+        listScrollY: nativeListScrollY,
+      }, Date.now(), false);
+    }
     this.ensureListFrame();
     this.ensureFrames();
+    if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
+      this.scheduleListHandoffFallback();
+    }
     this.layout.setOpen(true);
     const input = { topicId, url, title, ...(postNumber ? { postNumber } : {}), ...category };
     if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
@@ -402,6 +417,11 @@ class LinuxDoApp {
       this.listFrame?.restoreScroll(savedScrollY);
       this.schedulePersist();
     }
+    if (message.type === "ldu:list-visual-ready") {
+      const handoffScrollY = this.finishListHandoff();
+      if (handoffScrollY !== null) this.listFrame?.restoreScroll(handoffScrollY);
+      this.schedulePersist();
+    }
   }
 
   private ensureFrames(): void {
@@ -494,6 +514,7 @@ class LinuxDoApp {
     this.settingsPanel?.setSettings(this.settings);
     this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
     if (patch.previewClickMode !== undefined) this.preview.syncClickMode();
+    if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
     if (patch.restoreSession === false) clearRestorableSessions(this.storage);
     if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
     if (patch.colorizeTabs !== undefined) this.renderTabs();
@@ -836,6 +857,7 @@ class LinuxDoApp {
   }
 
   private disposeSplitRuntime(): void {
+    this.finishListHandoff();
     this.preview?.close();
     this.frames?.destroy();
     this.frames = null;
@@ -845,6 +867,21 @@ class LinuxDoApp {
     this.listFrame?.destroy();
     this.listFrame = null;
     this.layout?.destroy();
+  }
+
+  private scheduleListHandoffFallback(): void {
+    if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+    this.listHandoffTimer = window.setTimeout(() => {
+      this.listHandoffTimer = null;
+      const scrollY = this.layout?.finishListHandoff() ?? null;
+      if (scrollY !== null) this.listFrame?.restoreScroll(scrollY);
+    }, LIST_HANDOFF_TIMEOUT_MS);
+  }
+
+  private finishListHandoff(): number | null {
+    if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+    this.listHandoffTimer = null;
+    return this.layout?.finishListHandoff() ?? null;
   }
 
   private handlePageHide(event: PageTransitionEvent): void {

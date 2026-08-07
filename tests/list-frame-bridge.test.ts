@@ -54,4 +54,25 @@ describe("embedded list bridge", () => {
       frameId: "session-1",
     }, location.origin);
   });
+
+  it("reports visual readiness only after the list outlet has rendered content", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-list:session-visual" });
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    document.body.innerHTML = '<main id="main-outlet"><div class="loading-container"></div></main>';
+    bootFrameBridge();
+    vi.runOnlyPendingTimers();
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:list-visual-ready",
+    }), location.origin);
+
+    document.querySelector(".loading-container")?.replaceWith(document.createElement("section"));
+    await Promise.resolve();
+    vi.runOnlyPendingTimers();
+
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:list-visual-ready",
+      frameId: "session-visual",
+    }), location.origin);
+  });
 });

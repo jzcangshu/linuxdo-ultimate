@@ -44,6 +44,103 @@ export function resolveTabCategoryColor(title: string, _root: Document = documen
   return match?.[1] ?? null;
 }
 
+interface TabStripRenderState {
+  tabs: TopicTabState[];
+  callbacks: TabStripCallbacks;
+}
+
+const tabStripStates = new WeakMap<HTMLElement, TabStripRenderState>();
+
+function createTabItem(root: HTMLElement): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "ldu-tab-item";
+  item.setAttribute("role", "presentation");
+  item.setAttribute("aria-grabbed", "false");
+  item.addEventListener("contextmenu", (event) => {
+    const tabId = item.dataset.tabId;
+    const state = tabStripStates.get(root);
+    if (!tabId || !state) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.callbacks.onContextMenu?.(tabId, event.clientX, event.clientY);
+  });
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ldu-tab-button";
+  button.setAttribute("role", "tab");
+  button.addEventListener("click", () => {
+    const tabId = item.dataset.tabId;
+    const state = tabStripStates.get(root);
+    if (tabId && state) state.callbacks.onActivate(tabId);
+  });
+  button.addEventListener("keydown", (event) => {
+    const tabId = item.dataset.tabId;
+    const state = tabStripStates.get(root);
+    if (!tabId || !state) return;
+    const index = state.tabs.findIndex((tab) => tab.id === tabId);
+    if (index < 0) return;
+    let next = index;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      next = (index + (event.key === "ArrowRight" ? 1 : -1) + state.tabs.length) % state.tabs.length;
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      next = event.key === "Home" ? 0 : state.tabs.length - 1;
+    } else if (event.key === "Delete") {
+      event.preventDefault();
+      state.callbacks.onClose(tabId);
+      return;
+    } else {
+      return;
+    }
+    state.callbacks.onActivate(state.tabs[next]!.id);
+    root.querySelectorAll<HTMLButtonElement>(".ldu-tab-button")[next]?.focus();
+  });
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "ldu-tab-close";
+  close.draggable = false;
+  setIcon(close, "close", 16);
+  close.title = "关闭帖子标签";
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const tabId = item.dataset.tabId;
+    const state = tabStripStates.get(root);
+    if (tabId && state) state.callbacks.onClose(tabId);
+  });
+
+  item.append(button, close);
+  return item;
+}
+
+function updateTabItem(
+  item: HTMLElement,
+  tab: TopicTabState,
+  activeTabId: string | null,
+  callbacks: TabStripCallbacks,
+  root: HTMLElement,
+): void {
+  const active = tab.id === activeTabId;
+  const title = tab.title || `主题 ${tab.topicId}`;
+  item.dataset.tabId = tab.id;
+  item.draggable = Boolean(callbacks.onReorder);
+  item.classList.toggle("is-active", active);
+  item.title = `${tab.title}\n${tab.url}`;
+  const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
+  if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
+  else item.style.removeProperty("--ldu-tab-category-color");
+
+  const button = item.querySelector<HTMLButtonElement>(".ldu-tab-button")!;
+  button.textContent = title;
+  button.id = `ldu-tab-${tab.id}`;
+  button.setAttribute("aria-selected", String(active));
+  button.tabIndex = active ? 0 : -1;
+  button.setAttribute("aria-label", `打开 ${title}`);
+  item.querySelector<HTMLButtonElement>(".ldu-tab-close")?.setAttribute("aria-label", `关闭 ${title}`);
+}
+
 export function renderTabStrip(
   root: HTMLElement,
   tabs: TopicTabState[],
@@ -51,7 +148,12 @@ export function renderTabStrip(
   callbacks: TabStripCallbacks,
   options: TabStripOptions = {},
 ): void {
-  root.replaceChildren();
+  tabStripStates.set(root, { tabs, callbacks });
+  root.querySelectorAll<HTMLElement>(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
+    item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+    item.setAttribute("aria-grabbed", "false");
+    item.style.transform = "";
+  });
   root.classList.remove("is-reordering");
   root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
   let draggedTabId: string | null = null;
@@ -163,67 +265,25 @@ export function renderTabStrip(
     callbacks.onReorder?.(sourceTabId, target.tabId, target.position);
   };
   root.ondragend = clearDragState;
-  const focusTab = (index: number) => {
-    const buttons = root.querySelectorAll<HTMLButtonElement>(".ldu-tab-button");
-    buttons[Math.min(buttons.length - 1, Math.max(0, index))]?.focus();
-  };
-  tabs.forEach((tab, index) => {
-    const item = document.createElement("div");
-    item.className = "ldu-tab-item";
-    item.dataset.tabId = tab.id;
-    item.draggable = Boolean(callbacks.onReorder);
-    item.setAttribute("role", "presentation");
-    item.setAttribute("aria-grabbed", "false");
-    item.classList.toggle("is-active", tab.id === activeTabId);
-    item.title = `${tab.title}\n${tab.url}`;
-    item.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      callbacks.onContextMenu?.(tab.id, event.clientX, event.clientY);
-    });
-    const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
-    if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ldu-tab-button";
-    button.textContent = tab.title || `主题 ${tab.topicId}`;
-    button.id = `ldu-tab-${tab.id}`;
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", String(tab.id === activeTabId));
-    button.tabIndex = tab.id === activeTabId ? 0 : -1;
-    button.setAttribute("aria-label", `打开 ${button.textContent}`);
-    button.addEventListener("click", () => callbacks.onActivate(tab.id));
-    button.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        const next = (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-        callbacks.onActivate(tabs[next]!.id);
-        focusTab(next);
-      } else if (event.key === "Home" || event.key === "End") {
-        event.preventDefault();
-        const next = event.key === "Home" ? 0 : tabs.length - 1;
-        callbacks.onActivate(tabs[next]!.id);
-        focusTab(next);
-      } else if (event.key === "Delete") {
-        event.preventDefault();
-        callbacks.onClose(tab.id);
-      }
-    });
-
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "ldu-tab-close";
-    close.draggable = false;
-    setIcon(close, "close", 16);
-    close.title = "关闭帖子标签";
-    close.setAttribute("aria-label", `关闭 ${button.textContent}`);
-    close.addEventListener("click", (event) => {
-      event.stopPropagation();
-      callbacks.onClose(tab.id);
-    });
-
-    item.append(button, close);
-    root.append(item);
+  const requestedIds = new Set(tabs.map((tab) => tab.id));
+  const existing = new Map(
+    [...root.querySelectorAll<HTMLElement>(":scope > .ldu-tab-item[data-tab-id]")]
+      .map((item) => [item.dataset.tabId!, item]),
+  );
+  for (const [tabId, item] of existing) {
+    if (!requestedIds.has(tabId)) {
+      item.remove();
+      existing.delete(tabId);
+    }
+  }
+  const desiredItems = tabs.map((tab) => {
+    const item = existing.get(tab.id) ?? createTabItem(root);
+    updateTabItem(item, tab, activeTabId, callbacks, root);
+    return item;
   });
+  let cursor = root.firstElementChild;
+  for (const item of desiredItems) {
+    if (item !== cursor) root.insertBefore(item, cursor);
+    cursor = item.nextElementSibling;
+  }
 }

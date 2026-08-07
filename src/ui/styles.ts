@@ -142,6 +142,26 @@ body.ldu-layout-active #main-outlet {
   border-inline: 1px solid var(--ldu-border);
 }
 
+.ldu-list-content.is-native-handoff {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ldu-list-content.is-native-handoff > #main-outlet {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 100% !important;
+  margin: 0 !important;
+  padding-inline: 8px !important;
+  box-sizing: border-box;
+}
+
+.ldu-list-content.is-native-handoff > .ldu-list-frame {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .ldu-list-frame {
   position: absolute;
   inset: 0;

@@ -77,4 +77,52 @@ describe("stable split shell", () => {
       { ratio: 0.43, layout: "dual" },
     ]);
   });
+
+  it("temporarily hosts the native outlet in the list pane and restores its exact position", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
+    document.body.innerHTML = `
+      <div id="main-outlet-wrapper">
+        <aside class="sidebar-wrapper"></aside>
+        <span id="before"></span><main id="main-outlet">当前列表</main><span id="after"></span>
+      </div>`;
+    const wrapper = document.querySelector<HTMLElement>("#main-outlet-wrapper")!;
+    const outlet = document.querySelector<HTMLElement>("#main-outlet")!;
+    const controller = new LayoutController({
+      preference: "two",
+      paneSizes: { sidebar: 216, listRatio: 0.35 },
+      hidePosters: true,
+    });
+    expect(controller.mount()).toBe(true);
+
+    expect(controller.beginListHandoff(640)).toBe(true);
+    controller.setOpen(true);
+    expect(outlet.parentElement).toBe(controller.getListContentElement());
+    expect(controller.getListContentElement()?.classList.contains("is-native-handoff")).toBe(true);
+    expect(controller.getListContentElement()?.scrollTop).toBe(640);
+
+    expect(controller.finishListHandoff()).toBe(640);
+    expect(outlet.parentElement).toBe(wrapper);
+    expect(outlet.previousElementSibling?.id).toBe("before");
+    expect(outlet.nextElementSibling?.id).toBe("after");
+    expect(controller.getListContentElement()?.classList.contains("is-native-handoff")).toBe(false);
+  });
+
+  it("restores a pending native outlet when the split shell is destroyed", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
+    document.body.innerHTML = '<div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"></main></div>';
+    const wrapper = document.querySelector<HTMLElement>("#main-outlet-wrapper")!;
+    const outlet = document.querySelector<HTMLElement>("#main-outlet")!;
+    const controller = new LayoutController({
+      preference: "two",
+      paneSizes: { sidebar: 216, listRatio: 0.35 },
+      hidePosters: true,
+    });
+    controller.mount();
+    controller.beginListHandoff(120);
+
+    controller.destroy();
+
+    expect(outlet.parentElement).toBe(wrapper);
+    expect(document.querySelector("#ldu-layout-shell")).toBeNull();
+  });
 });

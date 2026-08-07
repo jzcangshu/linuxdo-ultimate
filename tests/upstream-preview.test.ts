@@ -78,6 +78,25 @@ describe("vendored upstream previewer", () => {
     await vi.waitFor(() => expect(document.querySelector(".agy-preview-container")).toBeNull());
   });
 
+  it("delays installing the upstream runtime until preview is enabled", () => {
+    let enabled = false;
+    vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn());
+    vi.stubGlobal("GM_xmlhttpRequest", vi.fn());
+    const controller = new PreviewController({ isEnabled: () => enabled, clickMode: () => "double" });
+
+    controller.mount();
+    expect(document.head.textContent).not.toContain(".agy-preview-container");
+
+    enabled = true;
+    controller.mount();
+    expect(document.head.textContent).toContain(".agy-preview-container");
+
+    const styleCount = document.head.querySelectorAll("style").length;
+    controller.mount();
+    expect(document.head.querySelectorAll("style")).toHaveLength(styleCount);
+  });
+
   it("keeps the upstream 4.13.1 loading core byte-equivalent", () => {
     const expected: Record<string, string> = {
       setCache: "e85ff1451484f6e42f113cb4c6d3bbcb6eb1953f86249344842dc8a5fc4fe5f7",

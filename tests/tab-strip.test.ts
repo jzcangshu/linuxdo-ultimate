@@ -76,6 +76,34 @@ describe("topic tab category colors", () => {
     expect(items[1]?.classList.contains("is-active")).toBe(true);
   });
 
+  it("updates existing tab nodes in place and uses the latest callbacks", () => {
+    const root = document.createElement("div");
+    const firstActivate = vi.fn();
+    renderTabStrip(root, [
+      tab("旧标题"),
+      { ...tab("第二帖"), id: "topic-2", topicId: "2" },
+    ], "topic-1", { onActivate: firstActivate, onClose: vi.fn() });
+    const firstItem = root.querySelector<HTMLElement>('[data-tab-id="topic-1"]')!;
+    const firstButton = firstItem.querySelector<HTMLButtonElement>(".ldu-tab-button")!;
+    const secondItem = root.querySelector<HTMLElement>('[data-tab-id="topic-2"]')!;
+    const latestActivate = vi.fn();
+
+    renderTabStrip(root, [
+      { ...tab("第二帖更新"), id: "topic-2", topicId: "2" },
+      { ...tab("新标题"), categoryColor: "#123456" },
+    ], "topic-2", { onActivate: latestActivate, onClose: vi.fn() });
+
+    expect(root.children[0]).toBe(secondItem);
+    expect(root.children[1]).toBe(firstItem);
+    expect(firstItem.querySelector(".ldu-tab-button")).toBe(firstButton);
+    expect(firstButton.textContent).toBe("新标题");
+    expect(firstItem.classList.contains("is-active")).toBe(false);
+    expect(firstItem.style.getPropertyValue("--ldu-tab-category-color")).toBe("#123456");
+    firstButton.click();
+    expect(firstActivate).not.toHaveBeenCalled();
+    expect(latestActivate).toHaveBeenCalledWith("topic-1");
+  });
+
   it("keeps only the title and close action in each topic tab", () => {
     const root = document.createElement("div");
     renderTabStrip(root, [tab("一个较长的帖子标题")], "topic-1", {

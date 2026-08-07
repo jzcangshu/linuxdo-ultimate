@@ -1,5 +1,5 @@
 export interface ListFrameMessage {
-  type: "ldu:list-ready" | "ldu:list-state" | "ldu:list-interaction" | "ldu:list-topic-open" | "ldu:list-navigate" | "ldu:list-preview-open" | "ldu:list-preview-dismiss";
+  type: "ldu:list-ready" | "ldu:list-visual-ready" | "ldu:list-state" | "ldu:list-interaction" | "ldu:list-topic-open" | "ldu:list-navigate" | "ldu:list-preview-open" | "ldu:list-preview-dismiss";
   frameId: string;
   url?: string;
   title?: string;
@@ -79,9 +79,9 @@ export class ListFrameController {
 
   handleMessage(event: MessageEvent): void {
     const data = event.data as Partial<ListFrameMessage> | null;
-    if (!data || !["ldu:list-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
+    if (!data || !["ldu:list-ready", "ldu:list-visual-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
     if (data.frameId !== this.frameId || !this.iframe || event.source !== this.iframe.contentWindow || event.origin !== location.origin) return;
-    if ((data.type === "ldu:list-ready" || data.type === "ldu:list-state") && data.url) {
+    if ((data.type === "ldu:list-ready" || data.type === "ldu:list-visual-ready" || data.type === "ldu:list-state") && data.url) {
       try { this.reportedUrl = new URL(data.url, document.baseURI).href; } catch { this.reportedUrl = ""; }
     }
     this.onMessage(data as ListFrameMessage, this.iframe);

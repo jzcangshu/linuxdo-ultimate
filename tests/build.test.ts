@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("userscript build", () => {
   it("emits an installable single-file userscript", async () => {
+    await import("../scripts/build");
     const [output, packageSource] = await Promise.all([
       readFile("dist/linuxdo-ultimate.user.js", "utf8"),
       readFile("package.json", "utf8"),
@@ -11,8 +12,11 @@ describe("userscript build", () => {
 
     expect(output).toContain("// ==UserScript==");
     expect(output).toContain("// @match        https://linux.do/*");
+    expect(output).toContain("// @noframes");
     expect(output).toContain(`// @version      ${packageVersion}`);
     expect(output).toContain("__linuxDoUltimateLoaded");
+    expect(output).not.toContain("startNamedFrameRuntime");
     expect(output).not.toContain("__VERSION__");
+    expect(output).not.toMatch(/[ \t]+$/m);
   });
 });

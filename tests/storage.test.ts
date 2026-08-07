@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, normalizeSettings } from "../src/core/defaults";
 import {
   MemoryStorage,
+  UserscriptStorage,
   claimSessionId,
   clearRestorableSessions,
   clearSession,
+  cleanupExpiredSessions,
   isReloadNavigation,
   loadLatestSession,
   loadSession,
@@ -19,6 +21,10 @@ import {
 import { createSession } from "../src/core/session";
 
 describe("storage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("normalizes malformed settings without changing defaults", () => {
     const settings = normalizeSettings({ layoutPreference: "invalid", paneSizes: { sidebar: 2 } });
     expect(settings.layoutPreference).toBe("auto");
@@ -78,6 +84,17 @@ describe("storage", () => {
     expect(loadSession(storage, "a", "/", 2)).toEqual(session);
     clearSession(storage, "a");
     expect(loadSession(storage, "a", "/", 2).listUrl).toBe("/");
+  });
+
+  it("uses one storage backend for the whole adapter lifetime", () => {
+    vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(() => { throw new Error("userscript storage failed"); }));
+    vi.stubGlobal("GM_deleteValue", vi.fn());
+    const storage = new UserscriptStorage();
+
+    storage.set("only-userscript", { value: 1 });
+
+    expect(storage.get("only-userscript", "fallback")).toBe("fallback");
   });
 
   it("restores the current browser-tab session independently of the next-visit preference", () => {
@@ -162,8 +179,8 @@ describe("storage", () => {
 
     saveSession(storage, first);
     saveSession(storage, second);
-    stageSessionClose(storage, first);
-    stageSessionClose(storage, second);
+    stageSessionClose(storage, first, 10);
+    stageSessionClose(storage, second, 20);
 
     const restored = loadLatestSession(storage, "window-c", "https://linux.do/", 5)!;
     expect(restored.sessionId).toBe("window-c");
@@ -180,8 +197,8 @@ describe("storage", () => {
     refreshing.tabs.push({ id: "topic-2", topicId: "2", url: "https://linux.do/t/topic/2", title: "Refreshing", scrollY: 0, suspended: false, lastActiveAt: 4 });
     refreshing.activeTabId = "topic-2";
 
-    stageSessionClose(storage, closed);
-    stageSessionClose(storage, refreshing);
+    stageSessionClose(storage, closed, 10);
+    stageSessionClose(storage, refreshing, 20);
     reconcileSessionClose(storage, "refreshing-window");
 
     expect(loadLatestSession(storage, "new-window", "https://linux.do/", 5)?.tabs.map((tab) => tab.topicId)).toEqual(["1"]);
@@ -195,6 +212,35 @@ describe("storage", () => {
     stageSessionClose(storage, session);
     clearRestorableSessions(storage);
     expect(loadLatestSession(storage, "new-window", "https://linux.do/", 3)).toBeNull();
+  });
+
+  it("keeps a browser-tab session when the user leaves Linux Do and later returns", () => {
+    const storage = new MemoryStorage();
+    const session = createSession("closed-tab", "https://linux.do/latest", 1_000);
+    saveSession(storage, session);
+
+    cleanupExpiredSessions(storage, 20_000);
+
+    expect(loadSessionIfPresent(storage, session.sessionId, "/", 20_000)).not.toBeNull();
+  });
+
+  it("reclaims inactive sessions after the retention period", () => {
+    const storage = new MemoryStorage();
+    const session = createSession("abandoned-tab", "https://linux.do/latest", 1_000);
+    saveSession(storage, session);
+
+    cleanupExpiredSessions(storage, 31 * 24 * 60 * 60_000);
+
+    expect(loadSessionIfPresent(storage, session.sessionId, "/", 0)).toBeNull();
+  });
+
+  it("removes cleared sessions from the maintenance index", () => {
+    const storage = new MemoryStorage();
+    const session = createSession("cleared-tab", "https://linux.do/latest", 1_000);
+    saveSession(storage, session);
+    clearSession(storage, session.sessionId);
+
+    expect(storage.snapshot()).not.toContain("cleared-tab");
   });
 });
 

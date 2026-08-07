@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { startLinuxDoApp } from "../../src/app";
 
-describe("browser smoke", () => {
+describe("DOM integration smoke", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -76,12 +76,14 @@ describe("browser smoke", () => {
     document.querySelector<HTMLAnchorElement>('.chat-header-icon a')!.addEventListener("click", nativeChatHandler);
     const chatClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
     document.querySelector<HTMLAnchorElement>('.chat-header-icon a')!.dispatchEvent(chatClick);
-    expect(nativeChatHandler).toHaveBeenCalledOnce();
+    expect(nativeChatHandler).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src).toContain("/chat");
 
     document.querySelector<HTMLButtonElement>('.ldu-settings-host > button')!.click();
     expect(document.querySelector<HTMLElement>('#ldu-settings-panel')?.hidden).toBe(false);
     const frame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;
     const frameInteraction = new MessageEvent("message", {
+      origin: location.origin,
       data: { type: "ldu:frame-interaction", tabId: "topic-42" },
     });
     Object.defineProperty(frameInteraction, "source", { value: frame.contentWindow });
@@ -110,6 +112,7 @@ describe("browser smoke", () => {
 
     const addFrameListener = vi.spyOn(frame, "addEventListener");
     const frameState = new MessageEvent("message", {
+      origin: location.origin,
       data: { type: "ldu:frame-state", tabId: "topic-42", url: frame.src, scrollY: 320 },
     });
     Object.defineProperty(frameState, "source", { value: frame.contentWindow });

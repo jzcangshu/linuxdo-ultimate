@@ -98,4 +98,53 @@ describe("view tracking", () => {
     expect(fetcher.mock.calls[0]?.[0]).toBe("https://linux.do/forum/pageview");
     expect(fetcher.mock.calls[1]?.[0]).toContain("https://linux.do/forum/t/2309449.json");
   });
+
+  it("reclaims expired topic locks and their index entries", async () => {
+    const storage = new MemoryWebStorage();
+    let now = 1_000;
+    const fetcher = vi.fn().mockResolvedValue(response({ "x-discourse-trackview": "1" }));
+    const tracker = new ViewTracker({
+      storage, fetcher, now: () => now,
+      csrfToken: () => "", trackingSessionId: () => "session",
+    });
+    await tracker.track(topic(), "split-open", "");
+    now += 8 * 60 * 60_000 + 1;
+
+    await tracker.track(getTopicInfo("https://linux.do/t/topic/2")!, "split-open", "");
+
+    expect(storage.keys().some((key) => key.endsWith(":2309449"))).toBe(false);
+  });
+
+  it("falls back without throwing when lock storage is unavailable", async () => {
+    const storage = {
+      getItem: vi.fn(() => { throw new Error("blocked"); }),
+      setItem: vi.fn(() => { throw new Error("quota"); }),
+      removeItem: vi.fn(() => { throw new Error("blocked"); }),
+    };
+    const fetcher = vi.fn().mockResolvedValue(response({ "x-discourse-trackview": "1" }));
+    const tracker = new ViewTracker({
+      storage, fetcher, now: () => 1_000,
+      csrfToken: () => "", trackingSessionId: () => "session",
+    });
+
+    await expect(tracker.track(topic(), "split-open", "")).resolves.toMatchObject({ status: "confirmed" });
+    await expect(tracker.track(topic(), "split-open", "")).resolves.toMatchObject({ status: "skipped" });
+  });
+
+  it("abandons a claim when another browser tab wins ownership", async () => {
+    const storage = new MemoryWebStorage();
+    const fetcher = vi.fn().mockResolvedValue(response({ "x-discourse-trackview": "1" }));
+    const tracker = new ViewTracker({
+      storage, fetcher, now: () => 1_000,
+      csrfToken: () => "", trackingSessionId: () => "session",
+      beforeClaimConfirmation: () => {
+        const key = storage.keys().find((candidate) => candidate.endsWith(":2309449"))!;
+        const state = JSON.parse(storage.getItem(key)!);
+        storage.setItem(key, JSON.stringify({ ...state, token: "other-tab" }));
+      },
+    });
+
+    expect((await tracker.track(topic(), "split-open", "")).status).toBe("skipped");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });

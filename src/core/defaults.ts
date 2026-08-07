@@ -12,7 +12,6 @@ export const DEFAULT_SETTINGS: Settings = {
   creditEnabled: true,
   previewClickMode: "double",
   maxLiveFrames: 3,
-  maxOpenTabs: 50,
   paneSizes: { sidebar: 216, listRatio: 0.35 },
 };
 
@@ -21,6 +20,7 @@ export const SETTINGS_KEY = "linuxdo-ultimate:settings";
 export const SESSION_KEY_PREFIX = "linuxdo-ultimate:session:";
 export const SESSION_ID_KEY = "linuxdo-ultimate:session-id";
 export const SESSION_OWNER_KEY_PREFIX = "linuxdo-ultimate:session-owner:";
+export const SESSION_INDEX_KEY = "linuxdo-ultimate:session-index";
 export const LATEST_SESSION_KEY = "linuxdo-ultimate:latest-session";
 export const LATEST_SESSION_CANDIDATE_KEY = "linuxdo-ultimate:latest-session-candidate";
 
@@ -43,7 +43,6 @@ export function normalizeSettings(value: unknown): Settings {
     creditEnabled: source.creditEnabled !== false,
     previewClickMode: source.previewClickMode === "single" ? "single" : "double",
     maxLiveFrames: clampSetting(source.maxLiveFrames, 1, 10, DEFAULT_SETTINGS.maxLiveFrames),
-    maxOpenTabs: clampSetting(source.maxOpenTabs, 5, 50, DEFAULT_SETTINGS.maxOpenTabs),
     paneSizes: {
       sidebar: clampSetting(paneSizes.sidebar, 160, 360, DEFAULT_SETTINGS.paneSizes.sidebar),
       listRatio: clampRatio(paneSizes.listRatio, DEFAULT_SETTINGS.paneSizes.listRatio),

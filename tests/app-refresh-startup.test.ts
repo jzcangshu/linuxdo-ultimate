@@ -19,6 +19,7 @@ describe("app refresh startup", () => {
       type === "navigation" ? [{ type: "reload" } as PerformanceNavigationTiming] : []
     ));
     window.__LDU_TEST_MODE__ = true;
+    Object.defineProperty(document, "readyState", { configurable: true, value: "loading" });
     vi.stubGlobal("MutationObserver", class {
       observe(): void {}
       disconnect(): void {}
@@ -33,11 +34,19 @@ describe("app refresh startup", () => {
     `;
 
     const sessionId = "refreshing-browser-tab";
-    const session = upsertTopicTab(createSession(sessionId, "https://linux.do/", now - 10), {
+    let session = upsertTopicTab(createSession(sessionId, "https://linux.do/", now - 10), {
       topicId: "42",
       url: "https://linux.do/t/topic/42",
       title: "Current topic",
     }, now - 5);
+    session = upsertTopicTab(session, {
+      topicId: "43",
+      url: "https://linux.do/t/topic/43",
+      title: "Second topic",
+    }, now - 4);
+    session.secondaryTabIds = ["topic-43"];
+    session.secondaryActiveTabId = "topic-43";
+    session.activeTabId = "topic-42";
     sessionStorage.setItem(SESSION_ID_KEY, sessionId);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, restoreSession: false }));
     localStorage.setItem(`${SESSION_KEY_PREFIX}${sessionId}`, JSON.stringify(session));
@@ -47,11 +56,11 @@ describe("app refresh startup", () => {
     }));
 
     startLinuxDoApp();
-    document.dispatchEvent(new Event("DOMContentLoaded"));
 
     expect(sessionStorage.getItem(SESSION_ID_KEY)).toBe(sessionId);
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
-    expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
+    expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(2);
+    expect(document.querySelectorAll("iframe.ldu-list-frame, iframe.ldu-topic-frame")).toHaveLength(3);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
   });
 });

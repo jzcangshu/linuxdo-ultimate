@@ -77,7 +77,7 @@ describe("session state", () => {
     expect(restored.tabs[0]).toMatchObject({ categoryName: "扬帆起航", categoryColor: "#ff9838" });
   });
 
-  it("bounds restored tabs and keeps the active tab valid", () => {
+  it("preserves every restored tab and keeps the active tab valid", () => {
     let state = createSession("session-a", "https://linux.do/latest", 100);
     for (let index = 1; index <= 60; index += 1) {
       state = upsertTopicTab(state, {
@@ -88,9 +88,25 @@ describe("session state", () => {
     }
 
     const restored = normalizeSession(state, createSession("fallback", "/", 999));
-    expect(restored.tabs).toHaveLength(50);
+    expect(restored.tabs).toHaveLength(60);
+    expect(restored.tabs[0]?.topicId).toBe("1");
     expect(restored.tabs.at(-1)?.topicId).toBe("60");
     expect(restored.tabs.some((tab) => tab.id === restored.activeTabId)).toBe(true);
+  });
+
+  it("preserves the user's tab order regardless of activity timestamps", () => {
+    let state = createSession("session-a", "https://linux.do/latest", 100);
+    state = upsertTopicTab(state, { topicId: "1", url: "/t/topic/1", title: "One" }, 101);
+    state = upsertTopicTab(state, { topicId: "2", url: "/t/topic/2", title: "Two" }, 102);
+    state = upsertTopicTab(state, { topicId: "3", url: "/t/topic/3", title: "Three" }, 103);
+    state.tabs = [state.tabs[2]!, state.tabs[0]!, state.tabs[1]!];
+    state.tabs[1]!.lastActiveAt = 999;
+
+    const restored = normalizeSession(structuredClone(state), createSession("fallback", "/", 1_000));
+    expect(restored.tabs.map((tab) => tab.id)).toEqual(["topic-3", "topic-1", "topic-2"]);
+
+    const reopened = upsertTopicTab(restored, { topicId: "1", url: "/t/topic/1/8", title: "One" }, 1_001);
+    expect(reopened.tabs.map((tab) => tab.id)).toEqual(["topic-3", "topic-1", "topic-2"]);
   });
 
   it("selects an adjacent tab after closing the active tab", () => {

@@ -86,6 +86,7 @@ describe("topic tab category colors", () => {
     expect(root.querySelector(".ldu-tab-pin")).toBeNull();
     expect(root.querySelector(".ldu-tab-button")).not.toBeNull();
     expect(root.querySelector(".ldu-tab-close")).not.toBeNull();
+    expect(root.querySelector(".ldu-tab-close .ldu-symbol-close")).not.toBeNull();
   });
 
   it("opens the custom menu on right click without activating the tab", () => {
@@ -100,5 +101,47 @@ describe("topic tab category colors", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(onContextMenu).toHaveBeenCalledWith("topic-1", 80, 90);
     expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("computes each sidebar category color only once per cached render", () => {
+    addCategory("/c/develop/4", "开发调优", "rgb(50, 195, 195)");
+    const getComputedStyle = vi.spyOn(window, "getComputedStyle");
+    const root = document.createElement("div");
+    renderTabStrip(root, [
+      tab("帖子 A - 开发调优 - LINUX DO"),
+      { ...tab("帖子 B - 开发调优 - LINUX DO"), id: "topic-2", topicId: "2" },
+    ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn() });
+
+    const callsAfterFirstRender = getComputedStyle.mock.calls.length;
+    renderTabStrip(root, [tab("帖子 C - 开发调优 - LINUX DO")], "topic-1", {
+      onActivate: vi.fn(), onClose: vi.fn(),
+    });
+    expect(getComputedStyle.mock.calls.length).toBe(callsAfterFirstRender);
+  });
+
+  it("commits one reorder only when a dragged tab is dropped", () => {
+    const root = document.createElement("div");
+    const onReorder = vi.fn();
+    renderTabStrip(root, [
+      tab("One"),
+      { ...tab("Two"), id: "topic-2", topicId: "2" },
+      { ...tab("Three"), id: "topic-3", topicId: "3" },
+    ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn(), onReorder });
+    const items = [...root.querySelectorAll<HTMLElement>(".ldu-tab-item")];
+    vi.spyOn(items[1]!, "getBoundingClientRect").mockReturnValue({
+      x: 100, y: 0, left: 100, top: 0, right: 200, bottom: 38, width: 100, height: 38,
+      toJSON: () => ({}),
+    });
+
+    items[0]!.dispatchEvent(new Event("dragstart", { bubbles: true, cancelable: true }));
+    items[1]!.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX: 190 }));
+    items[1]!.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX: 190 }));
+    expect(items[1]!.classList.contains("is-drop-after")).toBe(true);
+    expect(onReorder).not.toHaveBeenCalled();
+
+    items[1]!.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
+    expect(onReorder).toHaveBeenCalledOnce();
+    expect(onReorder).toHaveBeenCalledWith("topic-1", "topic-2", "after");
+    expect(root.querySelector(".is-dragging, .is-drop-before, .is-drop-after")).toBeNull();
   });
 });

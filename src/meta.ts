@@ -14,4 +14,5 @@ export const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_xmlhttpRequest
 // @connect      *
 // @run-at       document-start
+// @noframes
 // ==/UserScript==`;

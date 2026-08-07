@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ListFrameController } from "../src/tabs/list-frame";
 
 describe("independent list frame", () => {
-  it("creates one same-origin frame and accepts only its own messages", () => {
+  it("accepts only messages from its managed frame", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const onMessage = vi.fn();
@@ -19,11 +19,26 @@ describe("independent list frame", () => {
     controller.handleMessage(message);
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ scrollY: 120 }), iframe);
 
-    const wrongSource = new MessageEvent("message", {
+    const wrappedSource = new MessageEvent("message", {
       data: { type: "ldu:list-state", frameId: "session-1", url: "https://linux.do/" },
       origin: location.origin,
     });
-    controller.handleMessage(wrongSource);
+    Object.defineProperty(wrappedSource, "source", { value: window });
+    controller.handleMessage(wrappedSource);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+
+    const wrongFrame = new MessageEvent("message", {
+      data: { type: "ldu:list-state", frameId: "another-session", url: "https://linux.do/" },
+      origin: location.origin,
+    });
+    controller.handleMessage(wrongFrame);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+
+    const foreignOrigin = new MessageEvent("message", {
+      data: { type: "ldu:list-state", frameId: "session-1", url: "https://linux.do/" },
+      origin: "https://attacker.example",
+    });
+    controller.handleMessage(foreignOrigin);
     expect(onMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -55,7 +70,7 @@ describe("independent list frame", () => {
     expect(iframe.src).toBe(new URL("/latest", location.href).href);
   });
 
-  it("retries list scroll restoration while asynchronous content is still growing", () => {
+  it("restores list scroll once without repeatedly driving incremental loading", () => {
     vi.useFakeTimers();
     const container = document.createElement("div");
     document.body.append(container);
@@ -68,9 +83,9 @@ describe("independent list frame", () => {
     });
 
     controller.restoreScroll(1200);
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(5_000);
 
-    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
     controller.destroy();
     vi.useRealTimers();
   });

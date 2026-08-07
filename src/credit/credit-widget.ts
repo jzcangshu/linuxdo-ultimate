@@ -1,6 +1,8 @@
 interface CreditWidgetOptions {
   request?: (url: string) => Promise<unknown>;
   isTopLevel?: () => boolean;
+  isVisible?: () => boolean;
+  now?: () => number;
 }
 
 interface CreditUserInfo {
@@ -17,6 +19,16 @@ interface GamificationInfo {
 }
 
 const REFRESH_INTERVAL_MS = 300_000;
+const SHARED_CACHE_TTL_MS = 60_000;
+const SHARED_CACHE_KEY = "linuxdo-ultimate:credit-cache:v1";
+const SHARED_REQUEST_LOCK = "linuxdo-ultimate:credit-refresh";
+
+interface CreditSnapshot {
+  communityBalance: number;
+  gamificationScore: number;
+  username: string;
+  updatedAt: number;
+}
 
 export class CreditWidget {
   private host: HTMLLIElement | null = null;
@@ -27,7 +39,10 @@ export class CreditWidget {
   private gamificationScore: number | null = null;
   private username: string | null = null;
   private tooltipContent = "加载中...";
-  private intervalId: number | null = null;
+  private timeoutId: number | null = null;
+  private inFlight: Promise<void> | null = null;
+  private requestGeneration = 0;
+  private activeRequestController: AbortController | null = null;
   private mounted = false;
   private enabled = false;
 
@@ -37,6 +52,7 @@ export class CreditWidget {
     if (this.mounted || !(this.options.isTopLevel?.() ?? window.self === window.top)) return;
     this.mounted = true;
     this.createWidget();
+    document.addEventListener("visibilitychange", () => this.handleVisibilityChange());
     this.ensureHost();
     this.setEnabled(enabled);
   }
@@ -58,8 +74,11 @@ export class CreditWidget {
     if (this.host) this.host.hidden = !enabled;
     if (this.tooltip) this.tooltip.hidden = true;
     if (!enabled) {
-      if (this.intervalId !== null) window.clearInterval(this.intervalId);
-      this.intervalId = null;
+      this.requestGeneration += 1;
+      this.activeRequestController?.abort();
+      this.activeRequestController = null;
+      this.inFlight = null;
+      this.clearSchedule();
       return;
     }
     this.ensureHost();
@@ -67,9 +86,8 @@ export class CreditWidget {
   }
 
   private startUpdates(): void {
-    if (this.intervalId !== null) return;
-    void this.fetchData();
-    this.intervalId = window.setInterval(() => void this.fetchData(), REFRESH_INTERVAL_MS);
+    if (!this.enabled || !this.isVisible() || this.inFlight || this.timeoutId !== null) return;
+    void this.fetchData(false);
   }
 
   private createWidget(): void {
@@ -111,7 +129,7 @@ export class CreditWidget {
     button.addEventListener("blur", hideTooltip);
     button.addEventListener("click", () => {
       this.setLoading("刷新中...");
-      void this.fetchData();
+      void this.fetchData(true);
     });
 
     this.host = host;
@@ -120,34 +138,120 @@ export class CreditWidget {
     this.tooltip = tooltip;
   }
 
-  private async fetchData(): Promise<void> {
-    if (!this.enabled) return;
+  private fetchData(force: boolean): Promise<void> {
+    if (!this.enabled || !this.isVisible()) return Promise.resolve();
+    if (this.inFlight) return this.inFlight;
+    const generation = ++this.requestGeneration;
+    const startedAt = this.now();
+    const controller = new AbortController();
+    this.activeRequestController = controller;
+    const task = (async () => {
+      try {
+        const cached = !force ? this.readSharedSnapshot() : null;
+        const snapshot = cached ?? await this.fetchSnapshotCoordinated(force, startedAt, controller.signal);
+        if (!this.enabled || generation !== this.requestGeneration) return;
+        this.communityBalance = snapshot.communityBalance;
+        this.gamificationScore = snapshot.gamificationScore;
+        this.username = snapshot.username;
+        if (!cached) this.writeSharedSnapshot(snapshot);
+        this.updateDisplay();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error("[Linux.do Ultimate] LDC request failed", error);
+        if (this.enabled && generation === this.requestGeneration) this.showError();
+      }
+    })().finally(() => {
+      if (this.activeRequestController === controller) this.activeRequestController = null;
+      if (this.inFlight === task) this.inFlight = null;
+      if (!this.enabled || !this.isVisible()) return;
+      if (generation !== this.requestGeneration) this.startUpdates();
+      else this.scheduleNext();
+    });
+    this.inFlight = task;
+    return task;
+  }
+
+  private async fetchSnapshotCoordinated(force: boolean, startedAt: number, signal: AbortSignal): Promise<CreditSnapshot> {
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    if (!locks) return this.fetchSnapshot(signal);
+    return locks.request(SHARED_REQUEST_LOCK, { signal }, async () => {
+      const shared = this.readSharedSnapshot();
+      if (shared && (!force || shared.updatedAt >= startedAt)) return shared;
+      const snapshot = await this.fetchSnapshot(signal);
+      this.writeSharedSnapshot(snapshot);
+      return snapshot;
+    });
+  }
+
+  private async fetchSnapshot(signal: AbortSignal): Promise<CreditSnapshot> {
+    const credit = await this.request<CreditUserInfo>("https://credit.linux.do/api/v1/oauth/user-info", signal);
+    const rawBalance = credit?.data?.["community-balance"] ?? credit?.data?.community_balance;
+    const username = credit?.data?.username ?? credit?.data?.nickname;
+    const communityBalance = Number.parseFloat(String(rawBalance));
+    if (!username || !Number.isFinite(communityBalance)) throw new Error("invalid credit response");
+    const data = await this.request<GamificationInfo>(`https://linux.do/u/${encodeURIComponent(username)}.json`, signal);
+    const gamificationScore = Number.parseFloat(String(data?.user?.gamification_score));
+    if (!Number.isFinite(gamificationScore)) throw new Error("invalid gamification response");
+    return { communityBalance, gamificationScore, username, updatedAt: this.now() };
+  }
+
+  private scheduleNext(): void {
+    this.clearSchedule();
+    this.timeoutId = window.setTimeout(() => {
+      this.timeoutId = null;
+      void this.fetchData(false);
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  private clearSchedule(): void {
+    if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
+    this.timeoutId = null;
+  }
+
+  private handleVisibilityChange(): void {
+    if (!this.isVisible()) {
+      this.clearSchedule();
+      return;
+    }
+    if (this.enabled) this.startUpdates();
+  }
+
+  private isVisible(): boolean {
+    return this.options.isVisible?.() ?? document.visibilityState !== "hidden";
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  private readSharedSnapshot(): CreditSnapshot | null {
     try {
-      const credit = await this.request<CreditUserInfo>("https://credit.linux.do/api/v1/oauth/user-info");
-      if (!credit?.data) return;
-      this.communityBalance = Number.parseFloat(String(
-        credit.data["community-balance"] ?? credit.data.community_balance ?? 0,
-      ));
-      this.username = credit.data.username ?? credit.data.nickname ?? null;
-      this.updateDisplay();
-      if (this.username) await this.fetchGamification();
-    } catch (error) {
-      console.error("[Linux.do Ultimate] Credit request failed", error);
-      this.showError();
+      const raw = localStorage.getItem(SHARED_CACHE_KEY);
+      if (raw === null) return null;
+      const value = JSON.parse(raw) as Partial<CreditSnapshot> | null;
+      if (
+        !value
+        || this.now() - Number(value.updatedAt) >= SHARED_CACHE_TTL_MS
+        || !Number.isFinite(value.communityBalance)
+        || !Number.isFinite(value.gamificationScore)
+        || typeof value.username !== "string"
+      ) {
+        this.clearSharedSnapshot();
+        return null;
+      }
+      return value as CreditSnapshot;
+    } catch {
+      this.clearSharedSnapshot();
+      return null;
     }
   }
 
-  private async fetchGamification(): Promise<void> {
-    try {
-      const data = await this.request<GamificationInfo>(
-        `https://linux.do/u/${encodeURIComponent(this.username ?? "")}.json`,
-      );
-      if (data?.user?.gamification_score === undefined) return;
-      this.gamificationScore = Number.parseFloat(String(data.user.gamification_score));
-      this.updateDisplay();
-    } catch (error) {
-      console.error("[Linux.do Ultimate] Gamification request failed", error);
-    }
+  private clearSharedSnapshot(): void {
+    try { localStorage.removeItem(SHARED_CACHE_KEY); } catch { /* optional cache */ }
+  }
+
+  private writeSharedSnapshot(snapshot: CreditSnapshot): void {
+    try { localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(snapshot)); } catch { /* optional cache */ }
   }
 
   private updateDisplay(): void {
@@ -173,28 +277,43 @@ export class CreditWidget {
     this.tooltipContent = "请求失败，请确认已登录";
   }
 
-  private request<T>(url: string): Promise<T> {
+  private request<T>(url: string, signal: AbortSignal): Promise<T> {
     if (this.options.request) return this.options.request(url) as Promise<T>;
-    const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-    const headers = {
-      Accept: "application/json",
-      ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
-    };
+    const headers: Record<string, string> = { Accept: "application/json" };
     if (url.startsWith(location.origin)) {
-      return fetch(url, { credentials: "include", headers }).then((response) => {
+      const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+      if (csrfToken) headers["x-csrf-token"] = csrfToken;
+      return fetch(url, { credentials: "include", headers, signal }).then((response) => {
         if (!response.ok) throw new Error(String(response.status));
         return response.json() as Promise<T>;
-      }).catch(() => this.requestWithUserscript<T>(url, headers));
+      }).catch((error) => signal.aborted ? Promise.reject(error) : this.requestWithUserscript<T>(url, headers, signal));
     }
-    return this.requestWithUserscript<T>(url, headers);
+    return this.requestWithUserscript<T>(url, headers, signal);
   }
 
-  private requestWithUserscript<T>(url: string, headers: Record<string, string>): Promise<T> {
+  private requestWithUserscript<T>(url: string, headers: Record<string, string>, signal: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== "function") {
         reject(new Error("GM_xmlhttpRequest is unavailable"));
         return;
       }
+      let settled = false;
+      let handle: ReturnType<typeof GM_xmlhttpRequest> | null = null;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        callback();
+      };
+      const abort = () => {
+        try { handle?.abort(); } catch { /* request is already closing */ }
+        finish(() => reject(new DOMException("Aborted", "AbortError")));
+      };
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      signal.addEventListener("abort", abort, { once: true });
       const request = {
         method: "GET",
         url,
@@ -203,15 +322,20 @@ export class CreditWidget {
         timeout: 10_000,
         onload: (response) => {
           if (response.status !== 200) {
-            reject(new Error(String(response.status)));
+            finish(() => reject(new Error(String(response.status))));
             return;
           }
-          try { resolve(JSON.parse(response.responseText) as T); } catch (error) { reject(error); }
+          try {
+            const value = JSON.parse(response.responseText) as T;
+            finish(() => resolve(value));
+          } catch (error) {
+            finish(() => reject(error));
+          }
         },
-        onerror: reject,
-        ontimeout: () => reject(new Error("timeout")),
+        onerror: (error) => finish(() => reject(error)),
+        ontimeout: () => finish(() => reject(new Error("timeout"))),
       } as Parameters<typeof GM_xmlhttpRequest>[0] & { withCredentials: boolean };
-      GM_xmlhttpRequest(request);
+      handle = GM_xmlhttpRequest(request);
     });
   }
 }

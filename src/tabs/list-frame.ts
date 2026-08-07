@@ -19,11 +19,12 @@ export class ListFrameController {
   private restoreScrollY = 0;
   private restoreTimer: number | null = null;
   private restoreDeadline = 0;
+  private bridgeCleanup: (() => void) | null = null;
 
   constructor(
     private readonly container: HTMLElement,
     private readonly frameId: string,
-    private readonly onMessage: (message: ListFrameMessage, iframe: HTMLIFrameElement) => void,
+    private readonly onMessage: (message: ListFrameMessage, iframe: HTMLIFrameElement) => boolean,
   ) {}
 
   mount(url: string): HTMLIFrameElement {
@@ -34,8 +35,17 @@ export class ListFrameController {
       iframe.title = "帖子列表和站内页面";
       iframe.dataset.frameId = this.frameId;
       iframe.addEventListener("load", () => {
+        this.bridgeCleanup?.();
+        this.bridgeCleanup = null;
+        try {
+          if (iframe.contentWindow && iframe.contentDocument) {
+            this.bridgeCleanup = installListFrameBridge(iframe.contentWindow, iframe.contentDocument, this.frameId);
+          }
+        } catch {
+          // A cross-origin error page cannot be bridged; normal same-origin navigation can recover on the next load.
+        }
         this.sendPreviewConfig(iframe);
-        this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
+        iframe.dataset.lduReady = "true";
       });
       this.iframe = iframe;
       this.container.append(iframe);
@@ -43,6 +53,9 @@ export class ListFrameController {
     const requestedUrl = this.resolveSameOrigin(url) ?? new URL("/", location.href);
     const requested = requestedUrl.href;
     if (this.iframe.src !== requested && this.reportedUrl !== requested) {
+      this.bridgeCleanup?.();
+      this.bridgeCleanup = null;
+      delete this.iframe.dataset.lduReady;
       this.reportedUrl = "";
       this.iframe.src = requested;
     }
@@ -59,6 +72,9 @@ export class ListFrameController {
     }
     const requested = target.href;
     if (this.iframe.src === requested || this.reportedUrl === requested) return;
+    this.bridgeCleanup?.();
+    this.bridgeCleanup = null;
+    delete this.iframe.dataset.lduReady;
     this.reportedUrl = "";
     this.iframe.src = requested;
   }
@@ -80,15 +96,22 @@ export class ListFrameController {
   handleMessage(event: MessageEvent): void {
     const data = event.data as Partial<ListFrameMessage> | null;
     if (!data || !["ldu:list-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
-    if (data.frameId !== this.frameId || !this.iframe || event.source !== this.iframe.contentWindow || event.origin !== location.origin) return;
+    if (data.frameId !== this.frameId || !this.iframe || event.origin !== location.origin || event.source !== this.iframe.contentWindow) return;
     if ((data.type === "ldu:list-ready" || data.type === "ldu:list-state") && data.url) {
       try { this.reportedUrl = new URL(data.url, document.baseURI).href; } catch { this.reportedUrl = ""; }
     }
-    this.onMessage(data as ListFrameMessage, this.iframe);
+    const accepted = this.onMessage(data as ListFrameMessage, this.iframe);
+    if (accepted && typeof (data as { requestId?: unknown }).requestId === "string") {
+      this.iframe.contentWindow?.postMessage({
+        type: "ldu:navigation-ack",
+        frameId: this.frameId,
+        requestId: (data as { requestId: string }).requestId,
+      }, location.origin);
+    }
   }
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
-    iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.frameConfig }, location.origin);
+    iframe.contentWindow?.postMessage({ type: "ldu:preview-config", frameId: this.frameId, ...this.frameConfig }, location.origin);
   }
 
   private resolveSameOrigin(url: string): URL | null {
@@ -106,16 +129,9 @@ export class ListFrameController {
     if (!iframe?.contentWindow || target <= 0) return;
     if (this.restoreTimer !== null) window.clearTimeout(this.restoreTimer);
     iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
-    if (Math.abs(iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= this.restoreDeadline) {
-      this.restoreScrollY = 0;
-      this.restoreDeadline = 0;
-      this.restoreTimer = null;
-      return;
-    }
-    this.restoreTimer = window.setTimeout(() => {
-      this.restoreTimer = null;
-      if (this.iframe === iframe) this.attemptScrollRestore();
-    }, 100);
+    this.restoreScrollY = 0;
+    this.restoreDeadline = 0;
+    this.restoreTimer = null;
   }
 
   destroy(): void {
@@ -123,8 +139,11 @@ export class ListFrameController {
     this.restoreTimer = null;
     this.restoreScrollY = 0;
     this.restoreDeadline = 0;
+    this.bridgeCleanup?.();
+    this.bridgeCleanup = null;
     this.iframe?.remove();
     this.iframe = null;
     this.reportedUrl = "";
   }
 }
+import { installListFrameBridge } from "../frame-runtime";

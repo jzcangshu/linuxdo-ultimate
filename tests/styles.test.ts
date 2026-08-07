@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/core/defaults";
-import { APP_STYLES } from "../src/ui/styles";
+import { APP_STYLES, LIST_FRAME_STYLES, TOPIC_FRAME_STYLES } from "../src/ui/styles";
 
 describe("split reading styles", () => {
   it("allocates the topic and list panes with adaptive proportions", () => {
@@ -11,26 +11,27 @@ describe("split reading styles", () => {
   });
 
   it("keeps a compact Discourse timeline in embedded topic geometry", () => {
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-areas:\s*"content"/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(7\.5rem,\s*16%\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-areas:\s*"posts timeline"/s);
-    expect(APP_STYLES).not.toMatch(/data-ldu-embedded-topic[^}]+\.topic-(?:navigation|timeline)[^}]+display:\s*none/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-x:\s*hidden/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+#main-outlet-wrapper[^}]+grid-template-areas:\s*"content"/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(7\.5rem,\s*16%\)/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-areas:\s*"posts timeline"/s);
+    expect(TOPIC_FRAME_STYLES).not.toMatch(/data-ldu-embedded-topic[^}]+\.topic-(?:navigation|timeline)[^}]+display:\s*none/s);
+    expect(LIST_FRAME_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-x:\s*hidden/s);
   });
 
   it("stacks timeline footer actions into a compact two-row grid", () => {
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+display:\s*grid/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.show-summary[^}]+grid-column:\s*1\s*\/\s*-1/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+display:\s*grid/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.timeline-footer-controls[^}]+grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+    expect(TOPIC_FRAME_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.show-summary[^}]+grid-column:\s*1\s*\/\s*-1/s);
   });
 
   it("uses the forum body size for topic tabs", () => {
     expect(APP_STYLES).toMatch(/\.ldu-tab-button\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);
     expect(APP_STYLES).not.toContain(".ldu-tab-pin");
-    expect(APP_STYLES).toMatch(/\.ldu-tab-strip\s*\{[^}]+gap:\s*3px/s);
+    expect(APP_STYLES).toMatch(/\.ldu-tab-strip\s*\{[^}]+gap:\s*4px/s);
     expect(APP_STYLES).toMatch(/\.ldu-tab-item\s*\{[^}]+flex:\s*1 1 0/s);
-    expect(APP_STYLES).toMatch(/\.ldu-tab-item\s*\{[^}]+min-width:\s*72px/s);
+    expect(APP_STYLES).toMatch(/\.ldu-tab-item\s*\{[^}]+min-width:\s*0/s);
+    expect(APP_STYLES).toMatch(/\.ldu-tab-strip\s*\{[^}]+overflow:\s*hidden/s);
     expect(APP_STYLES).not.toMatch(/\.ldu-tab-item\s*\{[^}]+width:\s*min\(210px/s);
     expect(APP_STYLES).toMatch(/\.ldu-tab-strip\.is-category-colors-enabled \.ldu-tab-item\s*\{[^}]+color-mix\(in srgb,\s*var\(--ldu-tab-category-color\)\s*14%,\s*transparent\)/s);
     expect(APP_STYLES).toMatch(/\.ldu-tab-strip\.is-category-colors-enabled \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset 0 -3px/s);
@@ -43,6 +44,7 @@ describe("split reading styles", () => {
   });
 
   it("aligns the header to the viewport and keeps settings in the header", () => {
+    expect(APP_STYLES).toContain("--ldu-header-height: var(--header-offset, 52px)");
     expect(APP_STYLES).toMatch(/ldu-layout-active[^}]+\.d-header \.wrap[^}]+max-width:\s*none/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-host\s*\{[^}]+position:\s*relative/s);
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-host\s*\{[^}]+bottom:\s*12px/s);
@@ -56,7 +58,7 @@ describe("split reading styles", () => {
 
   it("keeps Discourse infinite loading on the independent list-frame scroll root", () => {
     expect(APP_STYLES).toMatch(/body\.ldu-layout-active\s*\{[^}]+overflow-y:\s*hidden\s*!important/s);
-    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-y:\s*auto\s*!important/s);
+    expect(LIST_FRAME_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-y:\s*auto\s*!important/s);
     expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+height:\s*100%/s);
     expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+max-height:\s*none\s*!important/s);
     expect(APP_STYLES).toMatch(/#ldu-layout-shell\s*\{[^}]+position:\s*fixed/s);
@@ -78,5 +80,10 @@ describe("split reading styles", () => {
     expect(APP_STYLES).not.toContain("width: min(600px");
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel\s*\{[^}]+max-height:/s);
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel \.dc-body\s*\{[^}]+overflow(?:-y)?:/s);
+    expect(APP_STYLES).toMatch(/@media \(max-height:\s*760px\)[^{]+\{[\s\S]+\.ldu-settings-panel \.dc-body\s*\{[^}]+grid-template-columns:\s*repeat\(2,/);
+  });
+
+  it("suppresses the native single-column page while a saved split workspace mounts", () => {
+    expect(APP_STYLES).toMatch(/html\.ldu-split-booting[^}]+#main-container[^}]+visibility:\s*hidden/s);
   });
 });

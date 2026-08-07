@@ -17,12 +17,20 @@
 // @run-at       document-start
 // ==/UserScript==
 
+import { iconSvg } from "../ui/icons";
+
 export function installLinkHoverPreviewer(options) {
     'use strict';
     options = options || {};
+    let installationDestroyed = false;
+    const listenerDisposers = [];
+    const listen = (target, type, listener, listenerOptions) => {
+        target.addEventListener(type, listener, listenerOptions);
+        listenerDisposers.push(() => target.removeEventListener(type, listener, listenerOptions));
+    };
 
     // LDU ADAPTATION: the parent app owns enablement, click mode and link routing.
-    const isPreviewEnabled = () => options.isEnabled ? options.isEnabled() : true;
+    const isPreviewEnabled = () => !installationDestroyed && (options.isEnabled ? options.isEnabled() : true);
     const syncClickMode = () => {
         if (options.clickMode) isSingleClickPreviewEnabled = options.clickMode() === 'single';
     };
@@ -36,10 +44,10 @@ export function installLinkHoverPreviewer(options) {
     const CACHE_EXPIRE_TIME = 5 * 60 * 1000; // 内存缓存 5 分钟有效
     const CACHE_MAX_ENTRIES = 15;            // 缓存条目上限 (LRU 淘汰，防止内存无限增长)
     const CACHE_MAX_BYTES = 20 * 1024 * 1024; // 缓存总体积上限 20MB (与条目数双重封顶)
+    const MAX_RESPONSE_BYTES = 8 * 1024 * 1024; // 悬停预热与跨域抓取的单响应上限
+    const PREVIEW_LIVE_FRAMES = 3;             // 只暂停后台 iframe，不限制标签总数
     const TOKEN_PLACEHOLDER = '__AGY_TOKEN__'; // 预处理 HTML 中的令牌占位符，打开时替换为真实令牌
     const BOOKMARK_KEY = 'agy_bookmarks';    // 书签持久化存储键
-    const HIDDEN_TOPIC_KEY = 'agy_linux_hidden_topics'; // linux.do 本地隐藏主题存储键
-    const HIDDEN_TOPIC_STYLE_ID = 'agy-linux-hidden-topic-style'; // 按主题 ID 强制隐藏，抵抗 Discourse 重写行 class
     const PREVIEW_POSITION_KEY = 'agy_preview_position'; // 预览窗跨站共享位置
     const PREVIEW_MAXIMIZED_KEY = 'agy_preview_maximized'; // 预览窗最大化状态跨站共享
     const WINDOW_MARGIN = 8;                  // 窗口与视口边缘的最小距离
@@ -164,16 +172,17 @@ export function installLinkHoverPreviewer(options) {
         }, { once: true });
     }
 
-    // 简约线条图标
-    const ICON_EXTERNAL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    const ICON_BOOKMARK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_BOOKMARK_FILLED = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    const ICON_LIST = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
-    const ICON_CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-    const ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_RESTORE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    const ICON_THUMBS_UP = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
-    const ICON_THUMBS_DOWN = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
+    // LDU ADAPTATION: all operation icons share the parent project's visual system.
+    const ICON_EXTERNAL = iconSvg('external', 18);
+    const ICON_BOOKMARK = iconSvg('bookmark', 18);
+    const ICON_BOOKMARK_FILLED = iconSvg('bookmark-filled', 18);
+    const ICON_LIST = iconSvg('list', 18);
+    const ICON_CHECK = iconSvg('check', 18);
+    const ICON_MAXIMIZE = iconSvg('maximize', 18);
+    const ICON_RESTORE = iconSvg('restore', 18);
+    const ICON_REFRESH = iconSvg('refresh', 18);
+    const ICON_CLOSE = iconSvg('close', 18);
+    const ICON_TRASH = iconSvg('trash', 16);
 
     // linux.do 列表紧凑布局：保留原生搜索组件，只调整其位置和周围空间。
     // 通过 CSS 网格重排统计列，避免改写 Discourse 的列表 DOM 与事件模型。
@@ -353,7 +362,7 @@ export function installLinkHoverPreviewer(options) {
                 grid-template-columns: 58px 52px 48px minmax(0, 1fr) !important;
             }
         }
-    `;
+`;
 
     // 站点定制规则：预览特定网站时自动注入的 CSS (只影响预览显示，绝不改动网站真实状态)
     const SITE_RULES = [
@@ -425,17 +434,12 @@ export function installLinkHoverPreviewer(options) {
     let swallowClickResetTimer = null;
     let pointerOpenedGesture = false; // 双击手势已在第二次按下瞬间打开预览，click 阶段仅吞事件
     let pointerShieldTimer = null;    // 单击预览打开后短暂让窗口对指针透明的定时器
-    let hiddenLinuxTopicIds = null;
-    let linuxHiddenTopicStyle = null;
-    let linuxTopicObserver = null;
-    let linuxTopicClassObserver = null;
-    let linuxObservedTopicList = null;
-    let linuxTopicScanTimer = null;
-    const pendingLinuxTopicRows = new Set();
-    let linuxTopicEnhancementInstalled = false;
     let isPreviewMaximized = loadPreviewMaximizedState();
 
     const cacheMap = new Map(); // 内存缓存 Map (存储跨域获取的 HTML 数据)
+    let cacheCleanupTimer = null;
+    let cacheCleanupDeadline = 0;
+    let injectedStyle = null;
 
     let lastEventTime = 0;
     const THROTTLE_LIMIT = 50;  // hover 事件节流锁 (毫秒)
@@ -469,61 +473,6 @@ export function installLinkHoverPreviewer(options) {
         } catch (e) {
             try { localStorage.setItem(BOOKMARK_KEY, s); } catch (error) {}
         }
-        syncLinuxTopicBookmarkStates();
-    }
-
-    function loadHiddenLinuxTopicIds() {
-        if (hiddenLinuxTopicIds) return hiddenLinuxTopicIds;
-        let stored = null;
-        try {
-            if (typeof GM_getValue === 'function') stored = GM_getValue(HIDDEN_TOPIC_KEY, '[]');
-        } catch (e) {}
-        if (stored === null) {
-            try { stored = localStorage.getItem(HIDDEN_TOPIC_KEY); } catch (e) {}
-        }
-        try {
-            const list = typeof stored === 'string' ? JSON.parse(stored || '[]') : stored;
-            hiddenLinuxTopicIds = new Set(Array.isArray(list) ? list.map(String) : []);
-        } catch (e) {
-            hiddenLinuxTopicIds = new Set();
-        }
-        return hiddenLinuxTopicIds;
-    }
-
-    function syncLinuxHiddenTopicStyle() {
-        if (!IS_TOP || !/(^|\.)linux\.do$/i.test(location.hostname)) return;
-        if (!linuxHiddenTopicStyle || !linuxHiddenTopicStyle.isConnected) {
-            linuxHiddenTopicStyle = document.getElementById(HIDDEN_TOPIC_STYLE_ID);
-        }
-        if (!linuxHiddenTopicStyle) {
-            const styleParent = document.head || document.documentElement;
-            if (!styleParent) return;
-            linuxHiddenTopicStyle = document.createElement('style');
-            linuxHiddenTopicStyle.id = HIDDEN_TOPIC_STYLE_ID;
-            styleParent.appendChild(linuxHiddenTopicStyle);
-        }
-        const selectors = Array.from(loadHiddenLinuxTopicIds(), topicId => {
-            if (!/^\d+$/.test(topicId)) return '';
-            return `.topic-list .topic-list-item[data-topic-id="${topicId}"]`;
-        }).filter(Boolean);
-        linuxHiddenTopicStyle.textContent = selectors.length
-            ? `${selectors.join(',\n')} { display: none !important; }`
-            : '';
-    }
-
-    function saveHiddenLinuxTopicIds() {
-        const list = Array.from(loadHiddenLinuxTopicIds());
-        const s = JSON.stringify(list);
-        try {
-            if (typeof GM_setValue === 'function') {
-                GM_setValue(HIDDEN_TOPIC_KEY, s);
-            } else {
-                localStorage.setItem(HIDDEN_TOPIC_KEY, s);
-            }
-        } catch (e) {
-            try { localStorage.setItem(HIDDEN_TOPIC_KEY, s); } catch (error) {}
-        }
-        syncLinuxHiddenTopicStyle();
     }
 
     function isBookmarked(url) {
@@ -597,228 +546,10 @@ export function installLinkHoverPreviewer(options) {
         }, 500);
     }
 
-    function getLinuxTopicInfo(row) {
-        if (!row) return null;
-        const topicId = String(row.dataset.topicId || '').trim();
-        const link = row.querySelector('a.raw-topic-link[href]');
-        const titleLine = link && link.closest('.link-top-line');
-        if (!topicId || !link || !titleLine) return null;
-        let url = '';
-        try {
-            const parsed = new URL(link.getAttribute('href'), location.origin);
-            url = `${parsed.origin}${parsed.pathname}`;
-        } catch (e) {
-            return null;
-        }
-        return {
-            topicId,
-            url,
-            title: (link.textContent || '').trim() || url,
-            titleLine
-        };
-    }
-
-    function syncLinuxTopicBookmarkStates() {
-        if (!IS_TOP || !/(^|\.)linux\.do$/i.test(location.hostname)) return;
-        const bookmarkedUrls = new Set(loadBookmarks().map(bookmark => bookmark.url));
-        document.querySelectorAll('.agy-linux-topic-actions').forEach(actions => {
-            const upButton = actions.querySelector('.agy-linux-topic-up');
-            if (!upButton) return;
-            const isActive = bookmarkedUrls.has(actions.dataset.topicUrl || '');
-            upButton.classList.toggle('agy-is-bookmarked', isActive);
-            upButton.setAttribute('aria-pressed', String(isActive));
-            upButton.title = isActive ? '取消收藏此帖子' : '收藏此帖子';
-            upButton.setAttribute('aria-label', upButton.title);
-        });
-    }
-
-    function enhanceLinuxTopicRow(row, bookmarkedUrls, hiddenTopicIds) {
-        const info = getLinuxTopicInfo(row);
-        if (!info) return;
-
-        const isHidden = hiddenTopicIds.has(info.topicId);
-        row.classList.toggle('agy-linux-topic-hidden', isHidden);
-        if (isHidden) return;
-
-        let actions = row.querySelector('.agy-linux-topic-actions');
-        if (actions && actions.dataset.agyTopicId !== info.topicId) {
-            actions.remove();
-            actions = null;
-        }
-        if (!actions) {
-            actions = document.createElement('span');
-            actions.className = 'agy-linux-topic-actions';
-
-            const upButton = document.createElement('button');
-            upButton.type = 'button';
-            upButton.className = 'agy-linux-topic-action agy-linux-topic-up';
-            upButton.dataset.action = 'bookmark';
-            upButton.innerHTML = ICON_THUMBS_UP;
-
-            const downButton = document.createElement('button');
-            downButton.type = 'button';
-            downButton.className = 'agy-linux-topic-action agy-linux-topic-down';
-            downButton.dataset.action = 'hide';
-            downButton.title = '隐藏此帖子，刷新后仍不显示';
-            downButton.setAttribute('aria-label', downButton.title);
-            downButton.innerHTML = ICON_THUMBS_DOWN;
-
-            actions.appendChild(upButton);
-            actions.appendChild(downButton);
-            info.titleLine.prepend(actions);
-        }
-
-        if (actions.dataset.agyTopicId !== info.topicId) actions.dataset.agyTopicId = info.topicId;
-        if (actions.dataset.topicUrl !== info.url) actions.dataset.topicUrl = info.url;
-        if (actions.dataset.topicTitle !== info.title) actions.dataset.topicTitle = info.title;
-        const upButton = actions.querySelector('.agy-linux-topic-up');
-        const isBookmarkedTopic = bookmarkedUrls.has(info.url);
-        upButton.classList.toggle('agy-is-bookmarked', isBookmarkedTopic);
-        upButton.setAttribute('aria-pressed', String(isBookmarkedTopic));
-        upButton.title = isBookmarkedTopic ? '取消收藏此帖子' : '收藏此帖子';
-        upButton.setAttribute('aria-label', upButton.title);
-    }
-
-    function collectLinuxTopicRows(node) {
-        if (!node || node.nodeType !== 1) return;
-        if (node.matches('.topic-list-item[data-topic-id]')) pendingLinuxTopicRows.add(node);
-        const containingRow = node.closest('.topic-list-item[data-topic-id]');
-        if (containingRow) pendingLinuxTopicRows.add(containingRow);
-        node.querySelectorAll('.topic-list-item[data-topic-id]').forEach(row => {
-            pendingLinuxTopicRows.add(row);
-        });
-    }
-
-    function scanLinuxTopicRows() {
-        linuxTopicScanTimer = null;
-        if (!pendingLinuxTopicRows.size) return;
-        const bookmarkedUrls = new Set(loadBookmarks().map(bookmark => bookmark.url));
-        const hiddenTopicIds = loadHiddenLinuxTopicIds();
-        const rows = Array.from(pendingLinuxTopicRows);
-        pendingLinuxTopicRows.clear();
-        rows.forEach(row => {
-            if (!row.isConnected) return;
-            enhanceLinuxTopicRow(row, bookmarkedUrls, hiddenTopicIds);
-        });
-    }
-
-    function scheduleLinuxTopicScan(node) {
-        collectLinuxTopicRows(node);
-        if (!pendingLinuxTopicRows.size) return;
-        if (linuxTopicScanTimer !== null) return;
-        linuxTopicScanTimer = setTimeout(scanLinuxTopicRows, 0);
-    }
-
-    function installLinuxTopicEnhancement() {
-        if (linuxTopicEnhancementInstalled) return;
-        linuxTopicEnhancementInstalled = true;
-        loadHiddenLinuxTopicIds();
-        syncLinuxHiddenTopicStyle();
-
-        document.addEventListener('pointerdown', function(e) {
-            if (!e.target.closest || !e.target.closest('.agy-linux-topic-action')) return;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-        }, true);
-
-        document.addEventListener('click', function(e) {
-            const button = e.target.closest && e.target.closest('.agy-linux-topic-action');
-            if (!button) return;
-            const row = button.closest('.topic-list-item[data-topic-id]');
-            const actions = button.closest('.agy-linux-topic-actions');
-            if (!row || !actions) return;
-
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            const topicId = String(actions.dataset.agyTopicId || '');
-            const url = actions.dataset.topicUrl || '';
-            const title = actions.dataset.topicTitle || url;
-            if (button.dataset.action === 'bookmark') {
-                toggleBookmarkEntry(url, title);
-                return;
-            }
-            if (button.dataset.action === 'hide' && topicId) {
-                loadHiddenLinuxTopicIds().add(topicId);
-                saveHiddenLinuxTopicIds();
-                row.classList.add('agy-linux-topic-hidden');
-            }
-        }, true);
-
-        function handleLinuxTopicMutations(mutations) {
-            mutations.forEach(mutation => {
-                if (mutation.type === 'attributes') {
-                    collectLinuxTopicRows(mutation.target);
-                    return;
-                }
-                const containingRow = mutation.target.closest
-                    && mutation.target.closest('.topic-list-item[data-topic-id]');
-                if (containingRow) pendingLinuxTopicRows.add(containingRow);
-                mutation.addedNodes.forEach(collectLinuxTopicRows);
-            });
-            observeLinuxTopicListClasses();
-            if (pendingLinuxTopicRows.size) scheduleLinuxTopicScan();
-        }
-
-        function handleLinuxTopicClassMutations(mutations) {
-            const hiddenTopicIds = loadHiddenLinuxTopicIds();
-            mutations.forEach(mutation => {
-                const row = mutation.target.matches
-                    && mutation.target.matches('.topic-list-item[data-topic-id]')
-                    ? mutation.target
-                    : null;
-                if (!row) return;
-                const topicId = String(row.dataset.topicId || '').trim();
-                const shouldBeHidden = hiddenTopicIds.has(topicId);
-                const hasHiddenClass = row.classList.contains('agy-linux-topic-hidden');
-                const isMissingActions = !shouldBeHidden
-                    && !row.querySelector('.agy-linux-topic-actions');
-                if (shouldBeHidden !== hasHiddenClass || isMissingActions) {
-                    pendingLinuxTopicRows.add(row);
-                }
-            });
-            if (pendingLinuxTopicRows.size) scheduleLinuxTopicScan();
-        }
-
-        function observeLinuxTopicListClasses() {
-            const topicList = document.querySelector('.topic-list');
-            if (!topicList || topicList === linuxObservedTopicList) return;
-            if (!linuxTopicClassObserver) {
-                linuxTopicClassObserver = new MutationObserver(handleLinuxTopicClassMutations);
-            } else {
-                linuxTopicClassObserver.disconnect();
-            }
-            linuxObservedTopicList = topicList;
-            linuxTopicClassObserver.observe(topicList, {
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['class']
-            });
-        }
-
-        function startObserver() {
-            if (!document.documentElement || linuxTopicObserver) return;
-            linuxTopicObserver = new MutationObserver(handleLinuxTopicMutations);
-            linuxTopicObserver.observe(document.documentElement, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['data-topic-id', 'href']
-            });
-            syncLinuxHiddenTopicStyle();
-            observeLinuxTopicListClasses();
-            scheduleLinuxTopicScan(document.documentElement);
-        }
-
-        if (document.documentElement) {
-            startObserver();
-        } else {
-            document.addEventListener('readystatechange', startObserver, { once: true });
-        }
-    }
-
     // 预览 UI 只在顶层窗口注入样式
     if (IS_TOP) {
         const style = document.createElement('style');
+        injectedStyle = style;
         style.textContent = `
         /* LDU ADAPTATION: compact Linux Do page CSS is only injected inside previews. */
         .agy-preview-container {
@@ -1093,7 +824,7 @@ export function installLinkHoverPreviewer(options) {
             border: none;
             background: transparent;
         }
-        .agy-loading-overlay {
+        .agy-error-state {
             position: absolute;
             inset: 0;
             display: flex;
@@ -1107,7 +838,7 @@ export function installLinkHoverPreviewer(options) {
             z-index: 20;
             box-sizing: border-box;
         }
-        .agy-loading-card {
+        .agy-error-card {
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1117,20 +848,11 @@ export function installLinkHoverPreviewer(options) {
             box-sizing: border-box;
         }
         @media (prefers-color-scheme: dark) {
-            .agy-loading-overlay {
+            .agy-error-state {
                 background: rgba(15, 15, 17, 0.68);
             }
         }
-        .agy-spinner {
-            width: 22px;
-            height: 22px;
-            border: 2.5px solid rgba(0, 122, 255, 0.16);
-            border-top-color: #007aff;
-            border-radius: 50%;
-            animation: agy-spin 0.8s linear infinite;
-            flex-shrink: 0;
-        }
-        .agy-loading-text {
+        .agy-error-text {
             font-size: 13px;
             line-height: 1.5;
             color: #4b5563;
@@ -1138,12 +860,9 @@ export function installLinkHoverPreviewer(options) {
             text-align: center;
         }
         @media (prefers-color-scheme: dark) {
-            .agy-loading-text {
+            .agy-error-text {
                 color: #aaa;
             }
-        }
-        @keyframes agy-spin {
-            to { transform: rotate(360deg); }
         }
         /* 独立图片查看器 (灯箱)，位于预览窗之上，单独开关 */
         .agy-image-viewer {
@@ -1363,12 +1082,83 @@ export function installLinkHoverPreviewer(options) {
         .topic-list-item.agy-linux-topic-hidden {
             display: none !important;
         }
+        /* LDU ADAPTATION: one calm, spacious operation-button language. */
+        .agy-preview-actions {
+            gap: 3px;
+        }
+        .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn, .agy-close-btn) {
+            display: inline-flex;
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            padding: 0;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #62666d;
+            cursor: pointer;
+            transition: background-color 120ms ease, color 120ms ease, transform 120ms cubic-bezier(.23, 1, .32, 1);
+        }
+        .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn, .agy-close-btn):active,
+        :is(.agy-preview-tab-close, .agy-bm-item-del, .agy-viewer-close):active {
+            transform: scale(.96);
+        }
+        .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn, .agy-close-btn):focus-visible,
+        :is(.agy-preview-tab-close, .agy-bm-item-del, .agy-viewer-close):focus-visible {
+            outline: 2px solid rgba(0, 122, 255, .48);
+            outline-offset: 1px;
+        }
+        .agy-preview-tab-close,
+        .agy-bm-item-del {
+            width: 20px;
+            height: 20px;
+            flex: 0 0 20px;
+            padding: 0;
+            border-radius: 5px;
+            line-height: 1;
+            transition: background-color 120ms ease, color 120ms ease, transform 120ms cubic-bezier(.23, 1, .32, 1);
+        }
+        .agy-viewer-close {
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            border-radius: 8px;
+            transition: background-color 120ms ease, transform 120ms cubic-bezier(.23, 1, .32, 1);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn):hover {
+                background: rgba(0, 122, 255, .1);
+                color: #007aff;
+            }
+            .agy-preview-actions > .agy-close-btn:hover,
+            :is(.agy-preview-tab-close, .agy-bm-item-del, .agy-viewer-close):hover {
+                background: #e5484d;
+                color: #fff;
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn, .agy-close-btn) {
+                background: transparent;
+                color: #b7bbc2;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .agy-preview-actions > :is(.agy-preview-btn, .agy-maximize-btn, .agy-close-btn),
+            .agy-preview-tab-close,
+            .agy-bm-item-del,
+            .agy-viewer-close {
+                transition-duration: 0ms;
+            }
+        }
         `;
         const styleParent = document.head || document.documentElement;
         if (styleParent) {
             styleParent.appendChild(style);
         } else {
-            document.addEventListener('readystatechange', function appendStyle() {
+            listen(document, 'readystatechange', function appendStyle() {
                 const parent = document.head || document.documentElement;
                 if (!parent) return;
                 document.removeEventListener('readystatechange', appendStyle);
@@ -1381,7 +1171,7 @@ export function installLinkHoverPreviewer(options) {
 
     if (IS_TOP) {
         // 1. pointerdown (按下瞬间) 即关闭，消除 click 抬起才响应的迟滞感
-        window.addEventListener('pointerdown', function(e) {
+        listen(window, 'pointerdown', function(e) {
             if (e.target.closest && e.target.closest('.agy-linux-topic-action')) return;
             const closeButton = e.target.closest && e.target.closest('.agy-close-btn');
             if (closeButton && previewContainer && previewContainer.contains(closeButton)) {
@@ -1426,7 +1216,7 @@ export function installLinkHoverPreviewer(options) {
         }, true);
 
         // 1.5 双击第二次“按下”瞬间：先撤销未决的单击动作 (杜绝单击预览闪现)；双击预览模式下顺势立即打开
-        window.addEventListener('pointerdown', function(e) {
+        listen(window, 'pointerdown', function(e) {
             if (!isPreviewEnabled()) return;
             if (e.detail !== 2 || e.button !== 0) return;
             if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
@@ -1443,7 +1233,7 @@ export function installLinkHoverPreviewer(options) {
         }, true);
 
         // 2. 吞掉关闭动作后紧随的 click，防止误触下层链接 (需注册在 handleLinkClick 之前)
-        document.addEventListener('click', function(e) {
+        listen(document, 'click', function(e) {
             if (swallowNextClick) {
                 swallowNextClick = false;
                 if (swallowClickResetTimer) {
@@ -1455,7 +1245,7 @@ export function installLinkHoverPreviewer(options) {
             }
         }, true);
 
-        window.addEventListener('resize', function() {
+        listen(window, 'resize', function() {
             if (!previewContainer) return;
             if (isPreviewMaximized) {
                 applyPreviewMaximizedState();
@@ -1469,7 +1259,7 @@ export function installLinkHoverPreviewer(options) {
             closeBookmarkPanel();
         });
 
-        window.addEventListener('message', function(e) {
+        listen(window, 'message', function(e) {
             const data = e.data;
             if (!data || !Number.isFinite(data.agyPreviewToken)) return;
             const tab = previewTabs.find(item => (
@@ -1497,17 +1287,17 @@ export function installLinkHoverPreviewer(options) {
     }
 
     // 3. 监听全局 click/dblclick 实现双击拦截与分流
-    document.addEventListener('click', handleLinkClick, true);
-    document.addEventListener('dblclick', handleLinkDblClick, true);
+    listen(document, 'click', handleLinkClick, true);
+    listen(document, 'dblclick', handleLinkDblClick, true);
 
     // 4. 监听全局鼠标悬停，用于网络静默预热 (仅顶层需要)
     if (IS_TOP) {
-        document.addEventListener('mouseover', handleMouseOverPreheat, true);
+        listen(document, 'mouseover', handleMouseOverPreheat, true);
     }
 
     // 5. 键盘监听：F5 刷新活动标签；Esc 关闭；左右方向键控制活动标签历史（编辑区域中不接管）
     if (IS_TOP) {
-        document.addEventListener('keydown', function(e) {
+        listen(document, 'keydown', function(e) {
             if (previewContainer && isPreviewRefreshKey(e)) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
@@ -1576,6 +1366,21 @@ export function installLinkHoverPreviewer(options) {
         return /content-type:\s*image\//i.test(response.responseHeaders || '');
     }
 
+    function isRenderableResponse(response) {
+        const match = /content-type:\s*([^;\r\n]+)/i.exec(response.responseHeaders || '');
+        if (!match) return true;
+        const type = match[1].trim().toLowerCase();
+        return type === 'text/html' || type === 'application/xhtml+xml' || type.startsWith('text/');
+    }
+
+    function getFinalUrl(response, fallback) {
+        return response && /^https?:/i.test(response.finalUrl || '') ? response.finalUrl : fallback;
+    }
+
+    function responseTooLarge(progress) {
+        return Math.max(Number(progress?.loaded || 0), Number(progress?.total || 0)) > MAX_RESPONSE_BYTES;
+    }
+
     /**
      * 独立图片查看器：在预览窗之外打开，点击背景 / 关闭按钮 / Esc 关闭
      */
@@ -1590,7 +1395,7 @@ export function installLinkHoverPreviewer(options) {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'agy-viewer-close';
-        closeBtn.innerHTML = '✕';
+        closeBtn.innerHTML = ICON_CLOSE;
         closeBtn.title = '关闭图片 (Esc)';
 
         const tip = document.createElement('div');
@@ -1743,7 +1548,7 @@ export function installLinkHoverPreviewer(options) {
 
             const delBtn = document.createElement('button');
             delBtn.className = 'agy-bm-item-del';
-            delBtn.innerHTML = '✕';
+            delBtn.innerHTML = ICON_TRASH;
             delBtn.title = '删除此书签';
             delBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1818,16 +1623,55 @@ export function installLinkHoverPreviewer(options) {
         if (p.parentNode) p.parentNode.removeChild(p);
     }
 
+    function clearCacheCleanupTimer() {
+        if (cacheCleanupTimer) clearTimeout(cacheCleanupTimer);
+        cacheCleanupTimer = null;
+        cacheCleanupDeadline = 0;
+    }
+
+    function scheduleCacheCleanup() {
+        if (installationDestroyed) return;
+        let deadline = Infinity;
+        for (const entry of cacheMap.values()) {
+            if (entry.status === 'loading') continue;
+            deadline = Math.min(deadline, entry.time + CACHE_EXPIRE_TIME);
+        }
+        if (!Number.isFinite(deadline)) {
+            clearCacheCleanupTimer();
+            return;
+        }
+        if (cacheCleanupTimer && cacheCleanupDeadline === deadline) return;
+        clearCacheCleanupTimer();
+        cacheCleanupDeadline = deadline;
+        cacheCleanupTimer = setTimeout(() => {
+            cacheCleanupTimer = null;
+            cacheCleanupDeadline = 0;
+            const now = Date.now();
+            for (const [url, entry] of cacheMap) {
+                if (entry.status !== 'loading' && now - entry.time >= CACHE_EXPIRE_TIME) {
+                    cacheMap.delete(url);
+                }
+            }
+            scheduleCacheCleanup();
+        }, Math.max(0, deadline - Date.now()));
+    }
+
+    function deleteCacheEntry(url) {
+        const deleted = cacheMap.delete(url);
+        if (deleted) scheduleCacheCleanup();
+        return deleted;
+    }
+
     /**
      * LRU 写缓存：超出上限时淘汰最旧条目并中止其未完成请求
      */
     function setCache(url, entry) {
-        entry.size = (entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0);
+        entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
 
         // 顺手清扫过期条目，长期挂机不留陈旧大字符串
         const now = Date.now();
         for (const [k, v] of cacheMap) {
-            if (v.status !== 'loading' && now - v.time > CACHE_EXPIRE_TIME) {
+            if (v.status !== 'loading' && now - v.time >= CACHE_EXPIRE_TIME) {
                 cacheMap.delete(k);
             }
         }
@@ -1835,13 +1679,15 @@ export function installLinkHoverPreviewer(options) {
         if (cacheMap.has(url)) cacheMap.delete(url);
         cacheMap.set(url, entry);
 
+        enforceCacheLimits();
+        scheduleCacheCleanup();
+    }
+
+    function enforceCacheLimits() {
         let totalBytes = 0;
         for (const v of cacheMap.values()) totalBytes += v.size || 0;
-
         while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
-            const protectedUrls = new Set(previewTabs.map(tab => tab.url));
-            protectedUrls.add(url);
-            const oldestKey = Array.from(cacheMap.keys()).find(key => !protectedUrls.has(key));
+            const oldestKey = cacheMap.keys().next().value;
             if (!oldestKey) break;
             const old = cacheMap.get(oldestKey);
             totalBytes -= (old && old.size) || 0;
@@ -1858,9 +1704,10 @@ export function installLinkHoverPreviewer(options) {
     function ensurePreparedCacheEntry(url, entry) {
         if (!entry || entry.status !== 'done') return null;
         if (!entry.html && typeof entry.rawHtml === 'string') {
-            entry.html = prepareDynamicHtml(entry.rawHtml, url, TOKEN_PLACEHOLDER);
+            entry.html = prepareDynamicHtml(entry.rawHtml, entry.finalUrl || url, TOKEN_PLACEHOLDER);
             entry.rawHtml = null;
-            entry.size = entry.html.length;
+            entry.size = entry.html.length * 2;
+            enforceCacheLimits();
         }
         return entry.html;
     }
@@ -1887,7 +1734,7 @@ export function installLinkHoverPreviewer(options) {
     function handleMouseOverPreheat(e) {
         if (!isPreviewEnabled()) return;
         const link = e.target.closest('a');
-        if (!isPreviewableLink(link)) return;
+        if (!isPreviewableLink(link) || link.hasAttribute('download') || isLikelyBinaryUrl(link.href)) return;
 
         if (preheatLink === link) return;
 
@@ -1928,29 +1775,43 @@ export function installLinkHoverPreviewer(options) {
         if (cached && (Date.now() - cached.time < CACHE_EXPIRE_TIME)) {
             return;
         }
-        if (shouldDirectLoad(url) || isImageUrl(url)) return;
+        if (shouldDirectLoad(url) || isImageUrl(url) || isLikelyBinaryUrl(url)) return;
 
         const xhr = GM_xmlhttpRequest({
             method: 'GET',
             url: url,
             timeout: 10000,
+            onprogress: function(progress) {
+                if (!responseTooLarge(progress)) return;
+                try { xhr.abort(); } catch (e) {}
+                if (cacheMap.get(url)?.xhr === xhr) deleteCacheEntry(url);
+            },
             onload: function(response) {
                 if (response.status >= 200 && response.status < 400) {
                     const entry = cacheMap.get(url);
                     if (!entry || entry.xhr !== xhr) return;
+                    if (typeof response.responseText === 'string' && response.responseText.length * 2 > MAX_RESPONSE_BYTES) {
+                        deleteCacheEntry(url);
+                        return;
+                    }
                     if (isImageResponse(response)) {
                         entry.status = 'image';
                         entry.html = '';
                         entry.rawHtml = null;
                         entry.size = 0;
-                    } else {
+                    } else if (isRenderableResponse(response)) {
                         entry.status = 'done';
                         entry.rawHtml = response.responseText;
                         entry.html = null;
-                        entry.size = response.responseText.length;
+                        entry.size = response.responseText.length * 2;
+                        entry.finalUrl = getFinalUrl(response, url);
+                    } else {
+                        deleteCacheEntry(url);
+                        return;
                     }
                     entry.xhr = null;
                     entry.time = Date.now();
+                    enforceCacheLimits();
                     const waitingTabs = previewTabs.filter(tab => (
                         isTabLoadCurrent(tab, tab.loadToken, url)
                         && tab.loadState === 'waiting-cache'
@@ -1968,6 +1829,7 @@ export function installLinkHoverPreviewer(options) {
                     if (entry.status === 'done' && !entry.html) {
                         schedulePreparation(url, entry);
                     }
+                    scheduleCacheCleanup();
                 }
             },
             onerror: function() {
@@ -1976,7 +1838,7 @@ export function installLinkHoverPreviewer(options) {
                 previewTabs
                     .filter(tab => isTabLoadCurrent(tab, tab.loadToken, url) && tab.loadState === 'waiting-cache')
                     .forEach(tab => showError(tab, '预加载网络请求出错'));
-                cacheMap.delete(url);
+                deleteCacheEntry(url);
             }
         });
 
@@ -1995,7 +1857,7 @@ export function installLinkHoverPreviewer(options) {
         ));
         if (cached && cached.status === 'loading' && !isNeededByPreview) {
             if (cached.xhr) cached.xhr.abort();
-            cacheMap.delete(url);
+            deleteCacheEntry(url);
         }
     }
 
@@ -2196,7 +2058,7 @@ export function installLinkHoverPreviewer(options) {
                 }
                 // 仅删除关闭时捕获的缓存，避免误删随后重新打开产生的新请求。
                 if (cacheMap.get(url) === cached) {
-                    cacheMap.delete(url);
+                    deleteCacheEntry(url);
                 }
             });
             if (containerToRemove.parentNode) {
@@ -2224,15 +2086,15 @@ export function installLinkHoverPreviewer(options) {
     function createErrorBar(tab, message) {
         if (!tab?.pane) return null;
         const bar = document.createElement('div');
-        bar.className = 'agy-loading-overlay';
+        bar.className = 'agy-error-state';
         bar.setAttribute('role', 'status');
         bar.setAttribute('aria-live', 'polite');
         bar.innerHTML = `
-            <div class="agy-loading-card">
-                <div class="agy-loading-text"></div>
+            <div class="agy-error-card">
+                <div class="agy-error-text"></div>
             </div>
         `;
-        const textNode = bar.querySelector('.agy-loading-text');
+        const textNode = bar.querySelector('.agy-error-text');
         if (textNode) {
             textNode.textContent = `加载出错: ${message}`;
             textNode.style.color = '#ff3b30';
@@ -2288,7 +2150,8 @@ export function installLinkHoverPreviewer(options) {
             historyIndex: 0,
             element: null,
             titleElement: null,
-            closed: false
+            closed: false,
+            lastUsedAt: Date.now()
         };
     }
 
@@ -2305,7 +2168,6 @@ export function installLinkHoverPreviewer(options) {
         const iframe = document.createElement('iframe');
         iframe.className = 'agy-preview-iframe';
         iframe.name = `${PREVIEW_FRAME_PREFIX}${tab.loadToken}`;
-        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
 
         pane.appendChild(iframe);
         body.appendChild(pane);
@@ -2329,7 +2191,7 @@ export function installLinkHoverPreviewer(options) {
         const close = document.createElement('button');
         close.type = 'button';
         close.className = 'agy-preview-tab-close';
-        close.textContent = '✕';
+        close.innerHTML = ICON_CLOSE;
         close.title = '关闭此标签页';
         close.setAttribute('aria-label', '关闭此标签页');
         close.addEventListener('click', e => {
@@ -2497,13 +2359,40 @@ export function installLinkHoverPreviewer(options) {
         syncActiveTabChrome(true);
         closeBookmarkPanel();
         loadPreviewTab(tab);
+        suspendInactivePreviewTabs();
     }
 
     function activatePreviewTab(tabId) {
         if (tabId === activeTabId || !previewTabs.some(tab => tab.id === tabId)) return;
         activeTabId = tabId;
+        const tab = getPreviewTab(tabId);
+        if (tab) {
+            tab.lastUsedAt = Date.now();
+            if (!tab.pane) {
+                mountPreviewTab(tab);
+                loadPreviewTab(tab);
+            }
+        }
         syncActiveTabChrome(true);
         closeBookmarkPanel();
+        suspendInactivePreviewTabs();
+    }
+
+    function suspendInactivePreviewTabs() {
+        const liveTabs = previewTabs.filter(tab => tab.iframe);
+        while (liveTabs.length > PREVIEW_LIVE_FRAMES) {
+            const candidate = liveTabs
+                .filter(tab => tab.id !== activeTabId)
+                .sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
+            if (!candidate) return;
+            cancelPreviewTabLoad(candidate);
+            if (candidate.pane) candidate.pane.remove();
+            candidate.pane = null;
+            candidate.iframe = null;
+            candidate.loadingBar = null;
+            candidate.loadState = 'suspended';
+            liveTabs.splice(liveTabs.indexOf(candidate), 1);
+        }
     }
 
     function closePreviewTab(tabId) {
@@ -2664,7 +2553,7 @@ export function installLinkHoverPreviewer(options) {
         refreshBtn.className = 'agy-preview-btn agy-refresh-btn';
         refreshBtn.title = '刷新当前预览';
         refreshBtn.setAttribute('aria-label', refreshBtn.title);
-        refreshBtn.textContent = '↻';
+        refreshBtn.innerHTML = ICON_REFRESH;
         refreshBtn.addEventListener('click', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -2683,7 +2572,7 @@ export function installLinkHoverPreviewer(options) {
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
         closeBtn.className = 'agy-close-btn';
-        closeBtn.innerHTML = '✕';
+        closeBtn.innerHTML = ICON_CLOSE;
         closeBtn.title = '关闭预览 (Esc)';
 
         actions.appendChild(listBtn);
@@ -2730,6 +2619,10 @@ export function installLinkHoverPreviewer(options) {
                 if (!isTabLoadCurrent(tab, token, url) || tab.request !== request) return;
                 tab.request = null;
                 if (response.status >= 200 && response.status < 400) {
+                    if (typeof response.responseText === 'string' && response.responseText.length * 2 > MAX_RESPONSE_BYTES) {
+                        showError(tab, '页面过大，请在新标签页打开');
+                        return;
+                    }
                     if (isImageResponse(response)) {
                         // 无扩展名的图片链接兜底：转独立查看器
                         setCache(url, { status: 'image', html: '', xhr: null, time: Date.now() });
@@ -2738,12 +2631,18 @@ export function installLinkHoverPreviewer(options) {
                         hideLoadingBar(loadingBar, tab);
                         return;
                     }
-                    const prepared = prepareDynamicHtml(response.responseText, url, TOKEN_PLACEHOLDER);
+                    if (!isRenderableResponse(response)) {
+                        showError(tab, '此文件类型不支持预览');
+                        return;
+                    }
+                    const finalUrl = getFinalUrl(response, url);
+                    const prepared = prepareDynamicHtml(response.responseText, finalUrl, TOKEN_PLACEHOLDER);
                     setCache(url, {
                         status: 'done',
                         html: prepared,
                         xhr: null,
-                        time: Date.now()
+                        time: Date.now(),
+                        finalUrl
                     });
                     renderFetchedDynamicPage(tab, prepared, url, loadingBar, token);
                 } else {
@@ -2754,6 +2653,12 @@ export function installLinkHoverPreviewer(options) {
                 if (!isTabLoadCurrent(tab, token, url) || tab.request !== request) return;
                 tab.request = null;
                 showError(tab, '网络连接出错');
+            },
+            onprogress: function(progress) {
+                if (!responseTooLarge(progress) || tab.request !== request) return;
+                try { request.abort(); } catch (e) {}
+                tab.request = null;
+                showError(tab, '页面过大，请在新标签页打开');
             }
         };
         if (options.forceReload) {
@@ -2995,7 +2900,7 @@ export function installLinkHoverPreviewer(options) {
         if (!bar) return;
         if (tab.pane) tab.pane.setAttribute('aria-busy', 'false');
         if (tab.iframe) tab.iframe.style.visibility = 'hidden';
-        const textNode = bar.querySelector('.agy-loading-text');
+        const textNode = bar.querySelector('.agy-error-text');
         if (textNode) {
             textNode.textContent = `加载出错: ${msg}`;
             textNode.style.color = '#ff3b30';
@@ -3147,6 +3052,14 @@ export function installLinkHoverPreviewer(options) {
         }
     }
 
+    function isLikelyBinaryUrl(url) {
+        try {
+            return /\.(?:pdf|zip|rar|7z|tar|gz|bz2|xz|dmg|exe|msi|apk|deb|rpm|iso|mp4|mkv|avi|mov|webm|mp3|flac|wav|docx?|xlsx?|pptx?)(?:$|[?#])/i.test(new URL(url).pathname);
+        } catch (e) {
+            return true;
+        }
+    }
+
     // LDU ADAPTATION: topic links live in managed iframes, so the parent bridge
     // opens them through the same upstream window and tab machinery.
     function openFromFrame(url, anchorRect) {
@@ -3165,9 +3078,35 @@ export function installLinkHoverPreviewer(options) {
         showPreviewWindow({ getBoundingClientRect: () => rect }, url);
     }
 
+    function destroyInstallation() {
+        if (installationDestroyed) return;
+        installationDestroyed = true;
+        destroyPreview();
+        closeImageViewer();
+        closeBookmarkPanel();
+        listenerDisposers.splice(0).forEach(dispose => {
+            try { dispose(); } catch (e) {}
+        });
+        if (clickTimer) clearTimeout(clickTimer);
+        if (preheatTimer) clearTimeout(preheatTimer);
+        if (swallowClickResetTimer) clearTimeout(swallowClickResetTimer);
+        if (pointerShieldTimer) clearTimeout(pointerShieldTimer);
+        clearCacheCleanupTimer();
+        cacheMap.forEach(entry => {
+            if (entry && entry.xhr) {
+                try { entry.xhr.abort(); } catch (e) {}
+            }
+        });
+        cacheMap.clear();
+        preheatLink = null;
+        injectedStyle?.remove();
+        injectedStyle = null;
+    }
+
     return {
         openFromFrame,
         close: destroyPreview,
-        syncClickMode
+        syncClickMode,
+        destroy: destroyInstallation
     };
 }

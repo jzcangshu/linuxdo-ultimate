@@ -3,6 +3,8 @@ import { DEFAULT_SETTINGS, normalizeSettings } from "./core/defaults";
 import {
   UserscriptStorage,
   clearRestorableSessions,
+  cleanupExpiredSessions,
+  hasStorageFailure,
   claimSessionId,
   isReloadNavigation,
   loadSessionIfPresent,
@@ -14,13 +16,14 @@ import {
   saveSettings,
   saveSession,
   stageSessionClose,
+  STORAGE_FAILURE_EVENT,
 } from "./core/storage";
 import type { SessionLease } from "./core/storage";
 import type { SessionState, Settings, TopicTabState } from "./core/types";
-import { classifyRoute, getTopicInfo, isSplitRoute, isSupportedTopicTarget } from "./discourse/routes";
+import { classifyRoute, getTopicInfo, isNavigableForumPage, isSplitRoute, isSupportedTopicTarget } from "./discourse/routes";
 import { createBrowserViewTracker } from "./discourse/view-tracker";
 import { readTopicCategory, type TopicCategoryPresentation } from "./discourse/category";
-import { TopicFramePool, type FrameMessage } from "./tabs/frame-pool";
+import { FrameBudget, TopicFramePool, type FrameMessage } from "./tabs/frame-pool";
 import { ListFrameController, type ListFrameMessage } from "./tabs/list-frame";
 import { TopicTabStore } from "./tabs/tab-store";
 import { renderTabStrip } from "./tabs/tab-strip";
@@ -28,19 +31,28 @@ import { LayoutController } from "./ui/layout-controller";
 import { SettingsPanel } from "./ui/settings-panel";
 import { ensureAppStyles } from "./ui/styles";
 import { TabContextMenu } from "./ui/tab-context-menu";
+import { setIcon } from "./ui/icons";
 import { PreviewController } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
 
 const ROUTE_DEBOUNCE_MS = 100;
+const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
 
 export function startLinuxDoApp(): void {
   if (window.self !== window.top) return;
+  if (window.__linuxDoUltimateAppStarted) return;
+  window.__linuxDoUltimateAppStarted = true;
   const start = () => new LinuxDoApp().start();
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", start, { once: true });
-  } else {
+  if (document.body) {
     start();
+    return;
   }
+  const observer = new MutationObserver(() => {
+    if (!document.body) return;
+    observer.disconnect();
+    start();
+  });
+  observer.observe(document, { childList: true, subtree: true });
 }
 
 class LinuxDoApp {
@@ -51,6 +63,7 @@ class LinuxDoApp {
   private layout!: LayoutController;
   private frames: TopicFramePool | null = null;
   private secondaryFrames: TopicFramePool | null = null;
+  private frameBudget!: FrameBudget;
   private listFrame: ListFrameController | null = null;
   private preview!: PreviewController;
   private settingsPanel!: SettingsPanel;
@@ -62,12 +75,12 @@ class LinuxDoApp {
   private restoredTabsTracked = false;
   private trackedTopicKey = "";
   private topicTrackTimers: number[] = [];
-  private routeRetryTimer: number | null = null;
-  private routeRetryAttempts = 0;
+  private routeHostObserver: MutationObserver | null = null;
   private hostMaintenanceTimer: number | null = null;
   private hasRestoredSession = false;
   private sessionLease!: SessionLease;
   private leaseTimer: number | null = null;
+  private sessionMaintenanceTimer: number | null = null;
   private tabContextMenu!: TabContextMenu;
 
   start(): void {
@@ -78,7 +91,7 @@ class LinuxDoApp {
       clickMode: () => this.settings.previewClickMode,
       onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode }),
     });
-    this.preview.mount();
+    this.preview.setEnabled(this.settings.enabled && this.settings.previewEnabled);
     this.tabContextMenu = new TabContextMenu({
       onMoveToSplit: (tabId) => this.moveTabToSecondary(tabId),
       onOpenBrowserTab: (tabId) => this.openTabInBrowser(tabId),
@@ -94,8 +107,9 @@ class LinuxDoApp {
       isReloadNavigation(window.performance),
     );
     const sessionId = this.sessionLease.sessionId;
-    if (this.settings.restoreSession) reconcileSessionClose(this.storage, sessionId);
-    else clearRestorableSessions(this.storage);
+    reconcileSessionClose(this.storage, sessionId);
+    cleanupExpiredSessions(this.storage);
+    if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
     const initial = createSession(sessionId, location.href, Date.now());
     initial.paneSizes = { ...this.settings.paneSizes };
     const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
@@ -106,11 +120,15 @@ class LinuxDoApp {
       : null;
     this.session = currentSession ?? previousSession ?? initial;
     this.hasRestoredSession = Boolean(previousSession?.tabs.length);
-    this.tabStore = new TopicTabStore(this.session, this.settings.maxOpenTabs, (session) => {
+    this.tabStore = new TopicTabStore(this.session, (session) => {
       this.session = session;
       saveSession(this.storage, session);
       this.renderTabs();
     });
+    if (this.settings.enabled && this.settings.tabsEnabled && this.session.tabs.length > 0) {
+      document.documentElement.classList.add("ldu-split-booting");
+    }
+    this.frameBudget = new FrameBudget(this.settings.maxLiveFrames);
     this.layout = new LayoutController({
       preference: this.settings.layoutPreference,
       paneSizes: this.session.paneSizes,
@@ -122,7 +140,12 @@ class LinuxDoApp {
     this.credit.mount(this.settings.enabled && this.settings.creditEnabled);
     this.lastRoute = location.href;
     this.bindGlobalEvents();
+    if (hasStorageFailure()) window.setTimeout(() => this.showActionToast("本地存储不可用，设置和阅读状态可能无法保存", true), 0);
     this.leaseTimer = window.setInterval(() => refreshSessionLease(this.storage, this.sessionLease), 30_000);
+    this.sessionMaintenanceTimer = window.setInterval(
+      () => cleanupExpiredSessions(this.storage),
+      SESSION_MAINTENANCE_INTERVAL_MS,
+    );
     this.syncRoute();
     if (window.__LDU_TEST_MODE__) {
       window.__LDU_TEST_API__ = {
@@ -135,6 +158,9 @@ class LinuxDoApp {
   }
 
   private bindGlobalEvents(): void {
+    window.addEventListener(STORAGE_FAILURE_EVENT, () => {
+      this.showActionToast("本地存储不可用，设置和阅读状态可能无法保存", true);
+    });
     document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
     window.addEventListener("message", (event) => {
       this.frames?.handleMessage(event);
@@ -163,7 +189,8 @@ class LinuxDoApp {
     const target = event.target;
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link) return;
-    if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
+    if (link.hasAttribute("download") || (link.target && link.target.toLowerCase() !== "_self")) return;
+    if (link.closest(".post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
     if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
       this.promoteDirectTopicNavigation(event, link);
       return;
@@ -171,19 +198,20 @@ class LinuxDoApp {
     if (isSupportedTopicTarget(link.href, location.href)) {
       const info = getTopicInfo(link.href);
       if (!info) return;
+      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+      if (!this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
-      this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined);
       return;
     }
     if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
     let targetUrl: URL;
     try { targetUrl = new URL(link.href, location.href); } catch { return; }
-    if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    this.navigateList(targetUrl.href);
+    if (!isNavigableForumPage(targetUrl.href, location.href) || link.target === "_blank" || link.hasAttribute("download")) return;
+    if (this.navigateList(targetUrl.href)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
   }
 
   private openTopic(
@@ -193,8 +221,8 @@ class LinuxDoApp {
     postNumber?: number,
     category?: TopicCategoryPresentation,
     pane: "primary" | "secondary" = "primary",
-  ): void {
-    if (!this.layout.mount()) return;
+  ): boolean {
+    if (!this.layout.mount()) return false;
     this.ensureListFrame();
     this.ensureFrames();
     this.layout.setOpen(true);
@@ -210,9 +238,22 @@ class LinuxDoApp {
         }
       });
     }
+    return true;
   }
 
   private syncRoute(): void {
+    try {
+      this.syncRouteInternal();
+    } catch (error) {
+      console.error("[Linux.do Ultimate] 分屏启动失败，已恢复论坛原始页面", error);
+      document.documentElement.classList.remove("ldu-split-booting");
+      this.disposeSplitRuntime();
+    } finally {
+      document.getElementById("linuxdo-ultimate-boot-style")?.remove();
+    }
+  }
+
+  private syncRouteInternal(): void {
     this.routeTimer = null;
     if (this.lastRoute !== location.href) {
       this.lastRoute = location.href;
@@ -227,7 +268,8 @@ class LinuxDoApp {
         this.scheduleRouteMountRetry();
         return;
       }
-      this.routeRetryAttempts = 0;
+      this.routeHostObserver?.disconnect();
+      this.routeHostObserver = null;
       const hasTabs = this.tabStore.getTabs().length > 0;
       this.layout.setOpen(hasTabs);
       if (hasTabs) {
@@ -251,6 +293,7 @@ class LinuxDoApp {
       }
       return;
     }
+    document.documentElement.classList.remove("ldu-split-booting");
     this.disposeSplitRuntime();
     if (route === "topic") {
       const info = getTopicInfo(location.href);
@@ -296,12 +339,22 @@ class LinuxDoApp {
   }
 
   private scheduleRouteMountRetry(): void {
-    if (this.routeRetryTimer !== null || this.routeRetryAttempts >= 30) return;
-    this.routeRetryAttempts += 1;
-    this.routeRetryTimer = window.setTimeout(() => {
-      this.routeRetryTimer = null;
+    if (this.routeHostObserver) return;
+    const root = document.body ?? document.documentElement;
+    this.routeHostObserver = new MutationObserver(() => {
+      if (!document.querySelector("#main-outlet-wrapper") || !document.querySelector("#main-outlet")) return;
+      this.routeHostObserver?.disconnect();
+      this.routeHostObserver = null;
       this.syncRoute();
-    }, 100);
+    });
+    this.routeHostObserver.observe(root, { childList: true, subtree: true });
+    const failOpen = () => {
+      if (!document.querySelector("#main-outlet-wrapper") || !document.querySelector("#main-outlet")) {
+        document.documentElement.classList.remove("ldu-split-booting");
+      }
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", failOpen, { once: true });
+    else failOpen();
   }
 
   private scheduleRouteSync(): void {
@@ -333,48 +386,47 @@ class LinuxDoApp {
     this.listFrame.mount(listUrl);
   }
 
-  private navigateList(url: string): void {
+  private navigateList(url: string): boolean {
     let target: URL;
-    try { target = new URL(url, location.href); } catch { return; }
-    if (target.origin !== location.origin || getTopicInfo(target.href, location.href)) return;
-    if (!this.layout.mount()) return;
+    try { target = new URL(url, location.href); } catch { return false; }
+    if (!isNavigableForumPage(target.href, location.href)) return false;
+    if (!this.layout.mount()) return false;
     this.tabStore.setSessionFields({ listUrl: target.href, listScrollY: 0 }, Date.now(), false);
     saveSession(this.storage, this.tabStore.getSession());
     this.ensureListFrame(target.href);
     this.listFrame?.navigate(target.href);
+    return true;
   }
 
-  private handleListFrameMessage(message: ListFrameMessage, iframe: HTMLIFrameElement): void {
+  private handleListFrameMessage(message: ListFrameMessage, iframe: HTMLIFrameElement): boolean {
     if (message.type === "ldu:list-interaction") {
       document.body.dispatchEvent(new MouseEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
         button: 0,
       }));
-      return;
+      return true;
     }
     if (message.type === "ldu:list-preview-open") {
       this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
-      return;
+      return true;
     }
     if (message.type === "ldu:list-preview-dismiss") {
       this.preview.close();
-      return;
+      return true;
     }
     if (message.type === "ldu:list-topic-open") {
       const info = message.url ? getTopicInfo(message.url, location.href) : null;
-      if (!info) return;
+      if (!info) return false;
       const category = message.categoryName && message.categoryColor
         ? { categoryName: message.categoryName, categoryColor: message.categoryColor }
         : undefined;
-      this.openTopic(info.topicId, info.url.href, message.topicTitle || `主题 ${info.topicId}`, info.postNumber, category);
-      return;
+      return this.openTopic(info.topicId, info.url.href, message.topicTitle || `主题 ${info.topicId}`, info.postNumber, category);
     }
     if (message.type === "ldu:list-navigate" && message.url) {
-      this.navigateList(message.url);
-      return;
+      return this.navigateList(message.url);
     }
-    if (!message.url || getTopicInfo(message.url, location.href)) return;
+    if (!message.url || getTopicInfo(message.url, location.href)) return false;
     const previousSession = this.tabStore.getSession();
     const nextListUrl = new URL(message.url, location.href).href;
     const sameListUrl = previousSession.listUrl === nextListUrl;
@@ -390,6 +442,7 @@ class LinuxDoApp {
       this.listFrame?.restoreScroll(savedScrollY);
       this.schedulePersist();
     }
+    return true;
   }
 
   private ensureFrames(): void {
@@ -404,6 +457,7 @@ class LinuxDoApp {
         this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
         this.schedulePersist();
       },
+      this.frameBudget,
     );
     this.frames.setPreviewConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
@@ -424,6 +478,7 @@ class LinuxDoApp {
         this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
         this.schedulePersist();
       },
+      this.frameBudget,
     );
     this.secondaryFrames.setPreviewConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
@@ -461,8 +516,7 @@ class LinuxDoApp {
       this.tabStore.setSessionFields({ paneSizes: this.settings.paneSizes }, Date.now(), false);
       saveSession(this.storage, this.tabStore.getSession());
     }
-    this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
-    this.secondaryFrames?.setMaxLiveFrames(this.settings.maxLiveFrames);
+    this.frameBudget.setLimit(this.settings.maxLiveFrames);
     this.frames?.setPreviewConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
@@ -477,6 +531,7 @@ class LinuxDoApp {
       hidePosters: this.settings.hidePosters,
     });
     this.settingsPanel?.setSettings(this.settings);
+    this.preview.setEnabled(this.settings.enabled && this.settings.previewEnabled);
     this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
     if (patch.previewClickMode !== undefined) this.preview.syncClickMode();
     if (patch.restoreSession === false) clearRestorableSessions(this.storage);
@@ -542,41 +597,43 @@ class LinuxDoApp {
     if (empty) empty.hidden = true;
   }
 
-  private handleFrameMessage(message: FrameMessage, iframe: HTMLIFrameElement, pane: "primary" | "secondary"): void {
+  private handleFrameMessage(message: FrameMessage, iframe: HTMLIFrameElement, pane: "primary" | "secondary"): boolean {
     const tab = this.tabStore.getTabs().find((candidate) => candidate.id === message.tabId);
-    if (!tab) return;
+    if (!tab) return false;
     if (message.type === "ldu:frame-interaction") {
       document.body.dispatchEvent(new MouseEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
         button: 0,
       }));
-      return;
+      return true;
     }
     if (message.type === "ldu:bookmark-result") {
       this.showActionToast(message.message || (message.ok ? "已添加到书签" : "添加书签失败"), message.ok === false);
-      return;
+      return true;
     }
     if (message.type === "ldu:list-navigate" && message.url) {
-      this.navigateList(message.url);
-      return;
+      return this.navigateList(message.url);
     }
     if (message.type === "ldu:preview-open") {
       this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
-      return;
+      return true;
     }
     if (message.type === "ldu:preview-dismiss") {
       this.preview.close();
-      return;
+      return true;
     }
     if (message.type === "ldu:topic-open") {
       const info = message.url ? getTopicInfo(message.url, location.href) : null;
-      if (!info || !isSupportedTopicTarget(info.url.href, tab.url)) return;
-      this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber, undefined, pane);
-      return;
+      if (!info || !isSupportedTopicTarget(info.url.href, tab.url)) return false;
+      return this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber, undefined, pane);
     }
     const info = message.url ? getTopicInfo(message.url) : null;
     const sameTopic = info?.topicId === tab.topicId;
+    const categoryChanged = Boolean(
+      message.categoryName && message.categoryColor
+      && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor),
+    );
     const patch = {
       ...(message.url ? { url: message.url } : {}),
       ...(message.title ? { title: message.title } : {}),
@@ -587,11 +644,9 @@ class LinuxDoApp {
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     };
-    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
+    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
     if (message.type === "ldu:frame-state") this.schedulePersist();
-    if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
-      iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
-    }
+    return true;
   }
 
   private renderTabs(): void {
@@ -612,6 +667,9 @@ class LinuxDoApp {
       },
       onClose: (tabId) => this.closeTab(tabId, "primary"),
       onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+      onReorder: (tabId, targetTabId, position) => {
+        this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+      },
     }, { colorizeTabs: this.settings.colorizeTabs });
     const secondaryRoot = this.layout.getSecondaryTabStripElement();
     if (secondaryRoot) {
@@ -622,6 +680,9 @@ class LinuxDoApp {
         },
         onClose: (tabId) => this.closeTab(tabId, "secondary"),
         onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+        onReorder: (tabId, targetTabId, position) => {
+          this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+        },
       }, { colorizeTabs: this.settings.colorizeTabs });
     }
     const actions = this.layout.getActionsElement();
@@ -629,7 +690,7 @@ class LinuxDoApp {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ldu-icon-button ldu-close-all";
-      close.textContent = "×";
+      setIcon(close, "close", 18);
       close.title = "关闭所有帖子标签";
       close.setAttribute("aria-label", "关闭所有帖子标签");
       close.addEventListener("click", () => {
@@ -647,7 +708,7 @@ class LinuxDoApp {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ldu-icon-button ldu-close-secondary";
-      close.textContent = "×";
+      setIcon(close, "close", 18);
       close.title = "关闭第二阅读区";
       close.setAttribute("aria-label", "关闭第二阅读区并将标签移回主阅读区");
       close.addEventListener("click", () => this.closeSecondaryPanel());
@@ -818,6 +879,9 @@ class LinuxDoApp {
       stageSessionClose(this.storage, this.tabStore.getSession());
     }
     if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
+    if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+    this.leaseTimer = null;
+    this.sessionMaintenanceTimer = null;
     releaseSessionLease(this.storage, this.sessionLease);
   }
 

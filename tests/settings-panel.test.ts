@@ -10,6 +10,10 @@ describe("settings panel", () => {
     const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange: vi.fn() });
     panel.mount();
 
+    expect(host.querySelector(".ldu-icon-button .ldu-symbol-settings")).not.toBeNull();
+    expect(host.querySelector(".ldu-settings-close .ldu-symbol-close")).not.toBeNull();
+    expect(host.querySelector(".ldu-settings-github .ldu-symbol-github")).not.toBeNull();
+    expect(host.querySelector(".ldu-settings-donate .ldu-symbol-gift")).not.toBeNull();
     expect(host.querySelector(".ldu-settings-heading")?.textContent).toBe("Ultimate Linux Do 设置");
     expect([...host.querySelectorAll(".ldu-settings-group-title")].map((node) => node.textContent)).toEqual([
       "布局",
@@ -48,9 +52,34 @@ describe("settings panel", () => {
     expect(previewRow.hidden).toBe(false);
     expect(risk.hidden).toBe(false);
     expect(risk.textContent).toContain("运行目标网站脚本");
+    expect(risk.textContent).toContain("Linux Do 同源权限");
     preview.checked = false;
     preview.dispatchEvent(new Event("change", { bubbles: true }));
     expect(risk.hidden).toBe(true);
+  });
+
+  it("persists each control once and delays range storage until commit", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const onChange = vi.fn();
+    const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange });
+    panel.mount();
+    const toggle = host.querySelector<HTMLInputElement>('[data-setting="hidePosters"]')!;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("input", { bubbles: true }));
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith({ hidePosters: false });
+
+    onChange.mockClear();
+    const range = host.querySelector<HTMLInputElement>('[data-setting="maxLiveFrames"]')!;
+    range.value = "8";
+    range.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(host.querySelector<HTMLOutputElement>('[data-output="maxLiveFrames"]')?.value).toBe("8");
+    expect(onChange).not.toHaveBeenCalled();
+    range.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledWith({ maxLiveFrames: 8 });
   });
 
   it("names layout choices by topic-detail position and keeps the live count inline", () => {

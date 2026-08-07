@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootFrameBridge } from "../src/frame-bridge";
+import { installTopicFrameBridge } from "../src/frame-runtime";
 
 describe("embedded topic preview bridge", () => {
   afterEach(() => {
@@ -21,12 +21,12 @@ describe("embedded topic preview bridge", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
     window.dispatchEvent(new MessageEvent("message", {
       origin: location.origin,
       source: window.parent,
-      data: { type: "ldu:bookmark", topicId: "2715229" },
+      data: { type: "ldu:bookmark", tabId: "topic-1", topicId: "2715229" },
     }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -60,13 +60,13 @@ describe("embedded topic preview bridge", () => {
       headers: { "Content-Type": "application/json" },
     })));
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
 
     window.dispatchEvent(new MessageEvent("message", {
       origin: location.origin,
       source: window.parent,
-      data: { type: "ldu:bookmark", topicId: "2715229" },
+      data: { type: "ldu:bookmark", tabId: "topic-1", topicId: "2715229" },
     }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -83,9 +83,9 @@ describe("embedded topic preview bridge", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     window.dispatchEvent(new MessageEvent("message", {
-      data: { type: "ldu:preview-config", enabled: true, clickMode: "single" },
+      data: { type: "ldu:preview-config", tabId: "topic-1", enabled: true, clickMode: "single" },
       origin: location.origin,
       source: window.parent,
     }));
@@ -110,7 +110,7 @@ describe("embedded topic preview bridge", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
 
     document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 }));
@@ -127,7 +127,7 @@ describe("embedded topic preview bridge", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     window.history.replaceState(null, "", "/t/current/1");
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
 
     const link = document.createElement("a");
@@ -152,7 +152,7 @@ describe("embedded topic preview bridge", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     window.history.replaceState(null, "", "/t/current/1");
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
     const link = document.createElement("a");
     link.href = "/c/develop/4";
@@ -173,7 +173,7 @@ describe("embedded topic preview bridge", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     window.history.replaceState(null, "", "/t/current/1/4");
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
 
     const sameTopic = document.createElement("a");
@@ -192,13 +192,61 @@ describe("embedded topic preview bridge", () => {
     expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:topic-open" }), expect.anything());
   });
 
+  it("falls back to the link's native click when the parent does not acknowledge navigation", () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/t/current/1");
+    const nativeClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    installTopicFrameBridge(window, document, "topic-1");
+    const link = document.createElement("a");
+    link.href = "/t/another/2";
+    document.body.append(link);
+
+    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    vi.advanceTimersByTime(1_000);
+
+    expect(nativeClick).toHaveBeenCalledOnce();
+  });
+
+  it("keeps target and download links under native browser control", () => {
+    vi.useFakeTimers();
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    installTopicFrameBridge(window, document, "topic-1");
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:preview-config", tabId: "topic-1", enabled: true, clickMode: "single" },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    postMessage.mockClear();
+
+    const newTab = document.createElement("a");
+    newTab.href = "/t/another/2";
+    newTab.target = "_blank";
+    const download = document.createElement("a");
+    download.href = "https://files.example/archive.zip";
+    download.download = "archive.zip";
+    document.body.append(newTab, download);
+
+    const newTabClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    const downloadClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    newTab.dispatchEvent(newTabClick);
+    download.dispatchEvent(downloadClick);
+
+    expect(newTabClick.defaultPrevented).toBe(false);
+    expect(downloadClick.defaultPrevented).toBe(false);
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: expect.stringMatching(/open$/) }),
+      expect.anything(),
+    );
+  });
+
   it("leaves post images to the forum lightbox", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     window.dispatchEvent(new MessageEvent("message", {
-      data: { type: "ldu:preview-config", enabled: true, clickMode: "single" },
+      data: { type: "ldu:preview-config", tabId: "topic-1", enabled: true, clickMode: "single" },
       origin: location.origin,
       source: window.parent,
     }));
@@ -222,7 +270,7 @@ describe("embedded topic preview bridge", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
 
     const wrapper = document.createElement("a");

@@ -72,6 +72,7 @@ export class LayoutController {
     this.secondaryOpen = false;
     document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open");
     document.documentElement.classList.remove("ldu-layout-two-root");
+    document.documentElement.classList.remove("ldu-split-booting");
   }
 
   setOpen(open: boolean): void {
@@ -143,6 +144,7 @@ export class LayoutController {
     document.body.classList.toggle("ldu-layout-three", mode === "three");
     document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
     document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
+    if (active) document.documentElement.classList.remove("ldu-split-booting");
     document.documentElement.style.setProperty("--ldu-sidebar-width", `${this.paneSizes.sidebar}px`);
     document.documentElement.style.setProperty("--ldu-topic-track", `${1 - this.paneSizes.listRatio}fr`);
     document.documentElement.style.setProperty("--ldu-topic-split-track", `${(1 - this.paneSizes.listRatio) / 2}fr`);
@@ -219,7 +221,8 @@ export class LayoutController {
         const delta = moveEvent.clientX - startX;
         const mode = this.getMode();
         const wrapper = this.panel?.parentElement;
-        const availableWidth = Math.max(1, (wrapper?.clientWidth ?? window.innerWidth) - this.paneSizes.sidebar);
+        const sidebarWidth = document.body.classList.contains("has-sidebar-page") ? start.sidebar : 0;
+        const availableWidth = Math.max(1, (wrapper?.clientWidth || window.innerWidth) - sidebarWidth);
         if (side === "after" && mode === "three") {
           this.paneSizes.listRatio = clampRatio(start.listRatio - (delta / availableWidth));
         } else if (side === "before" && mode === "two") {

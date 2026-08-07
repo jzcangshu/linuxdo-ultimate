@@ -4,6 +4,7 @@ import {
   getTopicInfo,
   isSplitRoute,
   isSupportedTopicTarget,
+  isNavigableForumPage,
 } from "../src/discourse/routes";
 
 describe("Discourse routes", () => {
@@ -44,9 +45,26 @@ describe("Discourse routes", () => {
     )).toBe(true);
   });
 
+  it("rejects subdomains and topic-like fragments outside canonical paths", () => {
+    expect(getTopicInfo("https://credit.linux.do/t/topic/1")).toBeNull();
+    expect(getTopicInfo("https://evil.linux.do/t/topic/1")).toBeNull();
+    expect(getTopicInfo("http://linux.do/t/topic/1")).toBeNull();
+    expect(getTopicInfo("https://linux.do/u/name/t/topic/1")).toBeNull();
+    expect(getTopicInfo("https://linux.do/t/not-a-topic")).toBeNull();
+    expect(getTopicInfo("https://linux.do/t/2309449/41")).toMatchObject({ topicId: "2309449", postNumber: 41 });
+  });
+
   it("uses one helper for every split-capable route", () => {
     expect(isSplitRoute("https://linux.do/")).toBe(true);
     expect(isSplitRoute("https://linux.do/search?q=test")).toBe(true);
     expect(isSplitRoute("https://linux.do/t/topic/1")).toBe(false);
+  });
+
+  it("routes forum pages but leaves attachments and same-page anchors native", () => {
+    expect(isNavigableForumPage("https://linux.do/chat", "https://linux.do/latest")).toBe(true);
+    expect(isNavigableForumPage("https://linux.do/u/member/activity", "https://linux.do/latest")).toBe(true);
+    expect(isNavigableForumPage("https://linux.do/uploads/default/photo.png", "https://linux.do/latest")).toBe(false);
+    expect(isNavigableForumPage("https://linux.do/clicks/track?url=x", "https://linux.do/latest")).toBe(false);
+    expect(isNavigableForumPage("https://linux.do/latest#reply", "https://linux.do/latest")).toBe(false);
   });
 });

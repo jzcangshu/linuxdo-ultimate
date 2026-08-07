@@ -18,7 +18,6 @@ export interface Settings {
   creditEnabled: boolean;
   previewClickMode: "double" | "single";
   maxLiveFrames: number;
-  maxOpenTabs: number;
   paneSizes: PaneSizes;
 }
 
@@ -50,7 +49,7 @@ export interface SessionState {
 }
 
 export interface StorageAdapter {
-  get<T>(key: string, fallback: T): T | Promise<T>;
-  set<T>(key: string, value: T): void | Promise<void>;
-  remove(key: string): void | Promise<void>;
+  get<T>(key: string, fallback: T): T;
+  set<T>(key: string, value: T): void;
+  remove(key: string): void;
 }

@@ -21,12 +21,38 @@ describe("tab context menu", () => {
       "split", "browser-tab", "reload", "copy", "bookmark", "close-others",
     ]);
     expect(root.querySelectorAll(".ldu-context-separator")).toHaveLength(3);
+    expect(root.querySelectorAll(".ldu-context-icon .ldu-symbol")).toHaveLength(6);
+    expect([...root.querySelectorAll<SVGElement>(".ldu-context-icon svg")].map((icon) => icon.className.baseVal)).toEqual([
+      "ldu-symbol ldu-symbol-split",
+      "ldu-symbol ldu-symbol-external",
+      "ldu-symbol ldu-symbol-refresh",
+      "ldu-symbol ldu-symbol-copy",
+      "ldu-symbol ldu-symbol-bookmark",
+      "ldu-symbol ldu-symbol-close-others",
+    ]);
     expect(root.textContent).toContain("向新的拆分视图中添加标签页");
     expect(root.textContent).toContain("在新的浏览器标签页中打开");
-    expect(root.textContent).toContain("Ctrl+R");
+    expect(root.textContent).toContain("重新加载当前帖子");
+    expect(root.textContent).not.toContain("Ctrl+R");
     root.querySelector<HTMLButtonElement>('[data-action="reload"]')!.click();
     expect(onReload).toHaveBeenCalledWith("topic-1");
     expect(document.querySelector(".ldu-tab-context-menu")).toBeNull();
+  });
+
+  it("supports circular arrow navigation and Home/End", () => {
+    const menu = new TabContextMenu({
+      onMoveToSplit: vi.fn(), onOpenBrowserTab: vi.fn(), onReload: vi.fn(),
+      onCopyLink: vi.fn(), onBookmark: vi.fn(), onCloseOthers: vi.fn(),
+    });
+    menu.open("topic-1", 20, 20);
+    const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    expect(document.activeElement).toBe(items[0]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    expect(document.activeElement).toBe(items.at(-1));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(document.activeElement).toBe(items[0]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(document.activeElement).toBe(items.at(-1));
   });
 
   it("closes for outside pointer input and Escape", () => {

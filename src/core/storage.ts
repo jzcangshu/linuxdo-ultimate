@@ -3,6 +3,7 @@ import {
   LATEST_SESSION_CANDIDATE_KEY,
   LATEST_SESSION_KEY,
   SESSION_ID_KEY,
+  SESSION_INDEX_KEY,
   SESSION_KEY_PREFIX,
   SESSION_OWNER_KEY_PREFIX,
   SETTINGS_KEY,
@@ -10,6 +11,22 @@ import {
 } from "./defaults";
 import { createSession, normalizeSession } from "./session";
 import type { SessionState, Settings, StorageAdapter } from "./types";
+
+export const STORAGE_FAILURE_EVENT = "ldu:storage-failure";
+let storageFailureReported = false;
+
+function reportStorageFailure(operation: string, key: string): void {
+  if (storageFailureReported) return;
+  storageFailureReported = true;
+  console.warn(`[Linux.do Ultimate] 本地存储不可用，${operation} ${key} 失败。`);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(STORAGE_FAILURE_EVENT, { detail: { operation, key } }));
+  }
+}
+
+export function hasStorageFailure(): boolean {
+  return storageFailureReported;
+}
 
 function safeJsonParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -34,20 +51,33 @@ export class MemoryStorage implements StorageAdapter {
   remove(key: string): void {
     this.values.delete(key);
   }
+
+  keys(): string[] {
+    return [...this.values.keys()];
+  }
+
+  snapshot(): string {
+    return JSON.stringify([...this.values.entries()]);
+  }
 }
 
 export class LocalStorageAdapter implements StorageAdapter {
   constructor(private readonly area: Storage) {}
 
   get<T>(key: string, fallback: T): T {
-    return safeJsonParse(this.area.getItem(key), fallback);
+    try {
+      return safeJsonParse(this.area.getItem(key), fallback);
+    } catch {
+      reportStorageFailure("读取", key);
+      return fallback;
+    }
   }
 
   set<T>(key: string, value: T): void {
     try {
       this.area.setItem(key, JSON.stringify(value));
     } catch {
-      // Quota/private-mode failures must not break the forum page.
+      reportStorageFailure("写入", key);
     }
   }
 
@@ -55,54 +85,64 @@ export class LocalStorageAdapter implements StorageAdapter {
     try {
       this.area.removeItem(key);
     } catch {
-      // Ignore storage failures.
+      reportStorageFailure("删除", key);
     }
   }
 }
 
 export class UserscriptStorage implements StorageAdapter {
+  private readonly backend: "userscript" | "local" = typeof GM_getValue === "function"
+    && typeof GM_setValue === "function"
+    && typeof GM_deleteValue === "function"
+    ? "userscript"
+    : "local";
+
   get<T>(key: string, fallback: T): T {
-    try {
-      if (typeof GM_getValue === "function") return GM_getValue(key, fallback) as T;
-    } catch {
-      // Fall through to local storage.
+    if (this.backend === "userscript") {
+      try {
+        return GM_getValue(key, fallback) as T;
+      } catch {
+        reportStorageFailure("读取", key);
+        return fallback;
+      }
     }
     try {
       return safeJsonParse(window.localStorage.getItem(key), fallback);
     } catch {
+      reportStorageFailure("读取", key);
       return fallback;
     }
   }
 
   set<T>(key: string, value: T): void {
-    try {
-      if (typeof GM_setValue === "function") {
+    if (this.backend === "userscript") {
+      try {
         GM_setValue(key, value);
-        return;
+      } catch {
+        reportStorageFailure("写入", key);
       }
-    } catch {
-      // Fall through to local storage.
+      return;
     }
     try {
       window.localStorage.setItem(key, JSON.stringify(value));
     } catch {
-      // Ignore storage failures.
+      reportStorageFailure("写入", key);
     }
   }
 
   remove(key: string): void {
-    try {
-      if (typeof GM_deleteValue === "function") {
+    if (this.backend === "userscript") {
+      try {
         GM_deleteValue(key);
-        return;
+      } catch {
+        reportStorageFailure("删除", key);
       }
-    } catch {
-      // Fall through to local storage.
+      return;
     }
     try {
       window.localStorage.removeItem(key);
     } catch {
-      // Ignore storage failures.
+      reportStorageFailure("删除", key);
     }
   }
 }
@@ -141,6 +181,59 @@ interface StoredSessionOwner {
 }
 
 const SESSION_OWNER_TTL_MS = 5 * 60_000;
+const SESSION_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+interface SessionIndexEntry {
+  sessionId: string;
+  updatedAt: number;
+}
+
+interface RestorableSessionEntry {
+  session: SessionState;
+  closedAt: number;
+}
+
+function readRestorableSessions(storage: StorageAdapter): RestorableSessionEntry[] {
+  const candidate = storage.get<unknown | null>(LATEST_SESSION_CANDIDATE_KEY, null);
+  if (Array.isArray(candidate)) {
+    return candidate.filter((entry): entry is RestorableSessionEntry => Boolean(
+      entry && typeof entry === "object"
+        && typeof (entry as RestorableSessionEntry).closedAt === "number"
+        && (entry as RestorableSessionEntry).session
+        && typeof (entry as RestorableSessionEntry).session.sessionId === "string",
+    ));
+  }
+  const legacy = [candidate, storage.get<unknown | null>(LATEST_SESSION_KEY, null)]
+    .filter((value): value is SessionState => Boolean(
+      value && typeof value === "object" && typeof (value as SessionState).sessionId === "string",
+    ));
+  return legacy.map((session) => ({ session, closedAt: session.updatedAt || 0 }));
+}
+
+function writeRestorableSessions(storage: StorageAdapter, entries: RestorableSessionEntry[]): void {
+  storage.set(LATEST_SESSION_CANDIDATE_KEY, entries);
+  storage.remove(LATEST_SESSION_KEY);
+}
+
+function readSessionIndex(storage: StorageAdapter): SessionIndexEntry[] {
+  const value = storage.get<unknown>(SESSION_INDEX_KEY, []);
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is SessionIndexEntry => Boolean(
+    entry && typeof entry === "object"
+      && typeof (entry as SessionIndexEntry).sessionId === "string"
+      && typeof (entry as SessionIndexEntry).updatedAt === "number",
+  ));
+}
+
+function writeSessionIndex(storage: StorageAdapter, entries: SessionIndexEntry[]): void {
+  storage.set(SESSION_INDEX_KEY, entries);
+}
+
+function touchSessionIndex(storage: StorageAdapter, sessionId: string, updatedAt: number): void {
+  const entries = readSessionIndex(storage).filter((entry) => entry.sessionId !== sessionId);
+  entries.push({ sessionId, updatedAt });
+  writeSessionIndex(storage, entries);
+}
 
 export function claimSessionId(
   storage: StorageAdapter,
@@ -167,6 +260,7 @@ export function refreshSessionLease(storage: StorageAdapter, lease: SessionLease
   const owner = storage.get<StoredSessionOwner | null>(`${SESSION_OWNER_KEY_PREFIX}${lease.sessionId}`, null) as StoredSessionOwner | null;
   if (owner?.ownerId === lease.ownerId) {
     storage.set(`${SESSION_OWNER_KEY_PREFIX}${lease.sessionId}`, { ...owner, updatedAt: now });
+    touchSessionIndex(storage, lease.sessionId, now);
   }
 }
 
@@ -208,11 +302,13 @@ export function loadLatestSession(
   listUrl: string,
   now: number,
 ): SessionState | null {
-  const candidate = storage.get<unknown | null>(LATEST_SESSION_CANDIDATE_KEY, null);
-  const confirmed = storage.get<unknown | null>(LATEST_SESSION_KEY, null);
-  const stored = candidate ?? confirmed;
-  if (stored === null || stored === undefined) return null;
-  const normalized = normalizeSession(stored, createSession(sessionId, listUrl, now));
+  const entry = readRestorableSessions(storage)
+    .filter((candidate) => candidate.session.sessionId !== sessionId)
+    .sort((a, b) => a.closedAt - b.closedAt)
+    .at(-1);
+  if (!entry) return null;
+  const normalized = normalizeSession(entry.session, createSession(sessionId, listUrl, now));
+  if (normalized.sessionId !== sessionId) clearSession(storage, normalized.sessionId);
   clearRestorableSessions(storage);
   if (normalized.tabs.length === 0) return null;
   return { ...normalized, sessionId };
@@ -220,20 +316,35 @@ export function loadLatestSession(
 
 export function saveSession(storage: StorageAdapter, session: SessionState): void {
   storage.set(`${SESSION_KEY_PREFIX}${session.sessionId}`, session);
+  touchSessionIndex(storage, session.sessionId, session.updatedAt);
 }
 
-export function stageSessionClose(storage: StorageAdapter, session: SessionState): void {
+export function stageSessionClose(storage: StorageAdapter, session: SessionState, closedAt = Date.now()): void {
   if (session.tabs.length === 0) return;
-  const previous = storage.get<SessionState | null>(LATEST_SESSION_CANDIDATE_KEY, null) as SessionState | null;
-  if (previous && previous.sessionId !== session.sessionId && previous.tabs?.length) {
-    storage.set(LATEST_SESSION_KEY, previous);
-  }
-  storage.set(LATEST_SESSION_CANDIDATE_KEY, session);
+  const entries = readRestorableSessions(storage)
+    .filter((entry) => entry.session.sessionId !== session.sessionId);
+  entries.push({ session, closedAt });
+  writeRestorableSessions(storage, entries.sort((a, b) => a.closedAt - b.closedAt).slice(-8));
 }
 
 export function reconcileSessionClose(storage: StorageAdapter, sessionId: string): void {
-  const candidate = storage.get<SessionState | null>(LATEST_SESSION_CANDIDATE_KEY, null) as SessionState | null;
-  if (candidate?.sessionId === sessionId) storage.remove(LATEST_SESSION_CANDIDATE_KEY);
+  const restorable = readRestorableSessions(storage).filter((entry) => entry.session.sessionId !== sessionId);
+  if (restorable.length > 0) writeRestorableSessions(storage, restorable);
+  else clearRestorableSessions(storage);
+}
+
+export function cleanupExpiredSessions(storage: StorageAdapter, now = Date.now()): void {
+  const retainedIndex: SessionIndexEntry[] = [];
+  for (const entry of readSessionIndex(storage)) {
+    const expired = now - entry.updatedAt >= SESSION_RETENTION_MS;
+    if (expired) {
+      storage.remove(`${SESSION_KEY_PREFIX}${entry.sessionId}`);
+      storage.remove(`${SESSION_OWNER_KEY_PREFIX}${entry.sessionId}`);
+    } else {
+      retainedIndex.push(entry);
+    }
+  }
+  writeSessionIndex(storage, retainedIndex);
 }
 
 export function clearRestorableSessions(storage: StorageAdapter): void {
@@ -243,4 +354,6 @@ export function clearRestorableSessions(storage: StorageAdapter): void {
 
 export function clearSession(storage: StorageAdapter, sessionId: string): void {
   storage.remove(`${SESSION_KEY_PREFIX}${sessionId}`);
+  storage.remove(`${SESSION_OWNER_KEY_PREFIX}${sessionId}`);
+  writeSessionIndex(storage, readSessionIndex(storage).filter((entry) => entry.sessionId !== sessionId));
 }

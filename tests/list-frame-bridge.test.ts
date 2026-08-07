@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootFrameBridge } from "../src/frame-bridge";
+import { installListFrameBridge } from "../src/frame-runtime";
 
 describe("embedded list bridge", () => {
   afterEach(() => {
@@ -17,7 +17,7 @@ describe("embedded list bridge", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-list:session-1" });
     window.history.replaceState(null, "", "/latest");
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installListFrameBridge(window, document, "session-1");
     postMessage.mockClear();
     const link = document.createElement("a");
     link.href = "/t/another/2";
@@ -36,7 +36,7 @@ describe("embedded list bridge", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-list:session-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    bootFrameBridge();
+    installListFrameBridge(window, document, "session-1");
     postMessage.mockClear();
 
     document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 }));

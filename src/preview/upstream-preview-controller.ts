@@ -11,6 +11,7 @@ interface UpstreamPreviewApi {
   openFromFrame: (url: string, anchorRect: { left: number; top: number; bottom: number }) => void;
   close: () => void;
   syncClickMode: () => void;
+  destroy: () => void;
 }
 
 export class PreviewController {
@@ -19,13 +20,22 @@ export class PreviewController {
   constructor(private readonly options: PreviewOptions) {}
 
   mount(): void {
-    if (this.api) return;
+    if (this.api || !this.options.isEnabled()) return;
     this.api = installLinkHoverPreviewer({
       isEnabled: this.options.isEnabled,
       clickMode: this.options.clickMode,
       onClickModeChange: this.options.onClickModeChange,
       isPreviewableUrl: (url: string, link: HTMLAnchorElement | null) => this.isPreviewable(url, link),
     }) as UpstreamPreviewApi;
+  }
+
+  setEnabled(enabled: boolean): void {
+    if (enabled) {
+      this.mount();
+      return;
+    }
+    this.api?.destroy();
+    this.api = null;
   }
 
   close(): void {
@@ -53,7 +63,15 @@ export class PreviewController {
 
   private isPreviewable(url: string, link: HTMLAnchorElement | null): boolean {
     if (!/^https?:/i.test(url) || getTopicInfo(url)) return false;
+    try {
+      const parsed = new URL(url, location.href);
+      if (parsed.origin === location.origin) return false;
+      if (/\.(?:pdf|zip|rar|7z|tar|gz|bz2|xz|dmg|exe|msi|apk|deb|rpm|iso|mp4|mkv|avi|mov|webm|mp3|flac|wav|docx?|xlsx?|pptx?)$/i.test(parsed.pathname)) return false;
+    } catch {
+      return false;
+    }
     if (!link) return true;
+    if (link.hasAttribute("download") || (link.target && link.target.toLowerCase() !== "_self")) return false;
     if (link.closest(".d-header, .sidebar-wrapper, .ldu-topic-toolbar, .ldu-settings-panel")) return false;
     if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return false;
     if (link.matches(".lightbox") || link.querySelector("img, picture")) return false;

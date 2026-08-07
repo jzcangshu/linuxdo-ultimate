@@ -8,6 +8,7 @@ describe("credit widget", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.replaceChildren();
+    localStorage.removeItem("linuxdo-ultimate:credit-cache:v1");
   });
 
   it("mounts once beside the language switcher and preserves the original score calculation", async () => {
@@ -76,6 +77,127 @@ describe("credit widget", () => {
     const firstRequest = xhr.mock.calls[0]![0];
     expect(firstRequest.withCredentials).toBe(true);
     expect(firstRequest.headers.Referer).toBe("https://credit.linux.do/home");
+    expect(firstRequest.headers["x-csrf-token"]).toBeUndefined();
     expect(firstRequest.timeout).toBe(10_000);
+  });
+
+  it("aborts an in-flight userscript request when the feature is disabled", () => {
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    const abort = vi.fn();
+    vi.stubGlobal("GM_xmlhttpRequest", vi.fn(() => ({ abort })));
+    const widget = new CreditWidget({ isTopLevel: () => true });
+
+    widget.mount(true);
+    widget.setEnabled(false);
+
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("pauses all polling while the page is hidden and resumes when visible", async () => {
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    let visible = false;
+    const request = vi.fn(async (url: string) => url.includes("credit.linux.do")
+      ? { data: { "community-balance": 1, username: "tester" } }
+      : { user: { gamification_score: 2 } });
+    const widget = new CreditWidget({ request, isTopLevel: () => true, isVisible: () => visible });
+    widget.mount(true);
+    expect(request).not.toHaveBeenCalled();
+
+    visible = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
+
+  it("deduplicates a manual refresh with an in-flight scheduled request", async () => {
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    let resolveCredit!: (value: unknown) => void;
+    const request = vi.fn((url: string) => url.includes("credit.linux.do")
+      ? new Promise((resolve) => { resolveCredit = resolve; })
+      : Promise.resolve({ user: { gamification_score: 2 } }));
+    const widget = new CreditWidget({ request, isTopLevel: () => true });
+    widget.mount(true);
+    document.querySelector<HTMLButtonElement>(".ldu-credit-button")!.click();
+    expect(request).toHaveBeenCalledTimes(1);
+    resolveCredit({ data: { "community-balance": 1, username: "tester" } });
+    await vi.waitFor(() => expect(document.querySelector(".ldu-credit-value")?.textContent).toBe("+1.00"));
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("restarts immediately when re-enabled during an obsolete request", async () => {
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    let resolveFirst!: (value: unknown) => void;
+    let creditCalls = 0;
+    const request = vi.fn((url: string) => {
+      if (!url.includes("credit.linux.do")) return Promise.resolve({ user: { gamification_score: 8 } });
+      creditCalls += 1;
+      if (creditCalls === 1) return new Promise((resolve) => { resolveFirst = resolve; });
+      return Promise.resolve({ data: { "community-balance": 5, username: "tester" } });
+    });
+    const widget = new CreditWidget({ request, isTopLevel: () => true });
+    widget.mount(true);
+    widget.setEnabled(false);
+    widget.setEnabled(true);
+    resolveFirst({ data: { "community-balance": 1, username: "stale" } });
+
+    await vi.waitFor(() => expect(document.querySelector(".ldu-credit-value")?.textContent).toBe("+3.00"));
+    expect(creditCalls).toBe(2);
+    expect(request).toHaveBeenCalledWith("https://linux.do/u/tester.json");
+  });
+
+  it("leaves the loading state and reports malformed API responses", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    const request = vi.fn(async () => ({ data: { "community-balance": "invalid" } }));
+    const widget = new CreditWidget({ request, isTopLevel: () => true });
+    widget.mount(true);
+    await vi.waitFor(() => expect(document.querySelector(".ldu-credit-value")?.textContent).toBe("!"));
+  });
+
+  it.each([
+    ["expired", JSON.stringify({ communityBalance: 1, gamificationScore: 2, username: "old", updatedAt: 1 })],
+    ["malformed", "{not-json"],
+  ])("removes %s shared cache data before fetching a fresh snapshot", async (_case, stored) => {
+    const headerIcons = document.createElement("ul");
+    headerIcons.className = "d-header-icons";
+    const language = document.createElement("li");
+    language.className = "language-switcher";
+    headerIcons.append(language);
+    document.body.append(headerIcons);
+    localStorage.setItem("linuxdo-ultimate:credit-cache:v1", stored);
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    const request = vi.fn(async (url: string) => url.includes("credit.linux.do")
+      ? { data: { "community-balance": 3, username: "tester" } }
+      : { user: { gamification_score: 4 } });
+    const widget = new CreditWidget({ request, isTopLevel: () => true, now: () => 120_000 });
+
+    widget.mount(true);
+    await vi.waitFor(() => expect(document.querySelector(".ldu-credit-value")?.textContent).toBe("+1.00"));
+
+    expect(removeItem).toHaveBeenCalledWith("linuxdo-ultimate:credit-cache:v1");
   });
 });

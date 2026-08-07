@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.14
+// @version      0.2.15
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -2038,118 +2038,6 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 body.ldu-layout-two .ldu-resize-after { display: none; }
 body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none; }
 
-.ldu-preview-container {
-  position: fixed;
-  z-index: 1000000;
-  display: flex;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 24px);
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--ldu-border);
-  border-radius: 6px;
-  background: var(--ldu-surface);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
-}
-
-.ldu-preview-header {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-left: 12px;
-  border-bottom: 1px solid var(--ldu-border);
-  background: var(--ldu-surface-muted);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-.ldu-preview-dragging .ldu-preview-header { cursor: grabbing; }
-
-.ldu-preview-title {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ldu-preview-actions { display: flex; flex: none; align-items: center; padding-right: 4px; }
-.ldu-preview-actions button,
-.ldu-preview-actions a { cursor: pointer; }
-.ldu-preview-actions a { text-decoration: none; }
-.ldu-preview-frame { display: block; width: 100%; min-height: 0; flex: 1; border: 0; background: #fff; }
-
-.ldu-preview-status {
-  position: absolute;
-  inset: 38px 0 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 20px;
-  background: var(--ldu-surface);
-  color: var(--primary-medium, #666);
-  font-size: var(--font-down-1, .875rem);
-  text-align: center;
-  transition: opacity 130ms ease;
-}
-
-.ldu-preview-status.is-hidden { visibility: hidden; opacity: 0; pointer-events: none; }
-.ldu-preview-status.is-error { color: var(--ldu-danger); }
-.ldu-preview-spinner {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  border: 2px solid var(--ldu-border);
-  border-top-color: var(--ldu-accent);
-  border-radius: 50%;
-  animation: ldu-preview-spin .75s linear infinite;
-}
-.ldu-preview-status.is-error .ldu-preview-spinner { display: none; }
-@keyframes ldu-preview-spin { to { transform: rotate(360deg); } }
-
-.ldu-preview-status.is-fallback {
-  align-items: stretch;
-  overflow-y: auto;
-  color: var(--ldu-text);
-  text-align: left;
-}
-
-.ldu-preview-fallback-card {
-  width: min(560px, 100%);
-  margin: auto;
-}
-
-.ldu-preview-fallback-image {
-  display: block;
-  width: min(96px, 24%);
-  max-height: 96px;
-  margin-bottom: 16px;
-  object-fit: contain;
-}
-
-.ldu-preview-fallback-site {
-  margin-bottom: 6px;
-  color: var(--primary-medium, #666);
-  font-size: var(--font-down-1, .875rem);
-}
-
-.ldu-preview-fallback-card h3 {
-  margin: 0 0 10px;
-  font-size: var(--font-up-1, 1.125rem);
-  line-height: 1.35;
-}
-
-.ldu-preview-fallback-card p { margin: 0; line-height: 1.6; }
-.ldu-preview-fallback-note {
-  margin-top: 18px !important;
-  color: var(--primary-medium, #666);
-  font-size: var(--font-down-1, .875rem);
-}
 
 .ldu-settings-panel {
   position: fixed;
@@ -2388,7 +2276,6 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-reset,
   .ldu-settings-action,
   .ldu-donate-menu a { transition-duration: 0ms !important; }
-  .ldu-preview-spinner { animation-duration: 1.5s; }
 }
 `;
   var EMBEDDED_STYLES = `

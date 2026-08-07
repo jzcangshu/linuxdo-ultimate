@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.12
+// @version      0.2.13
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -984,13 +984,14 @@
         const candidate = candidates[0];
         if (!candidate) return;
         const [tabId, record] = candidate;
+        const scrollY = record.iframe.contentWindow?.scrollY ?? 0;
         record.commands = [];
         this.cancelScrollRestore(record);
         record.iframe.removeEventListener("load", record.loadListener);
         record.iframe.remove();
         this.frames.delete(tabId);
         if (this.activeTabId === tabId) this.activeTabId = null;
-        this.onSuspend(tabId, record.iframe);
+        this.onSuspend(tabId, scrollY);
       }
     }
   };
@@ -7044,8 +7045,7 @@ ${tab.url}`;
         content,
         this.settings.maxLiveFrames,
         (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
-        (tabId, iframe) => {
-          const scrollY = iframe.contentWindow?.scrollY ?? 0;
+        (tabId, scrollY) => {
           this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
           this.schedulePersist();
         }
@@ -7063,8 +7063,7 @@ ${tab.url}`;
         content,
         this.settings.maxLiveFrames,
         (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
-        (tabId, iframe) => {
-          const scrollY = iframe.contentWindow?.scrollY ?? 0;
+        (tabId, scrollY) => {
           this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
           this.schedulePersist();
         }

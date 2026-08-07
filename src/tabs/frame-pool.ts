@@ -45,7 +45,7 @@ export class TopicFramePool {
     private readonly container: HTMLElement,
     private readonly maxLiveFrames: number,
     private readonly onMessage: (message: FrameMessage, iframe: HTMLIFrameElement) => void,
-    private readonly onSuspend: (tabId: string, iframe: HTMLIFrameElement) => void,
+    private readonly onSuspend: (tabId: string, scrollY: number) => void,
   ) { this.liveLimit = Math.max(1, maxLiveFrames); }
 
   setMaxLiveFrames(value: number): void {
@@ -301,13 +301,15 @@ export class TopicFramePool {
       const candidate = candidates[0];
       if (!candidate) return;
       const [tabId, record] = candidate;
+      // Read the live scroll position before detaching: contentWindow is gone afterwards.
+      const scrollY = record.iframe.contentWindow?.scrollY ?? 0;
       record.commands = [];
       this.cancelScrollRestore(record);
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
       if (this.activeTabId === tabId) this.activeTabId = null;
-      this.onSuspend(tabId, record.iframe);
+      this.onSuspend(tabId, scrollY);
     }
   }
 }

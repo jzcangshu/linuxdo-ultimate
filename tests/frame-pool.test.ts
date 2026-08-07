@@ -42,15 +42,19 @@ describe("topic frame pool", () => {
     expect(reused.src).toBe(originalSrc);
   });
 
-  it("removes the least recently used frame before notifying suspension", () => {
+  it("removes the least recently used frame and reports its last scroll position", () => {
     const host = document.createElement("div");
-    const suspended: Array<{ id: string; connected: boolean }> = [];
-    const pool = new TopicFramePool(host, 1, vi.fn(), (id, frame) => {
-      suspended.push({ id, connected: frame.isConnected });
+    document.body.append(host);
+    const suspended: Array<{ id: string; scrollY: number }> = [];
+    const pool = new TopicFramePool(host, 1, vi.fn(), (id, scrollY) => {
+      suspended.push({ id, scrollY });
     });
-    pool.activate(tab("1"), 1);
+    const frame = pool.activate(tab("1"), 1);
+    Object.defineProperty(frame.contentWindow!, "scrollY", { value: 4200, configurable: true });
+
     pool.activate(tab("2"), 2);
-    expect(suspended).toEqual([{ id: "topic-1", connected: false }]);
+
+    expect(suspended).toEqual([{ id: "topic-1", scrollY: 4200 }]);
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
   });
 

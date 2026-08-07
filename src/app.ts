@@ -432,8 +432,7 @@ class LinuxDoApp {
       content,
       this.settings.maxLiveFrames,
       (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
-      (tabId, iframe) => {
-        const scrollY = iframe.contentWindow?.scrollY ?? 0;
+      (tabId, scrollY) => {
         this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
         this.schedulePersist();
       },
@@ -452,8 +451,7 @@ class LinuxDoApp {
       content,
       this.settings.maxLiveFrames,
       (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
-      (tabId, iframe) => {
-        const scrollY = iframe.contentWindow?.scrollY ?? 0;
+      (tabId, scrollY) => {
         this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
         this.schedulePersist();
       },

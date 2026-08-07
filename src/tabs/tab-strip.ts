@@ -51,6 +51,15 @@ interface TabStripRenderState {
 
 const tabStripStates = new WeakMap<HTMLElement, TabStripRenderState>();
 
+function resetTabDragVisuals(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>(":scope > .ldu-tab-item[data-tab-id]").forEach((item) => {
+    item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+    item.setAttribute("aria-grabbed", "false");
+    item.style.transform = "";
+  });
+  root.classList.remove("is-reordering");
+}
+
 function createTabItem(root: HTMLElement): HTMLElement {
   const item = document.createElement("div");
   item.className = "ldu-tab-item";
@@ -149,12 +158,7 @@ export function renderTabStrip(
   options: TabStripOptions = {},
 ): void {
   tabStripStates.set(root, { tabs, callbacks });
-  root.querySelectorAll<HTMLElement>(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
-    item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
-    item.setAttribute("aria-grabbed", "false");
-    item.style.transform = "";
-  });
-  root.classList.remove("is-reordering");
+  resetTabDragVisuals(root);
   root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
   let draggedTabId: string | null = null;
   let dropTarget: { tabId: string; position: "before" | "after" } | null = null;
@@ -167,12 +171,7 @@ export function renderTabStrip(
   }> | null = null;
   let insertionIndex: number | null = null;
   const clearDragState = () => {
-    root.querySelectorAll<HTMLElement>(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
-      item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
-      item.setAttribute("aria-grabbed", "false");
-      item.style.transform = "";
-    });
-    root.classList.remove("is-reordering");
+    resetTabDragVisuals(root);
     draggedTabId = null;
     dropTarget = null;
     dragMetrics = null;

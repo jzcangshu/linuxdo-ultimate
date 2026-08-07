@@ -175,5 +175,7 @@ describe("topic tab category colors", () => {
 
     root.dispatchEvent(new MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 310 }));
     expect(onReorder).toHaveBeenCalledWith("topic-1", "topic-3", "after");
+    expect(items.every((item) => item.style.transform === "")).toBe(true);
+    expect(root.classList.contains("is-reordering")).toBe(false);
   });
 });

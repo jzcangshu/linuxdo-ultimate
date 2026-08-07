@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.15
+// @version      0.2.16
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -1362,6 +1362,14 @@
     return match?.[1] ?? null;
   }
   var tabStripStates = /* @__PURE__ */ new WeakMap();
+  function resetTabDragVisuals(root) {
+    root.querySelectorAll(":scope > .ldu-tab-item[data-tab-id]").forEach((item) => {
+      item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+      item.setAttribute("aria-grabbed", "false");
+      item.style.transform = "";
+    });
+    root.classList.remove("is-reordering");
+  }
   function createTabItem(root) {
     const item = document.createElement("div");
     item.className = "ldu-tab-item";
@@ -1443,24 +1451,14 @@ ${tab.url}`;
   }
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
     tabStripStates.set(root, { tabs, callbacks });
-    root.querySelectorAll(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
-      item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
-      item.setAttribute("aria-grabbed", "false");
-      item.style.transform = "";
-    });
-    root.classList.remove("is-reordering");
+    resetTabDragVisuals(root);
     root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
     let draggedTabId = null;
     let dropTarget = null;
     let dragMetrics = null;
     let insertionIndex = null;
     const clearDragState = () => {
-      root.querySelectorAll(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
-        item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
-        item.setAttribute("aria-grabbed", "false");
-        item.style.transform = "";
-      });
-      root.classList.remove("is-reordering");
+      resetTabDragVisuals(root);
       draggedTabId = null;
       dropTarget = null;
       dragMetrics = null;

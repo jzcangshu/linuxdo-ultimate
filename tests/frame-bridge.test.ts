@@ -9,6 +9,7 @@ describe("embedded topic preview bridge", () => {
     vi.restoreAllMocks();
     document.documentElement.removeAttribute("data-ldu-embedded-topic");
     document.documentElement.removeAttribute("data-ldu-embedded-list");
+    document.documentElement.removeAttribute("data-ldu-soft-frozen");
     document.body.replaceChildren();
     document.getElementById(APP_STYLE_ID)?.remove();
     document.getElementById(EMBEDDED_STYLE_ID)?.remove();
@@ -267,6 +268,52 @@ describe("embedded topic preview bridge", () => {
 
     expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       categoryName: "运营反馈",
+    }), location.origin);
+  });
+
+  it("soft-freezes its own background work and resumes the same topic document", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-freeze" });
+    const retainedPost = document.createElement("article");
+    retainedPost.id = "retained-post";
+    document.body.append(retainedPost);
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    bootFrameBridge();
+    vi.runOnlyPendingTimers();
+    postMessage.mockClear();
+
+    window.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:frame-lifecycle", active: false },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    const category = document.createElement("div");
+    category.className = "topic-category";
+    category.innerHTML = '<a class="badge-category__wrapper" style="--category-badge-color:#3ab54a"><span class="badge-category__name">搞七捻三</span></a>';
+    document.body.append(category);
+    vi.runOnlyPendingTimers();
+
+    expect(document.documentElement.dataset.lduSoftFrozen).toBe("true");
+    expect(document.querySelector("#retained-post")).toBe(retainedPost);
+    expect(postMessage.mock.calls.filter(([message]) => (
+      (message as { type?: string; tabId?: string }).type === "ldu:frame-state"
+      && (message as { tabId?: string }).tabId === "topic-freeze"
+    ))).toHaveLength(0);
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:frame-lifecycle", active: true },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    vi.runOnlyPendingTimers();
+
+    expect(document.documentElement.hasAttribute("data-ldu-soft-frozen")).toBe(false);
+    expect(document.querySelector("#retained-post")).toBe(retainedPost);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:frame-state",
+      tabId: "topic-freeze",
+      categoryName: "搞七捻三",
     }), location.origin);
   });
 });

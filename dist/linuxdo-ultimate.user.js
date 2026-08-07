@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.7
+// @version      0.2.8
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -744,9 +744,7 @@
       const record = this.ensureRecord(tab, now);
       if (this.activeTabId !== tab.id) {
         for (const [tabId, current] of this.frames) {
-          const active = tabId === tab.id;
-          current.iframe.setAttribute("aria-hidden", String(!active));
-          current.iframe.tabIndex = active ? 0 : -1;
+          this.setFrameActive(current, tabId === tab.id);
         }
         this.activeTabId = tab.id;
       }
@@ -756,10 +754,7 @@
     prepare(tab, now) {
       const activeTabId = this.activeTabId && this.frames.has(this.activeTabId) ? this.activeTabId : "";
       const record = this.ensureRecord(tab, now);
-      if (tab.id !== activeTabId) {
-        record.iframe.setAttribute("aria-hidden", "true");
-        record.iframe.tabIndex = -1;
-      }
+      if (tab.id !== activeTabId) this.setFrameActive(record, false);
       this.suspendOverflow(activeTabId);
       return record.iframe;
     }
@@ -776,6 +771,7 @@
           if (!current || current.iframe !== iframe) return;
           current.loaded = true;
           this.restoreScroll(current);
+          this.sendLifecycleState(current);
           this.sendPreviewConfig(iframe);
           this.flushCommands(current);
           this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
@@ -787,6 +783,7 @@
           lastUsedAt: now,
           reportedUrl: null,
           loaded: false,
+          softFrozen: true,
           commands: [],
           loadListener,
           restoreScrollY: tab.scrollY,
@@ -823,6 +820,7 @@
       if (data.type === "ldu:frame-ready") {
         record.loaded = true;
         this.restoreScroll(record);
+        this.sendLifecycleState(record);
         this.sendPreviewConfig(record.iframe);
         this.flushCommands(record);
       }
@@ -916,6 +914,22 @@
     }
     sendPreviewConfig(iframe) {
       iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+    }
+    setFrameActive(record, active) {
+      const hidden = String(!active);
+      if (record.iframe.getAttribute("aria-hidden") !== hidden) record.iframe.setAttribute("aria-hidden", hidden);
+      const tabIndex = active ? 0 : -1;
+      if (record.iframe.tabIndex !== tabIndex) record.iframe.tabIndex = tabIndex;
+      const softFrozen = !active;
+      if (record.softFrozen === softFrozen) return;
+      record.softFrozen = softFrozen;
+      if (record.loaded) this.sendLifecycleState(record);
+    }
+    sendLifecycleState(record) {
+      record.iframe.contentWindow?.postMessage({
+        type: "ldu:frame-lifecycle",
+        active: !record.softFrozen
+      }, location.origin);
     }
     flushCommands(record) {
       const commands = record.commands.splice(0);
@@ -7311,6 +7325,7 @@ ${tab.url}`;
     document.documentElement.dataset.lduEmbeddedTopic = "true";
     ensureEmbeddedStyles(document);
     let timer = null;
+    let pendingSendType = null;
     let lastUrl = "";
     let lastObservedUrl = location.href;
     let lastObservedTitle = document.title;
@@ -7320,10 +7335,15 @@ ${tab.url}`;
     let previewClickMode = "double";
     let replayingClick = false;
     let clickTimer = null;
+    let softFrozen = false;
     const send = (type) => {
+      if (softFrozen && type === "ldu:frame-state") return;
       if (timer !== null) window.clearTimeout(timer);
+      pendingSendType = type;
       timer = window.setTimeout(() => {
         timer = null;
+        pendingSendType = null;
+        if (softFrozen && type === "ldu:frame-state") return;
         const payload = {
           type,
           tabId,
@@ -7352,7 +7372,8 @@ ${tab.url}`;
         return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
       });
     };
-    new MutationObserver((mutations) => {
+    const metadataObserver = new MutationObserver((mutations) => {
+      if (softFrozen) return;
       const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
       const urlChanged = lastObservedUrl !== location.href;
       const titleChanged = lastObservedTitle !== document.title;
@@ -7369,10 +7390,79 @@ ${currentCategory.categoryColor}` : "";
       lastObservedTitle = document.title;
       lastObservedCategoryKey = categoryKey;
       send("ldu:frame-state");
-    }).observe(document.documentElement, { childList: true, subtree: true });
+    });
+    const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
+    observeMetadata();
     const cancelPendingClick = () => {
       if (clickTimer !== null) window.clearTimeout(clickTimer);
       clickTimer = null;
+    };
+    const pausedMedia = /* @__PURE__ */ new Set();
+    const pausedAnimations = /* @__PURE__ */ new Set();
+    const pauseVisualActivity = () => {
+      for (const media of document.querySelectorAll("audio, video")) {
+        if (media.paused || media.ended) continue;
+        pausedMedia.add(media);
+        try {
+          media.pause();
+        } catch {
+        }
+      }
+      const animationDocument = document;
+      for (const animation of animationDocument.getAnimations?.() ?? []) {
+        if (animation.playState !== "running") continue;
+        pausedAnimations.add(animation);
+        try {
+          animation.pause();
+        } catch {
+        }
+      }
+    };
+    const resumeVisualActivity = () => {
+      for (const media of pausedMedia) {
+        if (!media.isConnected) continue;
+        try {
+          void media.play().catch(() => {
+          });
+        } catch {
+        }
+      }
+      pausedMedia.clear();
+      for (const animation of pausedAnimations) {
+        try {
+          animation.play();
+        } catch {
+        }
+      }
+      pausedAnimations.clear();
+    };
+    const setSoftFrozen = (frozen) => {
+      if (softFrozen === frozen) return;
+      softFrozen = frozen;
+      if (frozen) {
+        document.documentElement.dataset.lduSoftFrozen = "true";
+        if (timer !== null && pendingSendType === "ldu:frame-state") {
+          window.clearTimeout(timer);
+          timer = null;
+          pendingSendType = null;
+        }
+        cancelPendingClick();
+        metadataObserver.disconnect();
+        pauseVisualActivity();
+        return;
+      }
+      delete document.documentElement.dataset.lduSoftFrozen;
+      const urlChanged = lastObservedUrl !== location.href;
+      const observedCategory = readTopicDocumentCategory(document, window);
+      if (observedCategory) currentCategory = observedCategory;
+      else if (urlChanged) currentCategory = null;
+      lastObservedUrl = location.href;
+      lastObservedTitle = document.title;
+      lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}
+${currentCategory.categoryColor}` : "";
+      observeMetadata();
+      resumeVisualActivity();
+      send("ldu:frame-state");
     };
     const getPreviewableLink = (target) => {
       const link = target instanceof Element ? target.closest("a[href]") : null;
@@ -7423,6 +7513,10 @@ ${currentCategory.categoryColor}` : "";
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || event.origin !== location.origin) return;
       const data = event.data;
+      if (data?.type === "ldu:frame-lifecycle") {
+        setSoftFrozen(data.active !== true);
+        return;
+      }
       if (data?.type === "ldu:bookmark") {
         const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;

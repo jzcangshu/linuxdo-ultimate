@@ -16,6 +16,7 @@ export function bootFrameBridge(): void {
   ensureEmbeddedStyles(document);
 
   let timer: number | null = null;
+  let pendingSendType: "ldu:frame-state" | "ldu:frame-ready" | null = null;
   let lastUrl = "";
   let lastObservedUrl = location.href;
   let lastObservedTitle = document.title;
@@ -25,10 +26,15 @@ export function bootFrameBridge(): void {
   let previewClickMode: "double" | "single" = "double";
   let replayingClick = false;
   let clickTimer: number | null = null;
+  let softFrozen = false;
   const send = (type: "ldu:frame-state" | "ldu:frame-ready") => {
+    if (softFrozen && type === "ldu:frame-state") return;
     if (timer !== null) window.clearTimeout(timer);
+    pendingSendType = type;
     timer = window.setTimeout(() => {
       timer = null;
+      pendingSendType = null;
+      if (softFrozen && type === "ldu:frame-state") return;
       const payload: Record<string, unknown> = {
         type,
         tabId,
@@ -60,7 +66,8 @@ export function bootFrameBridge(): void {
       return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
     });
   };
-  new MutationObserver((mutations) => {
+  const metadataObserver = new MutationObserver((mutations) => {
+    if (softFrozen) return;
     // Post stream mutations are frequent and cannot change topic metadata.
     // Only inspect the document when title/category metadata may have changed.
     const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
@@ -78,11 +85,66 @@ export function bootFrameBridge(): void {
     lastObservedTitle = document.title;
     lastObservedCategoryKey = categoryKey;
     send("ldu:frame-state");
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  });
+  const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
+  observeMetadata();
 
   const cancelPendingClick = () => {
     if (clickTimer !== null) window.clearTimeout(clickTimer);
     clickTimer = null;
+  };
+  const pausedMedia = new Set<HTMLMediaElement>();
+  const pausedAnimations = new Set<Animation>();
+  const pauseVisualActivity = () => {
+    for (const media of document.querySelectorAll<HTMLMediaElement>("audio, video")) {
+      if (media.paused || media.ended) continue;
+      pausedMedia.add(media);
+      try { media.pause(); } catch { /* media state is best-effort */ }
+    }
+    const animationDocument = document as Document & { getAnimations?: () => Animation[] };
+    for (const animation of animationDocument.getAnimations?.() ?? []) {
+      if (animation.playState !== "running") continue;
+      pausedAnimations.add(animation);
+      try { animation.pause(); } catch { /* animation state is best-effort */ }
+    }
+  };
+  const resumeVisualActivity = () => {
+    for (const media of pausedMedia) {
+      if (!media.isConnected) continue;
+      try { void media.play().catch(() => {}); } catch { /* preserve a paused media element */ }
+    }
+    pausedMedia.clear();
+    for (const animation of pausedAnimations) {
+      try { animation.play(); } catch { /* preserve a paused animation */ }
+    }
+    pausedAnimations.clear();
+  };
+  const setSoftFrozen = (frozen: boolean) => {
+    if (softFrozen === frozen) return;
+    softFrozen = frozen;
+    if (frozen) {
+      document.documentElement.dataset.lduSoftFrozen = "true";
+      if (timer !== null && pendingSendType === "ldu:frame-state") {
+        window.clearTimeout(timer);
+        timer = null;
+        pendingSendType = null;
+      }
+      cancelPendingClick();
+      metadataObserver.disconnect();
+      pauseVisualActivity();
+      return;
+    }
+    delete document.documentElement.dataset.lduSoftFrozen;
+    const urlChanged = lastObservedUrl !== location.href;
+    const observedCategory = readTopicDocumentCategory(document, window);
+    if (observedCategory) currentCategory = observedCategory;
+    else if (urlChanged) currentCategory = null;
+    lastObservedUrl = location.href;
+    lastObservedTitle = document.title;
+    lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}\n${currentCategory.categoryColor}` : "";
+    observeMetadata();
+    resumeVisualActivity();
+    send("ldu:frame-state");
   };
   const getPreviewableLink = (target: EventTarget | null): HTMLAnchorElement | null => {
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
@@ -140,7 +202,12 @@ export function bootFrameBridge(): void {
       clickMode?: unknown;
       hidePosters?: unknown;
       topicId?: unknown;
+      active?: unknown;
     } | null;
+    if (data?.type === "ldu:frame-lifecycle") {
+      setSoftFrozen(data.active !== true);
+      return;
+    }
     if (data?.type === "ldu:bookmark") {
       const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
       const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;

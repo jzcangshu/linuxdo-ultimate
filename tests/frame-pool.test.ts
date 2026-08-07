@@ -217,6 +217,64 @@ describe("topic frame pool", () => {
     expect(background.tabIndex).toBe(-1);
   });
 
+  it("soft-freezes hidden live frames and resumes the original iframe without reloading", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());
+    const first = pool.activate(tab("1"), 1);
+    const firstSrc = first.src;
+    const firstPostMessage = vi.spyOn(first.contentWindow!, "postMessage");
+    first.dispatchEvent(new Event("load"));
+    firstPostMessage.mockClear();
+
+    const second = pool.activate(tab("2"), 2);
+    const secondSrc = second.src;
+    const secondPostMessage = vi.spyOn(second.contentWindow!, "postMessage");
+    expect(firstPostMessage).toHaveBeenCalledWith(
+      { type: "ldu:frame-lifecycle", active: false },
+      location.origin,
+    );
+
+    second.dispatchEvent(new Event("load"));
+    firstPostMessage.mockClear();
+    secondPostMessage.mockClear();
+    const restored = pool.activate(tab("1"), 3);
+
+    expect(restored).toBe(first);
+    expect(first.src).toBe(firstSrc);
+    expect(second.src).toBe(secondSrc);
+    expect(host.querySelectorAll("iframe")).toHaveLength(2);
+    expect(firstPostMessage).toHaveBeenCalledWith(
+      { type: "ldu:frame-lifecycle", active: true },
+      location.origin,
+    );
+    expect(secondPostMessage).toHaveBeenCalledWith(
+      { type: "ldu:frame-lifecycle", active: false },
+      location.origin,
+    );
+  });
+
+  it("resends the desired frozen state when a background frame reports ready", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());
+    pool.activate(tab("1"), 1);
+    const background = pool.prepare(tab("2"), 2);
+    const postMessage = vi.spyOn(background.contentWindow!, "postMessage");
+    postMessage.mockClear();
+    const event = new MessageEvent("message", {
+      data: { type: "ldu:frame-ready", tabId: "topic-2", url: "http://localhost:3000/t/topic/2" },
+    });
+    Object.defineProperty(event, "source", { value: background.contentWindow });
+
+    pool.handleMessage(event);
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "ldu:frame-lifecycle", active: false },
+      location.origin,
+    );
+  });
+
   it("restores the captured scroll position after a transferred frame reloads", () => {
     vi.useFakeTimers();
     const firstHost = document.createElement("div");

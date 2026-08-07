@@ -24,6 +24,7 @@ interface FrameRecord {
   lastUsedAt: number;
   reportedUrl: string | null;
   loaded: boolean;
+  softFrozen: boolean;
   commands: FrameCommand[];
   loadListener: () => void;
   restoreScrollY: number;
@@ -61,9 +62,7 @@ export class TopicFramePool {
     const record = this.ensureRecord(tab, now);
     if (this.activeTabId !== tab.id) {
       for (const [tabId, current] of this.frames) {
-        const active = tabId === tab.id;
-        current.iframe.setAttribute("aria-hidden", String(!active));
-        current.iframe.tabIndex = active ? 0 : -1;
+        this.setFrameActive(current, tabId === tab.id);
       }
       this.activeTabId = tab.id;
     }
@@ -74,10 +73,7 @@ export class TopicFramePool {
   prepare(tab: TopicTabState, now: number): HTMLIFrameElement {
     const activeTabId = this.activeTabId && this.frames.has(this.activeTabId) ? this.activeTabId : "";
     const record = this.ensureRecord(tab, now);
-    if (tab.id !== activeTabId) {
-      record.iframe.setAttribute("aria-hidden", "true");
-      record.iframe.tabIndex = -1;
-    }
+    if (tab.id !== activeTabId) this.setFrameActive(record, false);
     this.suspendOverflow(activeTabId);
     return record.iframe;
   }
@@ -95,6 +91,7 @@ export class TopicFramePool {
         if (!current || current.iframe !== iframe) return;
         current.loaded = true;
         this.restoreScroll(current);
+        this.sendLifecycleState(current);
         this.sendPreviewConfig(iframe);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
@@ -106,6 +103,7 @@ export class TopicFramePool {
         lastUsedAt: now,
         reportedUrl: null,
         loaded: false,
+        softFrozen: true,
         commands: [],
         loadListener,
         restoreScrollY: tab.scrollY,
@@ -144,6 +142,7 @@ export class TopicFramePool {
     if (data.type === "ldu:frame-ready") {
       record.loaded = true;
       this.restoreScroll(record);
+      this.sendLifecycleState(record);
       this.sendPreviewConfig(record.iframe);
       this.flushCommands(record);
     }
@@ -245,6 +244,24 @@ export class TopicFramePool {
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+  }
+
+  private setFrameActive(record: FrameRecord, active: boolean): void {
+    const hidden = String(!active);
+    if (record.iframe.getAttribute("aria-hidden") !== hidden) record.iframe.setAttribute("aria-hidden", hidden);
+    const tabIndex = active ? 0 : -1;
+    if (record.iframe.tabIndex !== tabIndex) record.iframe.tabIndex = tabIndex;
+    const softFrozen = !active;
+    if (record.softFrozen === softFrozen) return;
+    record.softFrozen = softFrozen;
+    if (record.loaded) this.sendLifecycleState(record);
+  }
+
+  private sendLifecycleState(record: FrameRecord): void {
+    record.iframe.contentWindow?.postMessage({
+      type: "ldu:frame-lifecycle",
+      active: !record.softFrozen,
+    }, location.origin);
   }
 
   private flushCommands(record: FrameRecord): void {

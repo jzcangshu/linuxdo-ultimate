@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.3
+// @version      0.2.4
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -5271,20 +5271,26 @@ ${b.url}`;
       tab.contentReadyTimer = null;
     }
     function showLoadingBar(tab) {
-      if (!tab || !tab.pane) return null;
-      const existing = tab.pane.querySelector(".agy-loading-overlay");
-      if (existing) existing.remove();
-      tab.pane.setAttribute("aria-busy", "true");
+      if (tab?.pane) tab.pane.setAttribute("aria-busy", "false");
+      if (tab) tab.loadingBar = null;
+      return null;
+    }
+    function createErrorBar(tab, message) {
+      if (!tab?.pane) return null;
       const bar = document.createElement("div");
       bar.className = "agy-loading-overlay";
       bar.setAttribute("role", "status");
       bar.setAttribute("aria-live", "polite");
       bar.innerHTML = `
             <div class="agy-loading-card">
-                <div class="agy-spinner"></div>
-                <div class="agy-loading-text">\u9875\u9762\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019...</div>
+                <div class="agy-loading-text"></div>
             </div>
         `;
+      const textNode = bar.querySelector(".agy-loading-text");
+      if (textNode) {
+        textNode.textContent = `\u52A0\u8F7D\u51FA\u9519: ${message}`;
+        textNode.style.color = "#ff3b30";
+      }
       tab.pane.appendChild(bar);
       tab.loadingBar = bar;
       return bar;
@@ -5959,7 +5965,7 @@ ${tab.url}`;
       clearContentReadyTimer(tab);
       tab.loadState = "error";
       let bar = tab.loadingBar;
-      if (!bar) bar = showLoadingBar(tab);
+      if (!bar) bar = createErrorBar(tab, msg);
       if (!bar) return;
       if (tab.pane) tab.pane.setAttribute("aria-busy", "false");
       if (tab.iframe) tab.iframe.style.visibility = "hidden";

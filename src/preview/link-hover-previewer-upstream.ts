@@ -2384,7 +2384,7 @@ export function installLinkHoverPreviewer(options) {
         }
 
         const link = e.target.closest('a');
-        if (!link) return;
+        if (!isPreviewableLink(link)) return;
 
         // 预览窗内部按钮 (如“新窗口打开”) 保持浏览器默认行为
         if (link.closest('.agy-preview-container')) return;
@@ -2432,7 +2432,7 @@ export function installLinkHoverPreviewer(options) {
             return;
         }
         const link = e.target.closest('a');
-        if (!link || link.closest('.agy-preview-container')) return;
+        if (!isPreviewableLink(link)) return;
 
         e.preventDefault();
         e.stopPropagation();

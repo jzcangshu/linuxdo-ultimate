@@ -8,10 +8,13 @@ import { PreviewController } from "../src/preview/upstream-preview-controller";
 
 describe("vendored upstream previewer", () => {
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     document.body.replaceChildren();
     document.head.querySelectorAll("style").forEach((style) => style.remove());
+    delete window.__LDU_TEST_MODE__;
   });
 
   it("keeps the 4.13.1 frame lifecycle, multi-tab window and narrow host adaptations", async () => {
@@ -99,5 +102,27 @@ describe("vendored upstream previewer", () => {
     };
     visit(file);
     expect(actual).toEqual(expected);
+  });
+
+  it("leaves internal topic navigation to the split-layout router", () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn());
+    vi.stubGlobal("GM_xmlhttpRequest", vi.fn());
+    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double" });
+    controller.mount();
+    const topic = document.createElement("a");
+    topic.href = `${location.origin}/t/topic/42`;
+    topic.textContent = "站内帖子";
+    document.body.append(topic);
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    topic.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(false);
+    const doubleClick = new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0, detail: 2 });
+    topic.dispatchEvent(doubleClick);
+    expect(doubleClick.defaultPrevented).toBe(false);
   });
 });

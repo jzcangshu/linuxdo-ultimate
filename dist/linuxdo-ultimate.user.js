@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.4
+// @version      0.2.5
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -5101,7 +5101,7 @@ ${b.url}`;
         return;
       }
       const link = e.target.closest("a");
-      if (!link) return;
+      if (!isPreviewableLink(link)) return;
       if (link.closest(".agy-preview-container")) return;
       const href = link.getAttribute("href");
       if (!href || href.startsWith("javascript:") || href.startsWith("#") || href === "") {
@@ -5139,7 +5139,7 @@ ${b.url}`;
         return;
       }
       const link = e.target.closest("a");
-      if (!link || link.closest(".agy-preview-container")) return;
+      if (!isPreviewableLink(link)) return;
       e.preventDefault();
       e.stopPropagation();
     }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readTopicCategory, readTopicDocumentCategory } from "../src/discourse/category";
 
 describe("topic category metadata", () => {
-  it("uses the most specific Open Graph category", () => {
+  it("uses the primary Open Graph category before its subcategory", () => {
     document.head.innerHTML = `
       <meta property="og:article:section" content="福利羊毛">
       <meta property="og:article:section:color" content="E45735">
@@ -12,8 +12,8 @@ describe("topic category metadata", () => {
     `;
 
     expect(readTopicDocumentCategory(document)).toEqual({
-      categoryName: "福利羊毛, Lv1",
-      categoryColor: "#0088CC",
+      categoryName: "福利羊毛",
+      categoryColor: "#E45735",
     });
   });
 
@@ -34,12 +34,12 @@ describe("topic category metadata", () => {
     `;
 
     expect(readTopicDocumentCategory(document)).toEqual({
-      categoryName: "福利羊毛, Lv1",
-      categoryColor: "#0088CC",
+      categoryName: "福利羊毛",
+      categoryColor: "#E45735",
     });
   });
 
-  it("reads only the supplied topic row and prefers its last category", () => {
+  it("reads only the supplied topic row and prefers its primary category", () => {
     document.body.innerHTML = `
       <div class="topic-list-item" id="wrong">
         <a class="badge-category__wrapper" style="--category-badge-color:#808281">
@@ -57,8 +57,8 @@ describe("topic category metadata", () => {
     `;
 
     expect(readTopicCategory(document.querySelector("#target")!)).toEqual({
-      categoryName: "福利羊毛, Lv1",
-      categoryColor: "#0088CC",
+      categoryName: "福利羊毛",
+      categoryColor: "#E45735",
     });
   });
 });

@@ -30,7 +30,7 @@ export function resolveTabCategoryColor(title: string, root: Document = document
         : null;
     })
     .filter((match): match is { name: string; color: string } => match !== null)
-    .sort((a, b) => b.name.length - a.name.length);
+    .sort((a, b) => a.name.length - b.name.length);
   return matches[0]?.color ?? null;
 }
 
@@ -42,16 +42,57 @@ export function renderTabStrip(
   options: TabStripOptions = {},
 ): void {
   root.replaceChildren();
+  root.classList.remove("is-reordering");
   root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
   let draggedTabId: string | null = null;
   let dropTarget: { tabId: string; position: "before" | "after" } | null = null;
+  let dragMetrics: Array<{
+    tabId: string;
+    item: HTMLElement;
+    index: number;
+    center: number;
+    shift: number;
+  }> | null = null;
+  let insertionIndex: number | null = null;
   const clearDragState = () => {
     root.querySelectorAll<HTMLElement>(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
       item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
       item.setAttribute("aria-grabbed", "false");
+      item.style.transform = "";
     });
+    root.classList.remove("is-reordering");
     draggedTabId = null;
     dropTarget = null;
+    dragMetrics = null;
+    insertionIndex = null;
+  };
+  const updateDragPosition = (clientX: number) => {
+    if (!draggedTabId || !dragMetrics) return;
+    const source = dragMetrics.find((metric) => metric.tabId === draggedTabId);
+    if (!source) return;
+    const available = dragMetrics.filter((metric) => metric.tabId !== draggedTabId);
+    const nextInsertionIndex = available.filter((metric) => clientX >= metric.center).length;
+    if (nextInsertionIndex === insertionIndex) return;
+    insertionIndex = nextInsertionIndex;
+    const destinationIndex = nextInsertionIndex;
+    for (const metric of dragMetrics) {
+      let offset = 0;
+      if (destinationIndex > source.index && metric.index > source.index && metric.index <= destinationIndex) {
+        offset = -source.shift;
+      } else if (destinationIndex < source.index && metric.index >= destinationIndex && metric.index < source.index) {
+        offset = source.shift;
+      }
+      metric.item.style.transform = offset ? `translate3d(${offset}px, 0, 0)` : "";
+      metric.item.classList.remove("is-drop-before", "is-drop-after");
+    }
+    const target = destinationIndex === 0 ? available[0] : available[destinationIndex - 1];
+    if (!target) {
+      dropTarget = null;
+      return;
+    }
+    const position = destinationIndex === 0 ? "before" : "after";
+    target.item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
+    dropTarget = { tabId: target.tabId, position };
   };
   root.ondragstart = (event) => {
     if (!callbacks.onReorder || !(event.target instanceof Element) || event.target.closest(".ldu-tab-close")) {
@@ -61,30 +102,51 @@ export function renderTabStrip(
     const item = event.target.closest<HTMLElement>(".ldu-tab-item[data-tab-id]");
     if (!item?.dataset.tabId) return;
     draggedTabId = item.dataset.tabId;
+    const items = [...root.querySelectorAll<HTMLElement>(".ldu-tab-item[data-tab-id]")];
+    const rects = items.map((candidate) => candidate.getBoundingClientRect());
+    dragMetrics = items.map((candidate, index) => {
+      const rect = rects[index]!;
+      const nextRect = rects[index + 1];
+      const previousRect = rects[index - 1];
+      const gap = nextRect
+        ? Math.max(0, nextRect.left - rect.right)
+        : previousRect ? Math.max(0, rect.left - previousRect.right) : 0;
+      return {
+        tabId: candidate.dataset.tabId!,
+        item: candidate,
+        index,
+        center: rect.left + rect.width / 2,
+        shift: rect.width + gap,
+      };
+    });
+    root.classList.add("is-reordering");
     item.classList.add("is-dragging");
     item.setAttribute("aria-grabbed", "true");
     event.dataTransfer?.setData("text/plain", draggedTabId);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      const rect = item.getBoundingClientRect();
+      event.dataTransfer.setDragImage(
+        item,
+        Math.max(0, event.clientX - rect.left),
+        Math.max(0, event.clientY - rect.top),
+      );
+    }
   };
   root.ondragover = (event) => {
-    if (!draggedTabId || !(event.target instanceof Element)) return;
-    const item = event.target.closest<HTMLElement>(".ldu-tab-item[data-tab-id]");
-    const targetTabId = item?.dataset.tabId;
-    if (!item || !targetTabId || targetTabId === draggedTabId) return;
+    if (!draggedTabId || !dragMetrics) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    const rect = item.getBoundingClientRect();
-    const position = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
-    if (dropTarget?.tabId === targetTabId && dropTarget.position === position) return;
-    root.querySelectorAll(".is-drop-before, .is-drop-after").forEach((target) => {
-      target.classList.remove("is-drop-before", "is-drop-after");
-    });
-    item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
-    dropTarget = { tabId: targetTabId, position };
+    if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
   };
   root.ondrop = (event) => {
-    if (!draggedTabId || !dropTarget) return;
+    if (!draggedTabId || !dragMetrics) return;
     event.preventDefault();
+    if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
+    if (!dropTarget) {
+      clearDragState();
+      return;
+    }
     const sourceTabId = draggedTabId;
     const target = dropTarget;
     clearDragState();

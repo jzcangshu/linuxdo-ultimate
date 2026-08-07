@@ -266,9 +266,9 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   display: grid;
   width: 100%;
   min-height: 32px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 28px;
+  column-gap: 10px;
   padding: 5px 18px;
   color: inherit;
   border: 0;
@@ -284,12 +284,17 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 .ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
 .ldu-context-item:disabled { opacity: 0.42; }
 .ldu-context-icon { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: center; color: var(--primary-medium, #5f6368); pointer-events: none; }
+.ldu-context-label { min-width: 0; justify-self: start; text-align: left; }
 .ldu-context-item:disabled .ldu-context-icon { opacity: .75; }
 .ldu-symbol { display: block; flex: none; pointer-events: none; }
 .ldu-symbol-fill { fill: currentColor; }
 
 .ldu-tab-item[draggable="true"] { cursor: grab; }
-.ldu-tab-item.is-dragging { opacity: .58; }
+.ldu-tab-strip.is-reordering .ldu-tab-item {
+  will-change: transform;
+  transition: transform 150ms cubic-bezier(.2, .8, .2, 1), opacity 100ms ease-out;
+}
+.ldu-tab-item.is-dragging { cursor: grabbing; opacity: .52; }
 .ldu-tab-item.is-drop-before::before,
 .ldu-tab-item.is-drop-after::after {
   position: absolute;
@@ -304,7 +309,11 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 }
 .ldu-tab-item.is-drop-before::before { left: -3px; }
 .ldu-tab-item.is-drop-after::after { right: -3px; }
-.ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ldu-tab-strip.is-reordering .ldu-tab-item { transition-duration: .01ms; }
+}
+.ldu-context-shortcut { justify-self: end; color: var(--primary-medium, #5f6368); }
 .ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 
 .ldu-tab-button {

@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.1
+// @version      0.2.2
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -91,15 +91,14 @@
     const realm = view;
     const rootElement = realm?.Element && root instanceof realm.Element ? root : null;
     const wrappers = rootElement?.matches(".badge-category__wrapper") ? [rootElement] : [...root.querySelectorAll(".badge-category__wrapper")];
-    for (let index = wrappers.length - 1; index >= 0; index -= 1) {
-      const category = readWrapperCategory(wrappers[index], view);
+    for (const wrapper of wrappers) {
+      const category = readWrapperCategory(wrapper, view);
       if (category) return category;
     }
     return null;
   }
   function readTopicDocumentCategory(document2, view = document2.defaultView) {
     let pendingName = "";
-    let result = null;
     const metadata = document2.querySelectorAll(
       'meta[property="og:article:section"], meta[property="og:article:section:color"]'
     );
@@ -110,11 +109,11 @@
       }
       const rawColor = meta.content.trim();
       const categoryColor = normalizeCategoryColor(/^[\da-f]{3,8}$/i.test(rawColor) ? `#${rawColor}` : rawColor);
-      if (pendingName && categoryColor) result = { categoryName: pendingName, categoryColor };
+      if (pendingName && categoryColor) return { categoryName: pendingName, categoryColor };
       pendingName = "";
     }
     const topicCategory = document2.querySelector(".topic-category");
-    return result ?? (topicCategory ? readTopicCategory(topicCategory, view) : null);
+    return topicCategory ? readTopicCategory(topicCategory, view) : null;
   }
 
   // src/core/session.ts
@@ -1297,21 +1296,56 @@
       const icon = link.querySelector(".sidebar-section-link-prefix.icon, .sidebar-section-link-prefix, .sidebar-section-link-icon");
       const color = icon ? root.defaultView?.getComputedStyle(icon).color.trim() : "";
       return color && color !== "transparent" && color !== "rgba(0, 0, 0, 0)" ? { name, color } : null;
-    }).filter((match) => match !== null).sort((a, b) => b.name.length - a.name.length);
+    }).filter((match) => match !== null).sort((a, b) => a.name.length - b.name.length);
     return matches[0]?.color ?? null;
   }
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
     root.replaceChildren();
+    root.classList.remove("is-reordering");
     root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
     let draggedTabId = null;
     let dropTarget = null;
+    let dragMetrics = null;
+    let insertionIndex = null;
     const clearDragState = () => {
       root.querySelectorAll(".is-dragging, .is-drop-before, .is-drop-after").forEach((item) => {
         item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
         item.setAttribute("aria-grabbed", "false");
+        item.style.transform = "";
       });
+      root.classList.remove("is-reordering");
       draggedTabId = null;
       dropTarget = null;
+      dragMetrics = null;
+      insertionIndex = null;
+    };
+    const updateDragPosition = (clientX) => {
+      if (!draggedTabId || !dragMetrics) return;
+      const source = dragMetrics.find((metric) => metric.tabId === draggedTabId);
+      if (!source) return;
+      const available = dragMetrics.filter((metric) => metric.tabId !== draggedTabId);
+      const nextInsertionIndex = available.filter((metric) => clientX >= metric.center).length;
+      if (nextInsertionIndex === insertionIndex) return;
+      insertionIndex = nextInsertionIndex;
+      const destinationIndex = nextInsertionIndex;
+      for (const metric of dragMetrics) {
+        let offset = 0;
+        if (destinationIndex > source.index && metric.index > source.index && metric.index <= destinationIndex) {
+          offset = -source.shift;
+        } else if (destinationIndex < source.index && metric.index >= destinationIndex && metric.index < source.index) {
+          offset = source.shift;
+        }
+        metric.item.style.transform = offset ? `translate3d(${offset}px, 0, 0)` : "";
+        metric.item.classList.remove("is-drop-before", "is-drop-after");
+      }
+      const target = destinationIndex === 0 ? available[0] : available[destinationIndex - 1];
+      if (!target) {
+        dropTarget = null;
+        return;
+      }
+      const position = destinationIndex === 0 ? "before" : "after";
+      target.item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
+      dropTarget = { tabId: target.tabId, position };
     };
     root.ondragstart = (event) => {
       if (!callbacks.onReorder || !(event.target instanceof Element) || event.target.closest(".ldu-tab-close")) {
@@ -1321,30 +1355,49 @@
       const item = event.target.closest(".ldu-tab-item[data-tab-id]");
       if (!item?.dataset.tabId) return;
       draggedTabId = item.dataset.tabId;
+      const items = [...root.querySelectorAll(".ldu-tab-item[data-tab-id]")];
+      const rects = items.map((candidate) => candidate.getBoundingClientRect());
+      dragMetrics = items.map((candidate, index) => {
+        const rect = rects[index];
+        const nextRect = rects[index + 1];
+        const previousRect = rects[index - 1];
+        const gap = nextRect ? Math.max(0, nextRect.left - rect.right) : previousRect ? Math.max(0, rect.left - previousRect.right) : 0;
+        return {
+          tabId: candidate.dataset.tabId,
+          item: candidate,
+          index,
+          center: rect.left + rect.width / 2,
+          shift: rect.width + gap
+        };
+      });
+      root.classList.add("is-reordering");
       item.classList.add("is-dragging");
       item.setAttribute("aria-grabbed", "true");
       event.dataTransfer?.setData("text/plain", draggedTabId);
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        const rect = item.getBoundingClientRect();
+        event.dataTransfer.setDragImage(
+          item,
+          Math.max(0, event.clientX - rect.left),
+          Math.max(0, event.clientY - rect.top)
+        );
+      }
     };
     root.ondragover = (event) => {
-      if (!draggedTabId || !(event.target instanceof Element)) return;
-      const item = event.target.closest(".ldu-tab-item[data-tab-id]");
-      const targetTabId = item?.dataset.tabId;
-      if (!item || !targetTabId || targetTabId === draggedTabId) return;
+      if (!draggedTabId || !dragMetrics) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-      const rect = item.getBoundingClientRect();
-      const position = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
-      if (dropTarget?.tabId === targetTabId && dropTarget.position === position) return;
-      root.querySelectorAll(".is-drop-before, .is-drop-after").forEach((target) => {
-        target.classList.remove("is-drop-before", "is-drop-after");
-      });
-      item.classList.add(position === "before" ? "is-drop-before" : "is-drop-after");
-      dropTarget = { tabId: targetTabId, position };
+      if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
     };
     root.ondrop = (event) => {
-      if (!draggedTabId || !dropTarget) return;
+      if (!draggedTabId || !dragMetrics) return;
       event.preventDefault();
+      if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
+      if (!dropTarget) {
+        clearDragState();
+        return;
+      }
       const sourceTabId = draggedTabId;
       const target = dropTarget;
       clearDragState();
@@ -1682,9 +1735,9 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   display: grid;
   width: 100%;
   min-height: 32px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 28px;
+  column-gap: 10px;
   padding: 5px 18px;
   color: inherit;
   border: 0;
@@ -1700,12 +1753,17 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 .ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
 .ldu-context-item:disabled { opacity: 0.42; }
 .ldu-context-icon { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: center; color: var(--primary-medium, #5f6368); pointer-events: none; }
+.ldu-context-label { min-width: 0; justify-self: start; text-align: left; }
 .ldu-context-item:disabled .ldu-context-icon { opacity: .75; }
 .ldu-symbol { display: block; flex: none; pointer-events: none; }
 .ldu-symbol-fill { fill: currentColor; }
 
 .ldu-tab-item[draggable="true"] { cursor: grab; }
-.ldu-tab-item.is-dragging { opacity: .58; }
+.ldu-tab-strip.is-reordering .ldu-tab-item {
+  will-change: transform;
+  transition: transform 150ms cubic-bezier(.2, .8, .2, 1), opacity 100ms ease-out;
+}
+.ldu-tab-item.is-dragging { cursor: grabbing; opacity: .52; }
 .ldu-tab-item.is-drop-before::before,
 .ldu-tab-item.is-drop-after::after {
   position: absolute;
@@ -1720,7 +1778,11 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
 }
 .ldu-tab-item.is-drop-before::before { left: -3px; }
 .ldu-tab-item.is-drop-after::after { right: -3px; }
-.ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ldu-tab-strip.is-reordering .ldu-tab-item { transition-duration: .01ms; }
+}
+.ldu-context-shortcut { justify-self: end; color: var(--primary-medium, #5f6368); }
 .ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 
 .ldu-tab-button {
@@ -2853,6 +2915,7 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
           if (item.key === "split" && splitDisabled) button.disabled = true;
           button.append(createIcon(document, item.icon));
           const label = document.createElement("span");
+          label.className = "ldu-context-label";
           label.textContent = item.label;
           button.append(label);
           if (item.shortcut) {

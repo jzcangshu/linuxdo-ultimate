@@ -57,6 +57,7 @@ export class TabContextMenu {
         if (item.key === "split" && splitDisabled) button.disabled = true;
         button.append(createIcon(document, item.icon));
         const label = document.createElement("span");
+        label.className = "ldu-context-label";
         label.textContent = item.label;
         button.append(label);
         if (item.shortcut) {

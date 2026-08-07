@@ -30,8 +30,8 @@ export function readTopicCategory(
   const wrappers = rootElement?.matches(".badge-category__wrapper")
     ? [rootElement]
     : [...root.querySelectorAll<HTMLElement>(".badge-category__wrapper")];
-  for (let index = wrappers.length - 1; index >= 0; index -= 1) {
-    const category = readWrapperCategory(wrappers[index]!, view);
+  for (const wrapper of wrappers) {
+    const category = readWrapperCategory(wrapper, view);
     if (category) return category;
   }
   return null;
@@ -42,7 +42,6 @@ export function readTopicDocumentCategory(
   view: Window | null = document.defaultView,
 ): TopicCategoryPresentation | null {
   let pendingName = "";
-  let result: TopicCategoryPresentation | null = null;
   const metadata = document.querySelectorAll<HTMLMetaElement>(
     'meta[property="og:article:section"], meta[property="og:article:section:color"]',
   );
@@ -53,9 +52,9 @@ export function readTopicDocumentCategory(
     }
     const rawColor = meta.content.trim();
     const categoryColor = normalizeCategoryColor(/^[\da-f]{3,8}$/i.test(rawColor) ? `#${rawColor}` : rawColor);
-    if (pendingName && categoryColor) result = { categoryName: pendingName, categoryColor };
+    if (pendingName && categoryColor) return { categoryName: pendingName, categoryColor };
     pendingName = "";
   }
   const topicCategory = document.querySelector(".topic-category");
-  return result ?? (topicCategory ? readTopicCategory(topicCategory, view) : null);
+  return topicCategory ? readTopicCategory(topicCategory, view) : null;
 }

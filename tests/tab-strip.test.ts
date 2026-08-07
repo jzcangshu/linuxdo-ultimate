@@ -33,10 +33,10 @@ describe("topic tab category colors", () => {
     expect(resolveTabCategoryColor("帖子标题 - 扬帆起航 - LINUX DO")).toBe("rgb(255, 152, 56)");
   });
 
-  it("prefers the longest matching subcategory and ignores missing categories", () => {
+  it("prefers the matching primary category and ignores missing categories", () => {
     addCategory("/c/welfare/36", "福利羊毛", "rgb(1, 2, 3)");
     addCategory("/c/welfare/welfare-lv1/60", "福利羊毛, Lv1", "rgb(4, 5, 6)");
-    expect(resolveTabCategoryColor("帖子标题 - 福利羊毛 / 福利羊毛, Lv1 - LINUX DO")).toBe("rgb(4, 5, 6)");
+    expect(resolveTabCategoryColor("帖子标题 - 福利羊毛 / 福利羊毛, Lv1 - LINUX DO")).toBe("rgb(1, 2, 3)");
     expect(resolveTabCategoryColor("无分类帖子 - LINUX DO")).toBeNull();
   });
 
@@ -112,10 +112,10 @@ describe("topic tab category colors", () => {
       { ...tab("Three"), id: "topic-3", topicId: "3" },
     ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn(), onReorder });
     const items = [...root.querySelectorAll<HTMLElement>(".ldu-tab-item")];
-    vi.spyOn(items[1]!, "getBoundingClientRect").mockReturnValue({
-      x: 100, y: 0, left: 100, top: 0, right: 200, bottom: 38, width: 100, height: 38,
-      toJSON: () => ({}),
-    });
+    items.forEach((item, index) => vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+      x: index * 104, y: 0, left: index * 104, top: 0, right: index * 104 + 100,
+      bottom: 38, width: 100, height: 38, toJSON: () => ({}),
+    }));
 
     items[0]!.dispatchEvent(new Event("dragstart", { bubbles: true, cancelable: true }));
     items[1]!.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX: 190 }));
@@ -124,5 +124,30 @@ describe("topic tab category colors", () => {
     items[1]!.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
     expect(onReorder).toHaveBeenCalledOnce();
     expect(onReorder).toHaveBeenCalledWith("topic-1", "topic-2", "after");
+  });
+
+  it("moves neighboring tabs aside during drag without committing early", () => {
+    const root = document.createElement("div");
+    const onReorder = vi.fn();
+    renderTabStrip(root, [
+      tab("One"),
+      { ...tab("Two"), id: "topic-2", topicId: "2" },
+      { ...tab("Three"), id: "topic-3", topicId: "3" },
+    ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn(), onReorder });
+    const items = [...root.querySelectorAll<HTMLElement>(".ldu-tab-item")];
+    items.forEach((item, index) => vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+      x: index * 104, y: 0, left: index * 104, top: 0, right: index * 104 + 100,
+      bottom: 38, width: 100, height: 38, toJSON: () => ({}),
+    }));
+
+    items[0]!.dispatchEvent(new MouseEvent("dragstart", { bubbles: true, cancelable: true, clientX: 50 }));
+    root.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX: 310 }));
+
+    expect(items[1]!.style.transform).toBe("translate3d(-104px, 0, 0)");
+    expect(items[2]!.style.transform).toBe("translate3d(-104px, 0, 0)");
+    expect(onReorder).not.toHaveBeenCalled();
+
+    root.dispatchEvent(new MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 310 }));
+    expect(onReorder).toHaveBeenCalledWith("topic-1", "topic-3", "after");
   });
 });

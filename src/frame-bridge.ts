@@ -48,11 +48,30 @@ export function bootFrameBridge(): void {
   window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
   document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
   window.addEventListener("popstate", () => send("ldu:frame-state"));
-  new MutationObserver(() => {
+  const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
+  const mutationAffectsTopicMetadata = (mutation: MutationRecord): boolean => {
+    const target = mutation.target instanceof Element
+      ? mutation.target
+      : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
+    if (target?.closest("head, .topic-category, #topic-title")) return true;
+    return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return false;
+      const element = node as Element;
+      return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
+    });
+  };
+  new MutationObserver((mutations) => {
+    // Post stream mutations are frequent and cannot change topic metadata.
+    // Only inspect the document when title/category metadata may have changed.
+    const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
     const urlChanged = lastObservedUrl !== location.href;
+    const titleChanged = lastObservedTitle !== document.title;
+    if (!metadataChanged && !urlChanged && !titleChanged) return;
     if (urlChanged) currentCategory = null;
-    const observedCategory = readTopicDocumentCategory(document, window);
-    if (observedCategory) currentCategory = observedCategory;
+    if (metadataChanged) {
+      const observedCategory = readTopicDocumentCategory(document, window);
+      if (observedCategory) currentCategory = observedCategory;
+    }
     const categoryKey = currentCategory ? `${currentCategory.categoryName}\n${currentCategory.categoryColor}` : "";
     if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
     lastObservedUrl = location.href;

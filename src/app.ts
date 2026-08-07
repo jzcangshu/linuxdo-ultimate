@@ -553,7 +553,7 @@ class LinuxDoApp {
   }
 
   private handleFrameMessage(message: FrameMessage, iframe: HTMLIFrameElement, pane: "primary" | "secondary"): void {
-    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === message.tabId);
+    const tab = this.tabStore.get(message.tabId);
     if (!tab) return;
     if (message.type === "ldu:frame-interaction") {
       document.body.dispatchEvent(new MouseEvent("pointerdown", {
@@ -723,7 +723,7 @@ class LinuxDoApp {
   }
 
   private openTabInBrowser(tabId: string): void {
-    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabStore.get(tabId);
     if (!tab) return;
     const anchor = document.createElement("a");
     anchor.href = tab.url;
@@ -742,7 +742,7 @@ class LinuxDoApp {
   }
 
   private async copyTabLink(tabId: string): Promise<void> {
-    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabStore.get(tabId);
     if (!tab) return;
     try {
       await navigator.clipboard.writeText(tab.url);
@@ -761,7 +761,7 @@ class LinuxDoApp {
 
   private bookmarkTab(tabId: string): void {
     const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+    const tab = this.tabStore.get(tabId);
     if (!tab) return;
     const pool = secondary ? this.secondaryFrames : this.frames;
     pool?.prepare(tab, Date.now());
@@ -789,7 +789,7 @@ class LinuxDoApp {
   }
 
   private captureLiveFrameState(tabId: string, pool: TopicFramePool | null): TopicTabState | null {
-    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+    const tab = this.tabStore.get(tabId);
     const iframe = pool?.getFrame(tabId);
     if (!tab || !iframe?.contentWindow) return tab;
     let url = tab.url;
@@ -812,7 +812,7 @@ class LinuxDoApp {
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     }, Date.now(), false);
-    return this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? tab;
+    return this.tabStore.get(tabId) ?? tab;
   }
 
   private showActionToast(message: string, isError: boolean): void {

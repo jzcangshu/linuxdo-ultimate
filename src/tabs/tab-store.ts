@@ -13,6 +13,10 @@ export class TopicTabStore {
 
   getSession(): SessionState { return this.session; }
   getTabs(): TopicTabState[] { return this.session.tabs.map((tab) => ({ ...tab })); }
+  get(tabId: string): TopicTabState | null {
+    const tab = this.session.tabs.find((candidate) => candidate.id === tabId);
+    return tab ? { ...tab } : null;
+  }
   getPrimaryTabs(): TopicTabState[] {
     const secondary = new Set(this.session.secondaryTabIds);
     return this.session.tabs.filter((tab) => !secondary.has(tab.id)).map((tab) => ({ ...tab }));

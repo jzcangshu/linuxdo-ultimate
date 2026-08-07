@@ -11,6 +11,14 @@ describe("topic tab store", () => {
     expect(store.getActive()?.url).toBe("/t/topic/1/5");
   });
 
+  it("looks up one tab without copying the complete tab list", () => {
+    const store = new TopicTabStore(createSession("a", "/latest", 1), 50);
+    store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
+
+    expect(store.get("topic-1")).toMatchObject({ topicId: "1", title: "One" });
+    expect(store.get("missing")).toBeNull();
+  });
+
   it("restores a valid active tab and emits changes", () => {
     const changes: string[] = [];
     const session = createSession("a", "/latest", 1);

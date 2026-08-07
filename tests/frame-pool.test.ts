@@ -191,6 +191,19 @@ describe("topic frame pool", () => {
     expect(new URL(frame.src).pathname).toBe("/t/topic/1/18");
   });
 
+  it("does not rewrite accessibility state when activating the current frame", () => {
+    const host = document.createElement("div");
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate(tab("1"), 1);
+    const setAttribute = vi.spyOn(frame, "setAttribute");
+    const tabIndex = frame.tabIndex;
+
+    pool.activate(tab("1"), 2);
+
+    expect(setAttribute).not.toHaveBeenCalled();
+    expect(frame.tabIndex).toBe(tabIndex);
+  });
+
   it("prepares a background frame without changing the active frame", () => {
     const host = document.createElement("div");
     const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());

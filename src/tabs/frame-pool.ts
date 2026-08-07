@@ -38,6 +38,7 @@ export class TopicFramePool {
   private readonly frames = new Map<string, FrameRecord>();
   private liveLimit: number;
   private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
+  private activeTabId: string | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -58,18 +59,20 @@ export class TopicFramePool {
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
     const record = this.ensureRecord(tab, now);
-    for (const [tabId, current] of this.frames) {
-      const active = tabId === tab.id;
-      current.iframe.setAttribute("aria-hidden", String(!active));
-      current.iframe.tabIndex = active ? 0 : -1;
+    if (this.activeTabId !== tab.id) {
+      for (const [tabId, current] of this.frames) {
+        const active = tabId === tab.id;
+        current.iframe.setAttribute("aria-hidden", String(!active));
+        current.iframe.tabIndex = active ? 0 : -1;
+      }
+      this.activeTabId = tab.id;
     }
     this.suspendOverflow(tab.id);
     return record.iframe;
   }
 
   prepare(tab: TopicTabState, now: number): HTMLIFrameElement {
-    const activeTabId = [...this.frames.entries()]
-      .find(([, current]) => current.iframe.getAttribute("aria-hidden") === "false")?.[0] ?? "";
+    const activeTabId = this.activeTabId && this.frames.has(this.activeTabId) ? this.activeTabId : "";
     const record = this.ensureRecord(tab, now);
     if (tab.id !== activeTabId) {
       record.iframe.setAttribute("aria-hidden", "true");
@@ -155,6 +158,7 @@ export class TopicFramePool {
     record.iframe.removeEventListener("load", record.loadListener);
     record.iframe.remove();
     this.frames.delete(tabId);
+    if (this.activeTabId === tabId) this.activeTabId = null;
   }
 
   sendCommand(tabId: string, command: FrameCommand): void {
@@ -191,6 +195,7 @@ export class TopicFramePool {
     record.iframe.removeEventListener("load", record.loadListener);
     record.iframe.remove();
     this.frames.delete(tabId);
+    if (this.activeTabId === tabId) this.activeTabId = null;
     return record;
   }
 
@@ -235,6 +240,7 @@ export class TopicFramePool {
       record.iframe.remove();
     }
     this.frames.clear();
+    this.activeTabId = null;
   }
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
@@ -283,6 +289,7 @@ export class TopicFramePool {
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
+      if (this.activeTabId === tabId) this.activeTabId = null;
       this.onSuspend(tabId, record.iframe);
     }
   }

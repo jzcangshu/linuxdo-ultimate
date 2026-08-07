@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.5
+// @version      0.2.6
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -731,6 +731,7 @@
     frames = /* @__PURE__ */ new Map();
     liveLimit;
     previewConfig = { enabled: false, clickMode: "double" };
+    activeTabId = null;
     setMaxLiveFrames(value) {
       this.liveLimit = Math.max(1, Math.min(10, Math.floor(value)));
       this.suspendOverflow("");
@@ -741,16 +742,19 @@
     }
     activate(tab, now) {
       const record = this.ensureRecord(tab, now);
-      for (const [tabId, current] of this.frames) {
-        const active = tabId === tab.id;
-        current.iframe.setAttribute("aria-hidden", String(!active));
-        current.iframe.tabIndex = active ? 0 : -1;
+      if (this.activeTabId !== tab.id) {
+        for (const [tabId, current] of this.frames) {
+          const active = tabId === tab.id;
+          current.iframe.setAttribute("aria-hidden", String(!active));
+          current.iframe.tabIndex = active ? 0 : -1;
+        }
+        this.activeTabId = tab.id;
       }
       this.suspendOverflow(tab.id);
       return record.iframe;
     }
     prepare(tab, now) {
-      const activeTabId = [...this.frames.entries()].find(([, current]) => current.iframe.getAttribute("aria-hidden") === "false")?.[0] ?? "";
+      const activeTabId = this.activeTabId && this.frames.has(this.activeTabId) ? this.activeTabId : "";
       const record = this.ensureRecord(tab, now);
       if (tab.id !== activeTabId) {
         record.iframe.setAttribute("aria-hidden", "true");
@@ -832,6 +836,7 @@
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
+      if (this.activeTabId === tabId) this.activeTabId = null;
     }
     sendCommand(tabId, command) {
       const record = this.frames.get(tabId);
@@ -864,6 +869,7 @@
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
+      if (this.activeTabId === tabId) this.activeTabId = null;
       return record;
     }
     adopt(tab, transfer, now) {
@@ -906,6 +912,7 @@
         record.iframe.remove();
       }
       this.frames.clear();
+      this.activeTabId = null;
     }
     sendPreviewConfig(iframe) {
       iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
@@ -947,6 +954,7 @@
         record.iframe.removeEventListener("load", record.loadListener);
         record.iframe.remove();
         this.frames.delete(tabId);
+        if (this.activeTabId === tabId) this.activeTabId = null;
         this.onSuspend(tabId, record.iframe);
       }
     }
@@ -1077,6 +1085,10 @@
     }
     getTabs() {
       return this.session.tabs.map((tab) => ({ ...tab }));
+    }
+    get(tabId) {
+      const tab = this.session.tabs.find((candidate) => candidate.id === tabId);
+      return tab ? { ...tab } : null;
     }
     getPrimaryTabs() {
       const secondary = new Set(this.session.secondaryTabIds);
@@ -6965,7 +6977,7 @@ ${tab.url}`;
       if (empty) empty.hidden = true;
     }
     handleFrameMessage(message, iframe, pane) {
-      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === message.tabId);
+      const tab = this.tabStore.get(message.tabId);
       if (!tab) return;
       if (message.type === "ldu:frame-interaction") {
         document.body.dispatchEvent(new MouseEvent("pointerdown", {
@@ -7127,7 +7139,7 @@ ${tab.url}`;
       this.renderTabs();
     }
     openTabInBrowser(tabId) {
-      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+      const tab = this.tabStore.get(tabId);
       if (!tab) return;
       const anchor = document.createElement("a");
       anchor.href = tab.url;
@@ -7144,7 +7156,7 @@ ${tab.url}`;
       else pool?.prepare(tab, Date.now());
     }
     async copyTabLink(tabId) {
-      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+      const tab = this.tabStore.get(tabId);
       if (!tab) return;
       try {
         await navigator.clipboard.writeText(tab.url);
@@ -7162,7 +7174,7 @@ ${tab.url}`;
     }
     bookmarkTab(tabId) {
       const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+      const tab = this.tabStore.get(tabId);
       if (!tab) return;
       const pool = secondary ? this.secondaryFrames : this.frames;
       pool?.prepare(tab, Date.now());
@@ -7187,7 +7199,7 @@ ${tab.url}`;
       if (this.tabStore) saveSession(this.storage, this.tabStore.getSession());
     }
     captureLiveFrameState(tabId, pool) {
-      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+      const tab = this.tabStore.get(tabId);
       const iframe = pool?.getFrame(tabId);
       if (!tab || !iframe?.contentWindow) return tab;
       let url = tab.url;
@@ -7210,7 +7222,7 @@ ${tab.url}`;
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       }, Date.now(), false);
-      return this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? tab;
+      return this.tabStore.get(tabId) ?? tab;
     }
     showActionToast(message, isError) {
       document.querySelector(".ldu-action-toast")?.remove();
@@ -7297,11 +7309,26 @@ ${tab.url}`;
     window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
     document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
     window.addEventListener("popstate", () => send("ldu:frame-state"));
-    new MutationObserver(() => {
+    const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
+    const mutationAffectsTopicMetadata = (mutation) => {
+      const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
+      if (target?.closest("head, .topic-category, #topic-title")) return true;
+      return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        const element = node;
+        return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
+      });
+    };
+    new MutationObserver((mutations) => {
+      const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
       const urlChanged = lastObservedUrl !== location.href;
+      const titleChanged = lastObservedTitle !== document.title;
+      if (!metadataChanged && !urlChanged && !titleChanged) return;
       if (urlChanged) currentCategory = null;
-      const observedCategory = readTopicDocumentCategory(document, window);
-      if (observedCategory) currentCategory = observedCategory;
+      if (metadataChanged) {
+        const observedCategory = readTopicDocumentCategory(document, window);
+        if (observedCategory) currentCategory = observedCategory;
+      }
       const categoryKey = currentCategory ? `${currentCategory.categoryName}
 ${currentCategory.categoryColor}` : "";
       if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;

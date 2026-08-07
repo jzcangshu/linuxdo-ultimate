@@ -161,7 +161,7 @@ class LinuxDoApp {
     window.addEventListener(STORAGE_FAILURE_EVENT, () => {
       this.showActionToast("本地存储不可用，设置和阅读状态可能无法保存", true);
     });
-    document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
+    window.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
     window.addEventListener("message", (event) => {
       this.frames?.handleMessage(event);
       this.secondaryFrames?.handleMessage(event);
@@ -190,7 +190,6 @@ class LinuxDoApp {
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link) return;
     if (link.hasAttribute("download") || (link.target && link.target.toLowerCase() !== "_self")) return;
-    if (link.closest(".post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
     if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
       this.promoteDirectTopicNavigation(event, link);
       return;
@@ -204,6 +203,7 @@ class LinuxDoApp {
       event.stopImmediatePropagation();
       return;
     }
+    if (link.closest(".post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
     if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
     let targetUrl: URL;
     try { targetUrl = new URL(link.href, location.href); } catch { return; }
@@ -727,7 +727,13 @@ class LinuxDoApp {
   private closeTab(tabId: string, pane: "primary" | "secondary"): void {
     (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
     this.tabStore.close(tabId, Date.now());
-    if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
+    if (this.tabStore.getTabs().length === 0) {
+      this.disposeSplitRuntime();
+      return;
+    }
+    if (this.tabStore.getPrimaryTabs().length === 0 && this.tabStore.getSecondaryTabs().length > 0) {
+      this.closeSecondaryPanel();
+    }
   }
 
   private moveTabToSecondary(tabId: string): void {

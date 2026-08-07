@@ -30,6 +30,10 @@ describe("DOM integration smoke", () => {
   });
 
   it("opens a topic, preserves split navigation, and avoids activation listener growth", async () => {
+    const forumTopicRouter = vi.fn((event: Event) => {
+      if ((event.target as Element | null)?.closest?.("a.title")) event.stopImmediatePropagation();
+    });
+    document.addEventListener("click", forumTopicRouter, true);
     startLinuxDoApp();
     document.dispatchEvent(new Event("DOMContentLoaded"));
     document.querySelector<HTMLAnchorElement>("a.title")!.dispatchEvent(new MouseEvent("click", {
@@ -42,6 +46,8 @@ describe("DOM integration smoke", () => {
     expect(document.body.classList.contains("ldu-layout-two")).toBe(true);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
+    expect(forumTopicRouter).not.toHaveBeenCalled();
+    document.removeEventListener("click", forumTopicRouter, true);
     const retainedTopicFrame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;
     document.querySelector<HTMLAnchorElement>(".category-link")!.dispatchEvent(new MouseEvent("click", {
       bubbles: true,
@@ -134,5 +140,26 @@ describe("DOM integration smoke", () => {
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
     expect(document.querySelector<HTMLElement>("#ldu-topic-panel")?.hidden).toBe(false);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
+  });
+
+  it("collapses the remaining reading pane when the primary pane becomes empty", () => {
+    startLinuxDoApp();
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.__LDU_TEST_API__!.openTopic("/t/topic/42", "Topic 42");
+    window.__LDU_TEST_API__!.openTopic("/t/topic/43", "Topic 43");
+
+    const firstTab = document.querySelector<HTMLElement>('#ldu-topic-panel .ldu-tab-item[data-tab-id="topic-42"]')!;
+    firstTab.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 180, clientY: 80,
+    }));
+    document.querySelector<HTMLButtonElement>('.ldu-tab-context-menu [data-action="split"]')!.click();
+    const movedFrame = document.querySelector<HTMLIFrameElement>('#ldu-secondary-topic-panel iframe[data-tab-id="topic-42"]')!;
+
+    document.querySelector<HTMLButtonElement>('#ldu-topic-panel .ldu-tab-close')!.click();
+
+    expect(document.body.classList.contains("ldu-secondary-open")).toBe(false);
+    expect(document.querySelectorAll("#ldu-topic-panel .ldu-tab-item")).toHaveLength(1);
+    expect(document.querySelector("#ldu-topic-panel iframe[data-tab-id=\"topic-42\"]")).toBe(movedFrame);
+    expect(document.querySelector<HTMLElement>("#ldu-secondary-topic-panel")?.hidden).toBe(true);
   });
 });

@@ -143,7 +143,9 @@ function installBridge(options: BridgeOptions): () => void {
     if (!previewEnabled) cancelClick();
   }) as EventListener);
 
-  on(doc, "pointerdown", ((event: PointerEvent) => {
+  // The bridge is installed after Discourse. Window capture still runs before
+  // Discourse's document-level router, so managed navigation remains authoritative.
+  on(win, "pointerdown", ((event: PointerEvent) => {
     post(role === "topic"
       ? { type: "ldu:frame-interaction", tabId: id }
       : { type: "ldu:list-interaction", frameId: id });
@@ -153,7 +155,7 @@ function installBridge(options: BridgeOptions): () => void {
   const handleClick = (event: MouseEvent) => {
     if (replayingClick || !isPlainPrimaryClick(event)) return;
     const link = closestLink(event.target, win);
-    if (!link || preservesNativeNavigation(link) || isControlLink(link)) return;
+    if (!link || preservesNativeNavigation(link)) return;
     if (isSupportedTopicTarget(link.href, win.location.href)) {
       const info = getTopicInfo(link.href, win.location.href);
       if (!info) return;
@@ -187,6 +189,7 @@ function installBridge(options: BridgeOptions): () => void {
       sendNavigation({ type: "ldu:list-navigate", tabId: id, url: link.href }, link);
       return;
     }
+    if (isControlLink(link)) return;
     if (!previewEnabled || !isPreviewableLink(link, event.target, win)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -203,8 +206,8 @@ function installBridge(options: BridgeOptions): () => void {
       try { link.click(); } finally { replayingClick = false; }
     }, DOUBLE_CLICK_DELAY_MS);
   };
-  on(doc, "click", handleClick as EventListener, true);
-  on(doc, "dblclick", ((event: MouseEvent) => {
+  on(win, "click", handleClick as EventListener, true);
+  on(win, "dblclick", ((event: MouseEvent) => {
     if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
     const link = closestLink(event.target, win);
     if (!link || preservesNativeNavigation(link) || !isPreviewableLink(link, event.target, win)) return;
@@ -213,7 +216,7 @@ function installBridge(options: BridgeOptions): () => void {
     event.stopImmediatePropagation();
     sendPreview(options, link);
   }) as EventListener, true);
-  on(doc, "keydown", ((event: KeyboardEvent) => {
+  on(win, "keydown", ((event: KeyboardEvent) => {
     if (event.key !== "Escape" || !previewEnabled) return;
     post(role === "topic"
       ? { type: "ldu:preview-dismiss", tabId: id }

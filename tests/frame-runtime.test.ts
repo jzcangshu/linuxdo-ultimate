@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installTopicFrameBridge } from "../src/frame-runtime";
+import { installListFrameBridge, installTopicFrameBridge } from "../src/frame-runtime";
 
 describe("embedded topic preview bridge", () => {
   afterEach(() => {
@@ -82,6 +82,8 @@ describe("embedded topic preview bridge", () => {
   it("intercepts a single-click external link and forwards it to the parent preview", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
+    const forumHandler = vi.fn((event: Event) => event.stopImmediatePropagation());
+    document.addEventListener("click", forumHandler, true);
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
     installTopicFrameBridge(window, document, "topic-1");
     window.dispatchEvent(new MessageEvent("message", {
@@ -104,11 +106,15 @@ describe("embedded topic preview bridge", () => {
       tabId: "topic-1",
       url: "https://example.com/page",
     }), location.origin);
+    expect(forumHandler).not.toHaveBeenCalled();
+    document.removeEventListener("click", forumHandler, true);
   });
 
   it("notifies the parent when the user interacts with the embedded page", () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
+    const forumHandler = vi.fn((event: Event) => event.stopImmediatePropagation());
+    document.addEventListener("pointerdown", forumHandler, true);
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
     installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
@@ -119,6 +125,7 @@ describe("embedded topic preview bridge", () => {
       type: "ldu:frame-interaction",
       tabId: "topic-1",
     }, location.origin);
+    document.removeEventListener("pointerdown", forumHandler, true);
   });
 
   it("forwards a different internal topic to the parent tab manager", () => {
@@ -126,6 +133,8 @@ describe("embedded topic preview bridge", () => {
     window.__LDU_TEST_MODE__ = true;
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     window.history.replaceState(null, "", "/t/current/1");
+    const forumHandler = vi.fn((event: Event) => event.stopImmediatePropagation());
+    document.addEventListener("click", forumHandler, true);
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
     installTopicFrameBridge(window, document, "topic-1");
     postMessage.mockClear();
@@ -144,6 +153,8 @@ describe("embedded topic preview bridge", () => {
       url: expect.stringContaining("/t/another-topic/2"),
       title: "Another topic",
     }), location.origin);
+    expect(forumHandler).not.toHaveBeenCalled();
+    document.removeEventListener("click", forumHandler, true);
   });
 
   it("routes a non-topic Linux Do link to the independent list pane", () => {
@@ -190,6 +201,36 @@ describe("embedded topic preview bridge", () => {
     expect(sameClick.defaultPrevented).toBe(false);
     expect(modifiedClick.defaultPrevented).toBe(false);
     expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:topic-open" }), expect.anything());
+  });
+
+  it("routes topics from any embedded non-reading page before the forum router", () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/u/member/activity");
+    const forumHandler = vi.fn((event: Event) => event.stopImmediatePropagation());
+    document.addEventListener("click", forumHandler, true);
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    installListFrameBridge(window, document, "list-1");
+    postMessage.mockClear();
+
+    const link = document.createElement("a");
+    link.href = "/t/from-user-page/99";
+    link.textContent = "User activity topic";
+    const card = document.createElement("div");
+    card.setAttribute("role", "button");
+    card.append(link);
+    document.body.append(card);
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(forumHandler).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:list-topic-open",
+      frameId: "list-1",
+      topicId: "99",
+    }), location.origin);
+    document.removeEventListener("click", forumHandler, true);
   });
 
   it("falls back to the link's native click when the parent does not acknowledge navigation", () => {

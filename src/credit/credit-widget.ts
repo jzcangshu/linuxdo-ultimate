@@ -60,8 +60,14 @@ export class CreditWidget {
   ensureHost(): void {
     if (!this.host) return;
     const language = document.querySelector<HTMLElement>(".d-header-icons > .language-switcher");
-    if (!language) return;
-    if (language.nextElementSibling !== this.host) language.after(this.host);
+    if (language) {
+      if (language.nextElementSibling !== this.host) language.after(this.host);
+    } else {
+      // The language switcher is optional, so fall back to the header icon row itself.
+      const icons = document.querySelector<HTMLElement>(".d-header-icons");
+      if (!icons) return;
+      if (this.host.parentElement !== icons) icons.append(this.host);
+    }
     if (this.enabled) this.startUpdates();
   }
 

@@ -333,6 +333,8 @@ class LinuxDoApp {
   }
 
   private scheduleRouteSync(): void {
+    // A fresh navigation means the previous mount attempts are stale, so allow retrying again.
+    this.routeRetryAttempts = 0;
     if (this.routeTimer !== null) window.clearTimeout(this.routeTimer);
     this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
   }
@@ -627,7 +629,10 @@ class LinuxDoApp {
       ...(message.categoryName && message.categoryColor
         ? { categoryName: message.categoryName, categoryColor: message.categoryColor }
         : {}),
-      ...(typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {}),
+      // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
+      ...(message.type !== "ldu:frame-ready" && typeof message.scrollY === "number"
+        ? { scrollY: message.scrollY }
+        : {}),
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     };

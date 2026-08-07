@@ -60,7 +60,8 @@ pnpm build
 - `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
-- `maxLiveFrames`：同时保留的活动内嵌页面数量，上限 10。
+- `maxLiveFrames`：同时保留的活动内嵌页面数量，默认 3，范围 1 到 10。
+- `maxOpenTabs`：阅读区标签总数上限，默认 50，范围 5 到 50。超出时按最久未活跃顺序淘汰非活动标签；该项没有设置界面入口。
 
 从版本 1 迁移到版本 2 时，`restoreSession` 会被设为关闭，内部旧总开关会恢复为启用；此后版本 2 中用户明确选择的恢复状态会被保留。脚本是否运行由用户脚本管理器控制，设置界面不再暴露重复的总开关。
 

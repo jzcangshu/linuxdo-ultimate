@@ -211,7 +211,15 @@ export function bootFrameBridge(): void {
     if (data?.type === "ldu:bookmark") {
       const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
       const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-      if (!topicId || !csrfToken) return;
+      if (!topicId || !csrfToken) {
+        window.parent.postMessage({
+          type: "ldu:bookmark-result",
+          tabId,
+          ok: false,
+          message: "添加书签失败",
+        }, location.origin);
+        return;
+      }
       const body = new URLSearchParams({
         bookmarkable_type: "Topic",
         bookmarkable_id: topicId,

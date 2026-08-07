@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.13
+// @version      0.2.14
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -6407,8 +6407,13 @@ ${tab.url}`;
     ensureHost() {
       if (!this.host) return;
       const language = document.querySelector(".d-header-icons > .language-switcher");
-      if (!language) return;
-      if (language.nextElementSibling !== this.host) language.after(this.host);
+      if (language) {
+        if (language.nextElementSibling !== this.host) language.after(this.host);
+      } else {
+        const icons = document.querySelector(".d-header-icons");
+        if (!icons) return;
+        if (this.host.parentElement !== icons) icons.append(this.host);
+      }
       if (this.enabled) this.startUpdates();
     }
     setEnabled(enabled) {
@@ -6948,6 +6953,7 @@ ${tab.url}`;
       }, 100);
     }
     scheduleRouteSync() {
+      this.routeRetryAttempts = 0;
       if (this.routeTimer !== null) window.clearTimeout(this.routeTimer);
       this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
     }
@@ -7222,7 +7228,8 @@ ${tab.url}`;
         ...message.url ? { url: message.url } : {},
         ...message.title ? { title: message.title } : {},
         ...message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : {},
-        ...typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
+        // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
+        ...message.type !== "ldu:frame-ready" && typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       };
@@ -7691,7 +7698,15 @@ ${currentCategory.categoryColor}` : "";
       if (data?.type === "ldu:bookmark") {
         const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-        if (!topicId || !csrfToken) return;
+        if (!topicId || !csrfToken) {
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: false,
+            message: "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
+          }, location.origin);
+          return;
+        }
         const body = new URLSearchParams({
           bookmarkable_type: "Topic",
           bookmarkable_id: topicId

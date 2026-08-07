@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.10
+// @version      0.2.11
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -6820,7 +6820,7 @@ ${tab.url}`;
       event.stopImmediatePropagation();
       this.navigateList(targetUrl.href);
     }
-    openTopic(topicId, url, title, postNumber, category, pane = "primary") {
+    openTopic(topicId, url, title, postNumber, category, pane = "primary", deferListFrame = false) {
       const shouldHandoffList = this.tabStore.getTabs().length === 0 && classifyRoute(location.href) !== "topic" && this.layout.getMode() === "native";
       const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
       if (!this.layout.mount()) return;
@@ -6830,7 +6830,6 @@ ${tab.url}`;
           listScrollY: nativeListScrollY
         }, Date.now(), false);
       }
-      this.ensureListFrame();
       this.ensureFrames();
       if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
         this.scheduleListHandoffFallback();
@@ -6839,6 +6838,7 @@ ${tab.url}`;
       const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
       if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
       else this.tabStore.open(input, Date.now());
+      if (!deferListFrame) this.ensureListFrame();
       const info = getTopicInfo(url);
       if (info) {
         const tracker = createBrowserViewTracker();
@@ -6866,8 +6866,8 @@ ${tab.url}`;
         const hasTabs = this.tabStore.getTabs().length > 0;
         this.layout.setOpen(hasTabs);
         if (hasTabs) {
-          this.ensureListFrame();
           this.ensureFrames();
+          this.ensureListFrame();
           if (this.tabStore.getSecondaryTabs().length > 0) {
             this.layout.setSecondaryOpen(true);
             this.ensureSecondaryFrames();
@@ -6911,16 +6911,16 @@ ${tab.url}`;
       if (!this.layout.mount()) return;
       this.clearTopicTrackSchedule();
       this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
-      this.ensureListFrame(listUrl);
       this.ensureFrames();
       this.layout.setOpen(true);
       event.preventDefault();
       event.stopImmediatePropagation();
-      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber);
+      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, void 0, "primary", true);
       if (targetRoute === "topic") {
         const target = getTopicInfo(targetUrl.href, location.href);
-        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber);
+        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber, void 0, "primary", true);
       }
+      this.ensureListFrame(listUrl);
     }
     currentTopicTitle(topicId) {
       return document.querySelector("#topic-title h1, .fancy-title")?.textContent?.trim() || document.title || `\u4E3B\u9898 ${topicId}`;
@@ -7122,8 +7122,8 @@ ${tab.url}`;
       const hasTabs = this.tabStore.getTabs().length > 0;
       this.layout.setOpen(hasTabs);
       if (hasTabs) {
-        this.ensureListFrame();
         this.ensureFrames();
+        this.ensureListFrame();
         if (active) this.activateFrame(active, "primary");
         const secondaryActive = this.tabStore.getSecondaryActive();
         if (secondaryActive) {

@@ -26,12 +26,22 @@ describe("direct topic promotion", () => {
     document.dispatchEvent(new Event("DOMContentLoaded"));
     expect(document.body.classList.contains("ldu-layout-active")).toBe(false);
 
+    const frameMountOrder: string[] = [];
+    const nativeAppend = Element.prototype.append;
+    vi.spyOn(Element.prototype, "append").mockImplementation(function (this: Element, ...nodes: (Node | string)[]) {
+      for (const node of nodes) {
+        if (node instanceof HTMLIFrameElement) frameMountOrder.push(node.className);
+      }
+      nativeAppend.apply(this, nodes);
+    });
+
     document.querySelector<HTMLAnchorElement>(".next-topic")!.dispatchEvent(new MouseEvent("click", {
       bubbles: true, cancelable: true, button: 0,
     }));
 
     expect(location.pathname).toBe("/t/current/66");
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
+    expect(frameMountOrder.slice(0, 3)).toEqual(["ldu-topic-frame", "ldu-topic-frame", "ldu-list-frame"]);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(2);
     expect([...document.querySelectorAll(".ldu-tab-button")].map((button) => button.textContent))
       .toEqual(["原先阅读的帖子", "随后点击的帖子"]);

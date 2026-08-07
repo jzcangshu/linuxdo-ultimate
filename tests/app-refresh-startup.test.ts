@@ -46,11 +46,20 @@ describe("app refresh startup", () => {
       updatedAt: now,
     }));
 
+    const frameMountOrder: string[] = [];
+    const nativeAppend = Element.prototype.append;
+    vi.spyOn(Element.prototype, "append").mockImplementation(function (this: Element, ...nodes: (Node | string)[]) {
+      for (const node of nodes) {
+        if (node instanceof HTMLIFrameElement) frameMountOrder.push(node.className);
+      }
+      nativeAppend.apply(this, nodes);
+    });
     startLinuxDoApp();
     document.dispatchEvent(new Event("DOMContentLoaded"));
 
     expect(sessionStorage.getItem(SESSION_ID_KEY)).toBe(sessionId);
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
+    expect(frameMountOrder.slice(0, 2)).toEqual(["ldu-topic-frame", "ldu-list-frame"]);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
   });

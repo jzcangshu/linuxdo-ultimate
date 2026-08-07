@@ -32,6 +32,14 @@ describe("browser smoke", () => {
   it("opens a topic, preserves split navigation, and avoids activation listener growth", async () => {
     startLinuxDoApp();
     document.dispatchEvent(new Event("DOMContentLoaded"));
+    const frameMountOrder: string[] = [];
+    const nativeAppend = Element.prototype.append;
+    vi.spyOn(Element.prototype, "append").mockImplementation(function (this: Element, ...nodes: (Node | string)[]) {
+      for (const node of nodes) {
+        if (node instanceof HTMLIFrameElement) frameMountOrder.push(node.className);
+      }
+      nativeAppend.apply(this, nodes);
+    });
     document.querySelector<HTMLAnchorElement>("a.title")!.dispatchEvent(new MouseEvent("click", {
       bubbles: true,
       cancelable: true,
@@ -40,6 +48,7 @@ describe("browser smoke", () => {
 
     expect(location.pathname).toBe("/");
     expect(document.body.classList.contains("ldu-layout-two")).toBe(true);
+    expect(frameMountOrder.slice(0, 2)).toEqual(["ldu-topic-frame", "ldu-list-frame"]);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
     const retainedTopicFrame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;

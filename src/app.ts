@@ -207,6 +207,7 @@ class LinuxDoApp {
     postNumber?: number,
     category?: TopicCategoryPresentation,
     pane: "primary" | "secondary" = "primary",
+    deferListFrame = false,
   ): void {
     const shouldHandoffList = this.tabStore.getTabs().length === 0
       && classifyRoute(location.href) !== "topic"
@@ -219,7 +220,6 @@ class LinuxDoApp {
         listScrollY: nativeListScrollY,
       }, Date.now(), false);
     }
-    this.ensureListFrame();
     this.ensureFrames();
     if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
       this.scheduleListHandoffFallback();
@@ -228,6 +228,7 @@ class LinuxDoApp {
     const input = { topicId, url, title, ...(postNumber ? { postNumber } : {}), ...category };
     if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
     else this.tabStore.open(input, Date.now());
+    if (!deferListFrame) this.ensureListFrame();
     const info = getTopicInfo(url);
     if (info) {
       const tracker = createBrowserViewTracker();
@@ -258,8 +259,8 @@ class LinuxDoApp {
       const hasTabs = this.tabStore.getTabs().length > 0;
       this.layout.setOpen(hasTabs);
       if (hasTabs) {
-        this.ensureListFrame();
         this.ensureFrames();
+        this.ensureListFrame();
         if (this.tabStore.getSecondaryTabs().length > 0) {
           this.layout.setSecondaryOpen(true);
           this.ensureSecondaryFrames();
@@ -304,16 +305,16 @@ class LinuxDoApp {
     if (!this.layout.mount()) return;
     this.clearTopicTrackSchedule();
     this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
-    this.ensureListFrame(listUrl);
     this.ensureFrames();
     this.layout.setOpen(true);
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber);
+    this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, undefined, "primary", true);
     if (targetRoute === "topic") {
       const target = getTopicInfo(targetUrl.href, location.href);
-      if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `主题 ${target.topicId}`, target.postNumber);
+      if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `主题 ${target.topicId}`, target.postNumber, undefined, "primary", true);
     }
+    this.ensureListFrame(listUrl);
   }
 
   private currentTopicTitle(topicId: string): string {
@@ -530,8 +531,8 @@ class LinuxDoApp {
     const hasTabs = this.tabStore.getTabs().length > 0;
     this.layout.setOpen(hasTabs);
     if (hasTabs) {
-      this.ensureListFrame();
       this.ensureFrames();
+      this.ensureListFrame();
       if (active) this.activateFrame(active, "primary");
       const secondaryActive = this.tabStore.getSecondaryActive();
       if (secondaryActive) {

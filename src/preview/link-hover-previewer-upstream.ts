@@ -1,14 +1,14 @@
 // @ts-nocheck
 import { iconSvg } from "../ui/icons";
 
-// Vendored from Link Hover Previewer 4.12.2. Keep upstream behavior intact;
-// project-specific adaptations are marked with LDU ADAPTATION comments.
+// Vendored from Link Hover Previewer 4.13.1. Upstream loading behavior is kept intact;
+// project integration points are marked with LDU ADAPTATION comments.
 // ==UserScript==
-// @name         Link Hover Previewer (链接悬浮预览窗 - 性能与交互极致版)
+// @name         Link Hover Previewer (页内链接悬浮预览窗 - 性能与交互极致版)
 // @license MIT
 // @namespace    http://tampermonkey.net/
-// @version      4.12.2
-// @description  单击或双击网页链接，以始终保持动态运行的多标签窗口预览内容。支持最大化、linux.do 帖子顶踩、低占用多标签、F5 刷新、前进后退、拖动与位置记忆、书签搜索和图片查看器。
+// @version      4.13.1
+// @description  单击或双击网页链接，以智能休眠的动态多标签悬浮窗口快捷预览页面链接。支持最大化、linux.do 帖子顶踩、低占用多标签、拖动与位置记忆、书签收藏、书签搜索和图片查看器。
 // @author       https://linux.do/u/trader/activity
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -17,13 +17,15 @@ import { iconSvg } from "../ui/icons";
 // @grant        unsafeWindow
 // @connect      *
 // @run-at       document-start
+// @downloadURL https://update.greasyfork.org/scripts/589739/Link%20Hover%20Previewer%20%28%E9%A1%B5%E5%86%85%E9%93%BE%E6%8E%A5%E6%82%AC%E6%B5%AE%E9%A2%84%E8%A7%88%E7%AA%97%20-%20%E6%80%A7%E8%83%BD%E4%B8%8E%E4%BA%A4%E4%BA%92%E6%9E%81%E8%87%B4%E7%89%88%29.user.js
+// @updateURL https://update.greasyfork.org/scripts/589739/Link%20Hover%20Previewer%20%28%E9%A1%B5%E5%86%85%E9%93%BE%E6%8E%A5%E6%82%AC%E6%B5%AE%E9%A2%84%E8%A7%88%E7%AA%97%20-%20%E6%80%A7%E8%83%BD%E4%B8%8E%E4%BA%A4%E4%BA%92%E6%9E%81%E8%87%B4%E7%89%88%29.meta.js
 // ==/UserScript==
 
 export function installLinkHoverPreviewer(options) {
     'use strict';
     options = options || {};
 
-    // LDU ADAPTATION: the parent app owns enablement, click mode and link routing.
+    // LDU ADAPTATION: the host owns enablement, click mode and iframe routing.
     const isPreviewEnabled = () => options.isEnabled ? options.isEnabled() : true;
     const syncClickMode = () => {
         if (options.clickMode) isSingleClickPreviewEnabled = options.clickMode() === 'single';
@@ -44,6 +46,7 @@ export function installLinkHoverPreviewer(options) {
     const HIDDEN_TOPIC_STYLE_ID = 'agy-linux-hidden-topic-style'; // 按主题 ID 强制隐藏，抵抗 Discourse 重写行 class
     const PREVIEW_POSITION_KEY = 'agy_preview_position'; // 预览窗跨站共享位置
     const PREVIEW_MAXIMIZED_KEY = 'agy_preview_maximized'; // 预览窗最大化状态跨站共享
+    const SINGLE_CLICK_PREVIEW_KEY = 'agy_single_click_preview'; // 单击预览模式跨站共享
     const WINDOW_MARGIN = 8;                  // 窗口与视口边缘的最小距离
 
     const IS_TOP = (window.self === window.top);                    // 是否运行在顶层窗口
@@ -53,6 +56,207 @@ export function installLinkHoverPreviewer(options) {
     function isPreviewRefreshKey(e) {
         return e.key === 'F5' || e.code === 'F5' || e.keyCode === 116;
     }
+
+    /**
+     * 以标准 Page Visibility 语义暂停被遮挡的页面。
+     *
+     * 这里不冻结 JavaScript，也不改写定时器；只让 Discourse 等 SPA 主动进入它们原生的
+     * 后台节能分支。实际浏览器标签重新显隐时，未暂停页面仍会返回浏览器的真实状态。
+     */
+    function createPageVisibilityController() {
+        let pageWindow = window;
+        try {
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow) pageWindow = unsafeWindow;
+        } catch (e) {}
+
+        const pageDocument = pageWindow.document || document;
+        const PageObject = pageWindow.Object || Object;
+        const PageReflect = pageWindow.Reflect || Reflect;
+        const PageEvent = pageWindow.Event || Event;
+        try {
+            const existingController = pageWindow.__agyPreviewVisibilityControllerV2;
+            if (
+                existingController
+                && typeof existingController.setSuspended === 'function'
+                && typeof existingController.flushVisibilityChange === 'function'
+                && typeof existingController.getNativeVisibilityState === 'function'
+            ) return existingController;
+        } catch (e) {}
+
+        const controlledProperties = [];
+        let isInstalled = false;
+        let isSuspended = false;
+        let visibilityNotificationToken = 0;
+
+        function findDescriptor(name) {
+            let target = pageDocument;
+            while (target) {
+                let descriptor = null;
+                try { descriptor = PageObject.getOwnPropertyDescriptor(target, name); } catch (e) {}
+                if (descriptor) return descriptor;
+                try { target = PageObject.getPrototypeOf(target); } catch (e) { target = null; }
+            }
+            return null;
+        }
+
+        function readNativeProperty(name, fallbackValue) {
+            const controlled = controlledProperties.find(item => item.name === name);
+            const descriptor = controlled && controlled.nativeDescriptor;
+            try {
+                if (descriptor && typeof descriptor.get === 'function') {
+                    return PageReflect.apply(descriptor.get, pageDocument, []);
+                }
+                if (descriptor && PageObject.prototype.hasOwnProperty.call(descriptor, 'value')) {
+                    return descriptor.value;
+                }
+            } catch (e) {}
+            return fallbackValue;
+        }
+
+        function registerProperty(name, suspendedValue, fallbackValue) {
+            const nativeDescriptor = findDescriptor(name);
+            if (!nativeDescriptor && !(name in pageDocument)) return;
+            let ownDescriptor = null;
+            try { ownDescriptor = PageObject.getOwnPropertyDescriptor(pageDocument, name) || null; } catch (e) {}
+            controlledProperties.push({
+                name,
+                suspendedValue,
+                fallbackValue,
+                nativeDescriptor,
+                ownDescriptor
+            });
+        }
+
+        registerProperty('hidden', true, false);
+        registerProperty('visibilityState', 'hidden', 'visible');
+        registerProperty('webkitHidden', true, false);
+        registerProperty('webkitVisibilityState', 'hidden', 'visible');
+
+        function install() {
+            if (isInstalled) return true;
+            const installedNames = [];
+            try {
+                controlledProperties.forEach(item => {
+                    PageObject.defineProperty(pageDocument, item.name, {
+                        configurable: true,
+                        enumerable: Boolean(item.nativeDescriptor && item.nativeDescriptor.enumerable),
+                        get: function() {
+                            return isSuspended
+                                ? item.suspendedValue
+                                : readNativeProperty(item.name, item.fallbackValue);
+                        }
+                    });
+                    installedNames.push(item.name);
+                });
+                isInstalled = true;
+                return true;
+            } catch (e) {
+                installedNames.forEach(name => {
+                    try { PageReflect.deleteProperty(pageDocument, name); } catch (error) {}
+                });
+                return false;
+            }
+        }
+
+        function uninstall() {
+            if (!isInstalled) return;
+            controlledProperties.forEach(item => {
+                try {
+                    if (item.ownDescriptor) {
+                        PageObject.defineProperty(pageDocument, item.name, item.ownDescriptor);
+                    } else {
+                        PageReflect.deleteProperty(pageDocument, item.name);
+                    }
+                } catch (e) {}
+            });
+            isInstalled = false;
+        }
+
+        function dispatchVisibilityChange() {
+            try {
+                pageDocument.dispatchEvent(new PageEvent('visibilitychange'));
+            } catch (e) {
+                try { document.dispatchEvent(new Event('visibilitychange')); } catch (error) {}
+            }
+        }
+
+        function getNativeVisibilityState() {
+            return readNativeProperty('visibilityState', 'visible');
+        }
+
+        function getEffectiveHidden() {
+            return isSuspended || Boolean(readNativeProperty('hidden', false));
+        }
+
+        // 记录网站最后实际收到的状态；浏览器原生显隐事件也会同步修正该值。
+        let lastNotifiedHidden = getEffectiveHidden();
+        try {
+            pageDocument.addEventListener('visibilitychange', function rememberVisibilityState() {
+                lastNotifiedHidden = getEffectiveHidden();
+            }, true);
+        } catch (e) {}
+
+        function flushVisibilityChange() {
+            const isHidden = getEffectiveHidden();
+            if (isHidden === lastNotifiedHidden) return false;
+            // 先记账再派发，避免网站事件处理器重入时重复通知。
+            lastNotifiedHidden = isHidden;
+            dispatchVisibilityChange();
+            return true;
+        }
+
+        function deferVisibilityChange(token) {
+            const notify = function() {
+                if (token !== visibilityNotificationToken) return;
+                flushVisibilityChange();
+            };
+            try {
+                if (pageWindow.scheduler && typeof pageWindow.scheduler.postTask === 'function') {
+                    const task = pageWindow.scheduler.postTask(notify, { priority: 'background' });
+                    if (task && typeof task.catch === 'function') {
+                        task.catch(function() {});
+                    }
+                    return;
+                }
+            } catch (e) {}
+            try { pageWindow.setTimeout(notify, 0); } catch (e) { setTimeout(notify, 0); }
+        }
+
+        const controller = {
+            setSuspended(shouldSuspend, options = {}) {
+                const nextSuspended = Boolean(shouldSuspend);
+                const stateChanged = nextSuspended !== isSuspended;
+                const wasHidden = getEffectiveHidden();
+                if (nextSuspended && !install()) return false;
+                isSuspended = nextSuspended;
+                if (!isSuspended) uninstall();
+                const isHidden = getEffectiveHidden();
+                if (stateChanged) visibilityNotificationToken += 1;
+                if (wasHidden !== isHidden && options.notify !== false) {
+                    if (options.deferNotification === true) {
+                        deferVisibilityChange(visibilityNotificationToken);
+                    } else {
+                        flushVisibilityChange();
+                    }
+                }
+                return true;
+            },
+            flushVisibilityChange,
+            getNativeVisibilityState,
+            isSuspended() {
+                return isSuspended;
+            }
+        };
+        try {
+            PageObject.defineProperty(pageWindow, '__agyPreviewVisibilityControllerV2', {
+                configurable: true,
+                value: controller
+            });
+        } catch (e) {}
+        return controller;
+    }
+
+    const pageVisibilityController = createPageVisibilityController();
 
     if (IS_PREVIEW_FRAME) {
         installPreviewFrameBridge();
@@ -73,6 +277,17 @@ export function installLinkHoverPreviewer(options) {
         let contentReadySent = false;
         let contentCheckScheduled = false;
         let contentObserver = null;
+
+        window.addEventListener('message', function(e) {
+            const data = e.data;
+            if (
+                e.source !== window.parent
+                || !data
+                || data.agyPreviewActivity !== true
+                || data.agyPreviewToken !== getLoadToken()
+            ) return;
+            pageVisibilityController.setSuspended(data.agyPreviewActive !== true);
+        });
 
         function hasMeaningfulContent() {
             if (!document.body) return false;
@@ -313,9 +528,12 @@ export function installLinkHoverPreviewer(options) {
         .topic-list > tbody > tr.topic-list-item > .main-link .link-top-line {
             display: flex !important;
             flex: 1 1 auto !important;
+            position: relative !important;
             align-items: center !important;
             min-width: 0 !important;
             height: 100% !important;
+            padding-left: 43px !important;
+            box-sizing: border-box !important;
             line-height: 1.2 !important;
             overflow: hidden !important;
         }
@@ -333,11 +551,12 @@ export function installLinkHoverPreviewer(options) {
             white-space: nowrap !important;
         }
         .topic-list > tbody > tr.topic-list-item > .main-link .agy-linux-topic-actions {
-            flex: 0 0 auto !important;
-            align-self: center !important;
-            margin-top: 0 !important;
-            margin-bottom: 0 !important;
-            vertical-align: middle !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 50% !important;
+            width: 38px !important;
+            margin: 0 !important;
+            transform: translateY(-50%) !important;
         }
         @media (max-width: 900px) {
             #main-outlet > .welcome-banner .welcome-banner__search-menu {
@@ -365,6 +584,7 @@ export function installLinkHoverPreviewer(options) {
         {
             // linux.do (Discourse)
             match: /(^|\.)linux\.do$/i,
+            powerSavePreview: true,
             css: `${LINUX_DO_COMPACT_CSS}
                 /* 纯 CSS 隐藏左侧边栏 (不点真实折叠按钮，避免状态被持久化) */
                 :root { --d-sidebar-width: 0px !important; }
@@ -420,9 +640,10 @@ export function installLinkHoverPreviewer(options) {
     let activeTabId = null;
     let nextTabId = 1;
     let nextLoadToken = 1;
+    // LDU ADAPTATION: click mode is configured in the host settings panel.
     let isSingleClickPreviewEnabled = options.clickMode
         ? options.clickMode() === 'single'
-        : false;
+        : loadSingleClickPreviewMode();
     let imageViewer = null;     // 独立图片查看器 (灯箱)
     let bookmarkPanel = null;   // 书签列表悬浮面板
     let bookmarkButtonRefreshToken = 0;
@@ -435,14 +656,15 @@ export function installLinkHoverPreviewer(options) {
     let linuxTopicObserver = null;
     let linuxTopicClassObserver = null;
     let linuxObservedTopicList = null;
-    let linuxTopicScanTimer = null;
+    let linuxTopicScanScheduled = false;
     const pendingLinuxTopicRows = new Set();
     let linuxTopicEnhancementInstalled = false;
     let isPreviewMaximized = loadPreviewMaximizedState();
+    let isParentPageSuspended = false;
+    let parentActivityTaskToken = 0;
+    let previewTabActivityTaskToken = 0;
 
     const cacheMap = new Map(); // 内存缓存 Map (存储跨域获取的 HTML 数据)
-    let cacheCleanupTimer = null;
-    let cacheCleanupDeadline = 0;
 
     let lastEventTime = 0;
     const THROTTLE_LIMIT = 50;  // hover 事件节流锁 (毫秒)
@@ -531,6 +753,28 @@ export function installLinkHoverPreviewer(options) {
             try { localStorage.setItem(HIDDEN_TOPIC_KEY, s); } catch (error) {}
         }
         syncLinuxHiddenTopicStyle();
+    }
+
+    function loadSingleClickPreviewMode() {
+        let stored = false;
+        try {
+            if (typeof GM_getValue === 'function') {
+                stored = GM_getValue(SINGLE_CLICK_PREVIEW_KEY, false);
+                return stored === true || stored === 1 || stored === 'true';
+            }
+        } catch (e) {}
+        try { stored = localStorage.getItem(SINGLE_CLICK_PREVIEW_KEY); } catch (e) {}
+        return stored === true || stored === 1 || stored === 'true';
+    }
+
+    function saveSingleClickPreviewMode(enabled) {
+        try {
+            if (typeof GM_setValue === 'function') {
+                GM_setValue(SINGLE_CLICK_PREVIEW_KEY, enabled);
+                return;
+            }
+        } catch (e) {}
+        try { localStorage.setItem(SINGLE_CLICK_PREVIEW_KEY, String(enabled)); } catch (e) {}
     }
 
     function isBookmarked(url) {
@@ -697,7 +941,7 @@ export function installLinkHoverPreviewer(options) {
     }
 
     function scanLinuxTopicRows() {
-        linuxTopicScanTimer = null;
+        linuxTopicScanScheduled = false;
         if (!pendingLinuxTopicRows.size) return;
         const bookmarkedUrls = new Set(loadBookmarks().map(bookmark => bookmark.url));
         const hiddenTopicIds = loadHiddenLinuxTopicIds();
@@ -712,8 +956,14 @@ export function installLinkHoverPreviewer(options) {
     function scheduleLinuxTopicScan(node) {
         collectLinuxTopicRows(node);
         if (!pendingLinuxTopicRows.size) return;
-        if (linuxTopicScanTimer !== null) return;
-        linuxTopicScanTimer = setTimeout(scanLinuxTopicRows, 0);
+        if (linuxTopicScanScheduled) return;
+        linuxTopicScanScheduled = true;
+        // MutationObserver 回调后进入微任务队列，在浏览器下一次绘制前批量补齐按钮。
+        if (typeof queueMicrotask === 'function') {
+            queueMicrotask(scanLinuxTopicRows);
+        } else {
+            Promise.resolve().then(scanLinuxTopicRows);
+        }
     }
 
     function installLinuxTopicEnhancement() {
@@ -827,7 +1077,7 @@ export function installLinkHoverPreviewer(options) {
     if (IS_TOP) {
         const style = document.createElement('style');
         style.textContent = `
-        /* LDU ADAPTATION: compact Linux Do page CSS is only injected inside previews. */
+        /* LDU ADAPTATION: host-page Linux Do layout is owned by the split app. */
         .agy-preview-container {
             position: fixed;
             width: ${WINDOW_WIDTH}px;
@@ -859,6 +1109,9 @@ export function installLinkHoverPreviewer(options) {
             opacity: 1;
             transform: scale(1) translate3d(0, 0, 0);
             pointer-events: auto;
+        }
+        .agy-preview-container.agy-instant-feedback {
+            transition: none !important;
         }
         .agy-preview-container.agy-dragging {
             transition: none;
@@ -988,6 +1241,51 @@ export function installLinkHoverPreviewer(options) {
             align-items: center;
             gap: 8px;
             cursor: default;
+        }
+        .agy-click-mode-toggle {
+            position: relative;
+            width: 28px;
+            height: 16px;
+            padding: 0;
+            border: 1px solid rgba(0, 0, 0, 0.13);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.12s, border-color 0.12s;
+        }
+        .agy-click-mode-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+            transition: transform 0.12s;
+        }
+        .agy-click-mode-toggle[aria-checked="true"] {
+            border-color: #007aff;
+            background: #007aff;
+        }
+        .agy-click-mode-toggle[aria-checked="true"]::after {
+            transform: translateX(12px);
+        }
+        .agy-click-mode-toggle:focus-visible {
+            outline: 2px solid rgba(0, 122, 255, 0.35);
+            outline-offset: 2px;
+        }
+        @media (prefers-color-scheme: dark) {
+            .agy-click-mode-toggle {
+                border-color: rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.14);
+            }
+            .agy-click-mode-toggle[aria-checked="true"] {
+                border-color: #0a84ff;
+                background: #0a84ff;
+            }
         }
         .agy-preview-btn {
             background: none;
@@ -1384,7 +1682,7 @@ export function installLinkHoverPreviewer(options) {
         }
     }
 
-    // LDU ADAPTATION: the parent project owns topic-list controls and layout.
+    // LDU ADAPTATION: host-page topic controls are owned by the split app.
 
     if (IS_TOP) {
         // 1. pointerdown (按下瞬间) 即关闭，消除 click 抬起才响应的迟滞感
@@ -1501,16 +1799,18 @@ export function installLinkHoverPreviewer(options) {
                 navigatePreview(data.agyPreviewNavigate, tab.id);
             }
         });
+
+        document.addEventListener('visibilitychange', function() {
+            if (previewContainer) syncPreviewTabActivity();
+        });
     }
 
     // 3. 监听全局 click/dblclick 实现双击拦截与分流
     document.addEventListener('click', handleLinkClick, true);
     document.addEventListener('dblclick', handleLinkDblClick, true);
 
-    // 4. 监听全局鼠标悬停，用于网络静默预热 (仅顶层需要)
-    if (IS_TOP) {
-        document.addEventListener('mouseover', handleMouseOverPreheat, true);
-    }
+    // LDU ADAPTATION: hover preheating is intentionally not registered. A real
+    // preview gesture is required before any target content may be downloaded.
 
     // 5. 键盘监听：F5 刷新活动标签；Esc 关闭；左右方向键控制活动标签历史（编辑区域中不接管）
     if (IS_TOP) {
@@ -1825,63 +2125,16 @@ export function installLinkHoverPreviewer(options) {
         if (p.parentNode) p.parentNode.removeChild(p);
     }
 
-    function clearCacheCleanupTimer() {
-        if (cacheCleanupTimer) clearTimeout(cacheCleanupTimer);
-        cacheCleanupTimer = null;
-        cacheCleanupDeadline = 0;
-    }
-
-    function scheduleCacheCleanup() {
-        let deadline = Infinity;
-        for (const entry of cacheMap.values()) {
-            if (entry.status === 'loading') continue;
-            deadline = Math.min(deadline, entry.time + CACHE_EXPIRE_TIME);
-        }
-        if (!Number.isFinite(deadline)) {
-            clearCacheCleanupTimer();
-            return;
-        }
-        if (cacheCleanupTimer && cacheCleanupDeadline === deadline) return;
-        clearCacheCleanupTimer();
-        cacheCleanupDeadline = deadline;
-        cacheCleanupTimer = setTimeout(() => {
-            cacheCleanupTimer = null;
-            cacheCleanupDeadline = 0;
-            const now = Date.now();
-            for (const [url, entry] of cacheMap) {
-                if (entry.status !== 'loading' && now - entry.time >= CACHE_EXPIRE_TIME) {
-                    cacheMap.delete(url);
-                }
-            }
-            scheduleCacheCleanup();
-        }, Math.max(0, deadline - Date.now()));
-    }
-
-    function enforceCacheLimits() {
-        let totalBytes = 0;
-        for (const entry of cacheMap.values()) totalBytes += entry.size || 0;
-        while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
-            const oldestKey = cacheMap.keys().next().value;
-            if (!oldestKey) break;
-            const oldest = cacheMap.get(oldestKey);
-            totalBytes -= (oldest && oldest.size) || 0;
-            if (oldest && oldest.xhr) {
-                try { oldest.xhr.abort(); } catch (e) {}
-            }
-            cacheMap.delete(oldestKey);
-        }
-    }
-
     /**
      * LRU 写缓存：超出上限时淘汰最旧条目并中止其未完成请求
      */
     function setCache(url, entry) {
-        entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
+        entry.size = (entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0);
 
         // 顺手清扫过期条目，长期挂机不留陈旧大字符串
         const now = Date.now();
         for (const [k, v] of cacheMap) {
-            if (v.status !== 'loading' && now - v.time >= CACHE_EXPIRE_TIME) {
+            if (v.status !== 'loading' && now - v.time > CACHE_EXPIRE_TIME) {
                 cacheMap.delete(k);
             }
         }
@@ -1889,8 +2142,21 @@ export function installLinkHoverPreviewer(options) {
         if (cacheMap.has(url)) cacheMap.delete(url);
         cacheMap.set(url, entry);
 
-        enforceCacheLimits();
-        scheduleCacheCleanup();
+        let totalBytes = 0;
+        for (const v of cacheMap.values()) totalBytes += v.size || 0;
+
+        while (cacheMap.size > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES) {
+            const protectedUrls = new Set(previewTabs.map(tab => tab.url));
+            protectedUrls.add(url);
+            const oldestKey = Array.from(cacheMap.keys()).find(key => !protectedUrls.has(key));
+            if (!oldestKey) break;
+            const old = cacheMap.get(oldestKey);
+            totalBytes -= (old && old.size) || 0;
+            if (old && old.xhr) {
+                try { old.xhr.abort(); } catch (e) {}
+            }
+            cacheMap.delete(oldestKey);
+        }
     }
 
     /**
@@ -1901,8 +2167,7 @@ export function installLinkHoverPreviewer(options) {
         if (!entry.html && typeof entry.rawHtml === 'string') {
             entry.html = prepareDynamicHtml(entry.rawHtml, url, TOKEN_PLACEHOLDER);
             entry.rawHtml = null;
-            entry.size = entry.html.length * 2;
-            enforceCacheLimits();
+            entry.size = entry.html.length;
         }
         return entry.html;
     }
@@ -1993,9 +2258,6 @@ export function installLinkHoverPreviewer(options) {
                     }
                     entry.xhr = null;
                     entry.time = Date.now();
-                    entry.size = ((entry.html ? entry.html.length : 0) + (entry.rawHtml ? entry.rawHtml.length : 0)) * 2;
-                    enforceCacheLimits();
-                    scheduleCacheCleanup();
                     const waitingTabs = previewTabs.filter(tab => (
                         isTabLoadCurrent(tab, tab.loadToken, url)
                         && tab.loadState === 'waiting-cache'
@@ -2122,7 +2384,7 @@ export function installLinkHoverPreviewer(options) {
         }
 
         const link = e.target.closest('a');
-        if (!isPreviewableLink(link)) return;
+        if (!link) return;
 
         // 预览窗内部按钮 (如“新窗口打开”) 保持浏览器默认行为
         if (link.closest('.agy-preview-container')) return;
@@ -2180,12 +2442,31 @@ export function installLinkHoverPreviewer(options) {
      * 等浏览器绘制完“已隐藏”状态后再执行重型清理，避免 iframe 销毁阻塞关闭反馈。
      */
     function cleanupAfterNextPaint(cleanup) {
-        if (document.visibilityState !== 'visible') {
+        if (pageVisibilityController.getNativeVisibilityState() !== 'visible') {
             setTimeout(cleanup, 0);
             return;
         }
         requestAnimationFrame(() => {
             requestAnimationFrame(cleanup);
+        });
+    }
+
+    /**
+     * 首帧优先任务：先让本次 DOM 显隐交给浏览器绘制，再执行可能唤醒大型 SPA 的逻辑。
+     * token 由调用方校验，快速开关或连续切换时旧任务不会覆盖最新状态。
+     */
+    function runAfterInteractionPaint(task) {
+        cleanupAfterNextPaint(() => {
+            try {
+                if (window.scheduler && typeof window.scheduler.postTask === 'function') {
+                    const scheduled = window.scheduler.postTask(task, { priority: 'background' });
+                    if (scheduled && typeof scheduled.catch === 'function') {
+                        scheduled.catch(() => {});
+                    }
+                    return;
+                }
+            } catch (e) {}
+            setTimeout(task, 0);
         });
     }
 
@@ -2196,6 +2477,61 @@ export function installLinkHoverPreviewer(options) {
             } else {
                 setTimeout(cleanup, 0);
             }
+        });
+    }
+
+    function shouldSuspendParentPage() {
+        return Boolean(
+            previewContainer
+            && getSiteRule(location.href)?.powerSavePreview
+        );
+    }
+
+    function applyParentPageActivity() {
+        const shouldSuspend = shouldSuspendParentPage();
+        if (shouldSuspend === isParentPageSuspended) return;
+        // 此函数只在首帧后的后台任务中执行；状态与通知仍保持同一个有序任务。
+        if (pageVisibilityController.setSuspended(shouldSuspend, { deferNotification: true })) {
+            isParentPageSuspended = shouldSuspend;
+        }
+    }
+
+    function scheduleParentPageActivity() {
+        const taskToken = ++parentActivityTaskToken;
+        runAfterInteractionPaint(() => {
+            if (taskToken !== parentActivityTaskToken) return;
+            applyParentPageActivity();
+        });
+    }
+
+    function postPreviewTabActivity(tab, isActive) {
+        if (!tab || !tab.iframe || !tab.iframe.contentWindow || tab.closed) return;
+        try {
+            tab.iframe.contentWindow.postMessage({
+                agyPreviewActivity: true,
+                agyPreviewActive: Boolean(isActive),
+                agyPreviewToken: tab.loadToken
+            }, '*');
+        } catch (e) {}
+    }
+
+    function isPreviewTabActive(tab) {
+        return Boolean(
+            tab
+            && tab.id === activeTabId
+            && pageVisibilityController.getNativeVisibilityState() === 'visible'
+        );
+    }
+
+    function syncPreviewTabActivity() {
+        previewTabs.forEach(tab => postPreviewTabActivity(tab, isPreviewTabActive(tab)));
+    }
+
+    function schedulePreviewTabActivity() {
+        const taskToken = ++previewTabActivityTaskToken;
+        runAfterInteractionPaint(() => {
+            if (taskToken !== previewTabActivityTaskToken) return;
+            syncPreviewTabActivity();
         });
     }
 
@@ -2226,6 +2562,9 @@ export function installLinkHoverPreviewer(options) {
         currentTargetUrl = '';
         previewTabs = [];
         activeTabId = null;
+        // 立即使所有未决标签活动任务失效；父页面恢复则等隐藏首帧完成后执行。
+        previewTabActivityTaskToken += 1;
+        scheduleParentPageActivity();
         closeBookmarkPanel();
 
         // 第二阶段可能触发目标页面的卸载逻辑，必须放到隐藏状态完成绘制之后。
@@ -2257,31 +2596,23 @@ export function installLinkHoverPreviewer(options) {
     }
 
     /**
-     * 正常加载不再覆盖预览内容。页面本身会先显示空白/已有缓存内容，
-     * 只有真正失败时才由 showError 创建错误提示。
+     * 创建或重置居中加载遮罩，返回该元素。
      */
     function showLoadingBar(tab) {
-        if (tab?.pane) tab.pane.setAttribute('aria-busy', 'false');
-        if (tab) tab.loadingBar = null;
-        return null;
-    }
-
-    function createErrorBar(tab, message) {
-        if (!tab?.pane) return null;
+        if (!tab || !tab.pane) return null;
+        const existing = tab.pane.querySelector('.agy-loading-overlay');
+        if (existing) existing.remove();
+        tab.pane.setAttribute('aria-busy', 'true');
         const bar = document.createElement('div');
         bar.className = 'agy-loading-overlay';
         bar.setAttribute('role', 'status');
         bar.setAttribute('aria-live', 'polite');
         bar.innerHTML = `
             <div class="agy-loading-card">
-                <div class="agy-loading-text"></div>
+                <div class="agy-spinner"></div>
+                <div class="agy-loading-text">页面加载中，请稍候...</div>
             </div>
         `;
-        const textNode = bar.querySelector('.agy-loading-text');
-        if (textNode) {
-            textNode.textContent = `加载出错: ${message}`;
-            textNode.style.color = '#ff3b30';
-        }
         tab.pane.appendChild(bar);
         tab.loadingBar = bar;
         return bar;
@@ -2350,6 +2681,7 @@ export function installLinkHoverPreviewer(options) {
         const iframe = document.createElement('iframe');
         iframe.className = 'agy-preview-iframe';
         iframe.name = `${PREVIEW_FRAME_PREFIX}${tab.loadToken}`;
+        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
 
         pane.appendChild(iframe);
         body.appendChild(pane);
@@ -2427,6 +2759,9 @@ export function installLinkHoverPreviewer(options) {
 
     function cancelPreviewTabLoad(tab) {
         if (!tab) return;
+        if (tab.iframe) {
+            postPreviewTabActivity(tab, false);
+        }
         tab.loadToken = nextLoadToken++;
         if (tab.request) {
             try { tab.request.abort(); } catch (e) {}
@@ -2444,6 +2779,11 @@ export function installLinkHoverPreviewer(options) {
     function releasePreviewTabResources(tab) {
         if (!tab) return;
         cancelPreviewTabLoad(tab);
+        if (tab.iframe) {
+            // 先提交轻量空文档，主动终止目标页的计时器、网络与消息总线，再移除节点。
+            try { tab.iframe.src = 'about:blank'; } catch (e) {}
+            try { tab.iframe.removeAttribute('srcdoc'); } catch (e) {}
+        }
         if (tab.pane && tab.pane.parentNode) tab.pane.parentNode.removeChild(tab.pane);
         if (tab.element && tab.element.parentNode) tab.element.parentNode.removeChild(tab.element);
         tab.iframe = null;
@@ -2475,6 +2815,7 @@ export function installLinkHoverPreviewer(options) {
             tab.pane.classList.add('active');
             tab.pane.setAttribute('aria-hidden', 'false');
         }
+        schedulePreviewTabActivity();
         const openButton = previewContainer.querySelector('.agy-open-btn');
         if (openButton) openButton.href = tab.url;
         scheduleBookmarkButtonStateUpdate(tab.id);
@@ -2491,13 +2832,24 @@ export function installLinkHoverPreviewer(options) {
     function loadPreviewTab(tab, options = {}) {
         if (!tab || !previewContainer || !tab.iframe || tab.closed) return;
         cancelPreviewTabLoad(tab);
+        setPreviewFrameToken(tab.iframe, tab.loadToken);
         const token = tab.loadToken;
         const url = tab.url;
         tab.loadState = 'loading';
         delete tab.iframe.dataset.loaded;
         tab.iframe.style.visibility = 'visible';
         const bar = showLoadingBar(tab);
-        startLoad(tab, url, bar, token, options);
+        const startOptions = { ...options };
+        delete startOptions.deferStart;
+        const beginLoad = () => {
+            if (!isTabLoadCurrent(tab, token, url)) return;
+            startLoad(tab, url, bar, token, startOptions);
+        };
+        if (options.deferStart === true) {
+            cleanupAfterNextPaint(beginLoad);
+        } else {
+            beginLoad();
+        }
     }
 
     function hasPreviewContent(innerDoc) {
@@ -2540,7 +2892,7 @@ export function installLinkHoverPreviewer(options) {
         activeTabId = tab.id;
         syncActiveTabChrome(true);
         closeBookmarkPanel();
-        loadPreviewTab(tab);
+        loadPreviewTab(tab, { deferStart: true });
     }
 
     function activatePreviewTab(tabId) {
@@ -2572,6 +2924,8 @@ export function installLinkHoverPreviewer(options) {
             const nextTab = previewTabs[Math.min(index, previewTabs.length - 1)];
             activeTabId = nextTab.id;
             syncActiveTabChrome(true);
+        } else {
+            schedulePreviewTabActivity();
         }
         scheduleHeavyCleanup(() => releasePreviewTabResources(tab));
     }
@@ -2657,7 +3011,6 @@ export function installLinkHoverPreviewer(options) {
      * 弹出预览窗口
      */
     function showPreviewWindow(linkElement, url) {
-        syncClickMode();
         previewContainer = document.createElement('div');
         previewContainer.className = 'agy-preview-container';
         const container = previewContainer;
@@ -2702,7 +3055,7 @@ export function installLinkHoverPreviewer(options) {
             setTimeout(destroyPreview, 0);
         });
 
-        // LDU ADAPTATION: keep the previously requested mouse-accessible refresh control.
+        // LDU ADAPTATION: mouse-accessible entry for the upstream refresh path.
         const refreshBtn = document.createElement('button');
         refreshBtn.type = 'button';
         refreshBtn.className = 'agy-preview-btn agy-refresh-btn';
@@ -2732,8 +3085,8 @@ export function installLinkHoverPreviewer(options) {
 
         actions.appendChild(listBtn);
         actions.appendChild(bmBtn);
-        actions.appendChild(refreshBtn);
         actions.appendChild(openBtn);
+        actions.appendChild(refreshBtn);
         actions.appendChild(maximizeBtn);
         actions.appendChild(closeBtn);
         header.appendChild(tabsElement);
@@ -2755,10 +3108,15 @@ export function installLinkHoverPreviewer(options) {
         positionPreviewWindow(linkElement);
         applyPreviewMaximizedState();
         enablePreviewDragging(header);
-        // 同一帧内直接以最终状态完成首绘：无入场动画等待，按下即见窗
+        // 打开首帧禁止过渡，避免 220ms 缩放动画被感知为响应迟缓。
+        container.classList.add('agy-instant-feedback');
         container.classList.add('agy-preview-visible');
+        cleanupAfterNextPaint(() => {
+            if (container === previewContainer) container.classList.remove('agy-instant-feedback');
+        });
 
-        loadPreviewTab(previewTabs[0]);
+        loadPreviewTab(previewTabs[0], { deferStart: true });
+        scheduleParentPageActivity();
     }
 
     /**
@@ -2821,40 +3179,6 @@ export function installLinkHoverPreviewer(options) {
             if (directive === 'content-security-policy' || directive === 'refresh') meta.remove();
         });
 
-        // LDU ADAPTATION: linux.do sends `base-uri 'none'`, which its srcdoc
-        // children inherit. Resolve resource URLs before serialization so the
-        // upstream dynamic loader still works when the <base> element is blocked.
-        const resolveEmbeddedUrl = value => {
-            const raw = (value || '').trim();
-            if (!raw || raw.charAt(0) === '#' || /^(?:data|blob|javascript|mailto|tel):/i.test(raw)) return value;
-            try { return new URL(raw, baseUrl).href; } catch (e) { return value; }
-        };
-        parsed.querySelectorAll('[src], [href], [poster], [action], [formaction]').forEach(element => {
-            ['src', 'href', 'poster', 'action', 'formaction'].forEach(attribute => {
-                if (!element.hasAttribute(attribute)) return;
-                element.setAttribute(attribute, resolveEmbeddedUrl(element.getAttribute(attribute)));
-            });
-        });
-        parsed.querySelectorAll('[srcset]').forEach(element => {
-            const rewritten = (element.getAttribute('srcset') || '').split(',').map(candidate => {
-                const parts = candidate.trim().split(/\s+/);
-                if (!parts[0]) return candidate;
-                parts[0] = resolveEmbeddedUrl(parts[0]);
-                return parts.join(' ');
-            }).join(', ');
-            element.setAttribute('srcset', rewritten);
-        });
-        const rewriteCssUrls = css => css.replace(/url\(\s*(['"]?)([^'"\)]+)\1\s*\)/gi, (match, quote, value) => {
-            const resolved = resolveEmbeddedUrl(value);
-            return resolved === value ? match : `url("${resolved}")`;
-        });
-        parsed.querySelectorAll('[style]').forEach(element => {
-            element.setAttribute('style', rewriteCssUrls(element.getAttribute('style') || ''));
-        });
-        parsed.querySelectorAll('style').forEach(style => {
-            style.textContent = rewriteCssUrls(style.textContent || '');
-        });
-
         const base = parsed.createElement('base');
         base.href = baseUrl;
         parsed.head.prepend(base);
@@ -2868,6 +3192,19 @@ export function installLinkHoverPreviewer(options) {
                 var contentReadySent = false;
                 var contentCheckScheduled = false;
                 var contentObserver = null;
+                var visibilityController = (${createPageVisibilityController.toString()})();
+                window.addEventListener('message', function(e) {
+                    var data = e.data;
+                    if (
+                        e.source !== window.parent
+                        || !data
+                        || data.agyPreviewActivity !== true
+                        || data.agyPreviewToken !== loadToken
+                    ) return;
+                    if (visibilityController) {
+                        visibilityController.setSuspended(data.agyPreviewActive !== true);
+                    }
+                });
                 function isEditableTarget(target) {
                     return Boolean(target && target.closest && target.closest(
                         'input, textarea, select, [contenteditable="true"], [contenteditable=""], .CodeMirror, .monaco-editor'
@@ -2977,6 +3314,7 @@ export function installLinkHoverPreviewer(options) {
             pollPreviewContentReady(tab, baseUrl, token);
         }
         if (tab.id === activeTabId) updateBookmarkButtonState();
+        postPreviewTabActivity(tab, isPreviewTabActive(tab));
     }
 
     function revealLoadedPreviewTab(tab, token, baseUrl, loadingBar) {
@@ -3035,7 +3373,7 @@ export function installLinkHoverPreviewer(options) {
         clearContentReadyTimer(tab);
         tab.loadState = 'error';
         let bar = tab.loadingBar;
-        if (!bar) bar = createErrorBar(tab, msg);
+        if (!bar) bar = showLoadingBar(tab);
         if (!bar) return;
         if (tab.pane) tab.pane.setAttribute('aria-busy', 'false');
         if (tab.iframe) tab.iframe.style.visibility = 'hidden';
@@ -3043,6 +3381,11 @@ export function installLinkHoverPreviewer(options) {
         if (textNode) {
             textNode.textContent = `加载出错: ${msg}`;
             textNode.style.color = '#ff3b30';
+        }
+        const spinner = bar.querySelector('.agy-spinner');
+        if (spinner) {
+            spinner.style.borderTopColor = '#ff3b30';
+            spinner.style.animationPlayState = 'paused';
         }
     }
 
@@ -3191,8 +3534,8 @@ export function installLinkHoverPreviewer(options) {
         }
     }
 
-    // LDU ADAPTATION: topic links live in managed iframes, so the parent bridge
-    // opens them through the same upstream window and tab machinery.
+    // LDU ADAPTATION: links inside managed topic/list frames enter the same
+    // upstream window and tab lifecycle through this host-facing boundary.
     function openFromFrame(url, anchorRect) {
         if (!isPreviewEnabled() || !/^https?:/i.test(url)) return;
         if (options.isPreviewableUrl && !options.isPreviewableUrl(url, null)) return;
@@ -3214,7 +3557,6 @@ export function installLinkHoverPreviewer(options) {
         if (preheatTimer) clearTimeout(preheatTimer);
         preheatTimer = null;
         preheatLink = null;
-        clearCacheCleanupTimer();
         cacheMap.forEach(entry => {
             if (entry && entry.xhr) {
                 try { entry.xhr.abort(); } catch (e) {}

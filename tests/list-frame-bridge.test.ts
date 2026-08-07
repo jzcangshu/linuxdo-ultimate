@@ -3,12 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootFrameBridge } from "../src/frame-bridge";
 
 describe("embedded list bridge", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+  afterEach(async () => {
     document.documentElement.removeAttribute("data-ldu-embedded-list");
     document.body.replaceChildren();
     delete window.__LDU_TEST_MODE__;
+    await Promise.resolve();
+    vi.runOnlyPendingTimers();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("turns a named list iframe into a topic-opening bridge", () => {

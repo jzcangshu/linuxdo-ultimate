@@ -94,6 +94,46 @@ describe("session state", () => {
     expect(restored.tabs.some((tab) => tab.id === restored.activeTabId)).toBe(true);
   });
 
+  it("keeps a manual tab order across a reload", () => {
+    let state = createSession("session-a", "https://linux.do/latest", 100);
+    for (const topicId of ["1", "2", "3"]) {
+      state = upsertTopicTab(state, {
+        topicId,
+        url: `https://linux.do/t/topic/${topicId}`,
+        title: `Topic ${topicId}`,
+      }, 100 + Number(topicId));
+    }
+    const reordered = { ...state, tabs: [state.tabs[2]!, state.tabs[0]!, state.tabs[1]!] };
+
+    const restored = normalizeSession(structuredClone(reordered), createSession("fallback", "/", 999));
+
+    expect(restored.tabs.map((tab) => tab.topicId)).toEqual(["3", "1", "2"]);
+  });
+
+  it("drops the least recently active tab when the manual order overflows", () => {
+    let state = createSession("session-a", "https://linux.do/latest", 100);
+    for (let index = 1; index <= 50; index += 1) {
+      state = upsertTopicTab(state, {
+        topicId: String(index),
+        url: `https://linux.do/t/topic/${index}`,
+        title: `Topic ${index}`,
+      }, 100 + index);
+    }
+    // Make the first tab the stalest while keeping it at the front of the order.
+    state = { ...state, tabs: state.tabs.map((tab) => tab.topicId === "1" ? { ...tab, lastActiveAt: 1 } : tab) };
+
+    const overflowed = upsertTopicTab(state, {
+      topicId: "51",
+      url: "https://linux.do/t/topic/51",
+      title: "Topic 51",
+    }, 200);
+
+    expect(overflowed.tabs).toHaveLength(50);
+    expect(overflowed.tabs.some((tab) => tab.topicId === "1")).toBe(false);
+    expect(overflowed.tabs.at(-1)?.topicId).toBe("51");
+    expect(overflowed.tabs.map((tab) => tab.topicId).slice(0, 3)).toEqual(["2", "3", "4"]);
+  });
+
   it("selects an adjacent tab after closing the active tab", () => {
     let state = createSession("session-a", "https://linux.do/latest", 100);
     state = upsertTopicTab(state, { topicId: "1", url: "/t/topic/1", title: "One" }, 101);

@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.11
+// @version      0.2.12
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -154,6 +154,13 @@
       lastActiveAt: clampNumber(tab.lastActiveAt, 0, Number.MAX_SAFE_INTEGER, 0)
     };
   }
+  function limitTabs(tabs, keepId) {
+    if (tabs.length <= MAX_TABS) return tabs;
+    const removeIds = new Set(
+      tabs.filter((tab) => tab.id !== keepId).sort((a, b) => a.lastActiveAt - b.lastActiveAt).slice(0, tabs.length - MAX_TABS).map((tab) => tab.id)
+    );
+    return tabs.filter((tab) => !removeIds.has(tab.id));
+  }
   function createSession(sessionId, listUrl, now) {
     return {
       schemaVersion: SESSION_SCHEMA_VERSION,
@@ -175,7 +182,10 @@
     const source = value;
     if (source.schemaVersion !== SESSION_SCHEMA_VERSION || typeof source.sessionId !== "string") return fallback;
     const tabs = Array.isArray(source.tabs) ? source.tabs.map(normalizeTab).filter((tab) => tab !== null) : [];
-    const uniqueTabs = Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values()).sort((a, b) => a.lastActiveAt - b.lastActiveAt).slice(-MAX_TABS);
+    const uniqueTabs = limitTabs(
+      Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values()),
+      typeof source.activeTabId === "string" ? source.activeTabId : ""
+    );
     const validTabIds = new Set(uniqueTabs.map((tab) => tab.id));
     const secondaryTabIds = Array.isArray(source.secondaryTabIds) ? [...new Set(source.secondaryTabIds.filter((id) => typeof id === "string" && validTabIds.has(id)))] : [];
     const secondaryIds = new Set(secondaryTabIds);
@@ -210,7 +220,10 @@
       suspended: false,
       lastActiveAt: now
     };
-    const tabs = [...session.tabs.filter((tab) => tab.topicId !== input.topicId), nextTab].sort((a, b) => a.lastActiveAt - b.lastActiveAt).slice(-MAX_TABS);
+    const tabs = limitTabs(
+      existing ? session.tabs.map((tab) => tab.topicId === input.topicId ? nextTab : tab) : [...session.tabs, nextTab],
+      nextTab.id
+    );
     const staysSecondary = session.secondaryTabIds.includes(nextTab.id);
     return {
       ...session,

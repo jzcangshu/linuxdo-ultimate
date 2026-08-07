@@ -79,4 +79,29 @@ describe("topic tab store", () => {
     expect(store.reorderInPane("topic-4", "topic-3", "before", 9)).toBe(true);
     expect(store.getSecondaryTabs().map((tab) => tab.id)).toEqual(["topic-4", "topic-3"]);
   });
+
+  it("keeps a manual tab order when another topic is opened", () => {
+    const store = new TopicTabStore(createSession("a", "/latest", 1), 50);
+    store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
+    store.open({ topicId: "2", url: "/t/topic/2", title: "Two" }, 3);
+    store.open({ topicId: "3", url: "/t/topic/3", title: "Three" }, 4);
+    store.reorderInPane("topic-3", "topic-1", "before", 5);
+
+    store.open({ topicId: "4", url: "/t/topic/4", title: "Four" }, 6);
+
+    expect(store.getPrimaryTabs().map((tab) => tab.id)).toEqual(["topic-3", "topic-1", "topic-2", "topic-4"]);
+    expect(store.getActive()?.id).toBe("topic-4");
+  });
+
+  it("keeps a manual tab order when an existing topic is reopened", () => {
+    const store = new TopicTabStore(createSession("a", "/latest", 1), 50);
+    store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
+    store.open({ topicId: "2", url: "/t/topic/2", title: "Two" }, 3);
+    store.reorderInPane("topic-2", "topic-1", "before", 4);
+
+    store.open({ topicId: "1", url: "/t/topic/1/9", title: "One" }, 5);
+
+    expect(store.getPrimaryTabs().map((tab) => tab.id)).toEqual(["topic-2", "topic-1"]);
+    expect(store.getActive()?.url).toBe("/t/topic/1/9");
+  });
 });

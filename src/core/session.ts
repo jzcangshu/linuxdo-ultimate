@@ -46,6 +46,20 @@ function normalizeTab(value: unknown): TopicTabState | null {
   };
 }
 
+// Tab order is the user's manual order, so overflow removes the least recently
+// active tabs instead of resorting the list.
+function limitTabs(tabs: TopicTabState[], keepId: string): TopicTabState[] {
+  if (tabs.length <= MAX_TABS) return tabs;
+  const removeIds = new Set(
+    tabs
+      .filter((tab) => tab.id !== keepId)
+      .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
+      .slice(0, tabs.length - MAX_TABS)
+      .map((tab) => tab.id),
+  );
+  return tabs.filter((tab) => !removeIds.has(tab.id));
+}
+
 export function createSession(sessionId: string, listUrl: string, now: number): SessionState {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
@@ -70,9 +84,10 @@ export function normalizeSession(value: unknown, fallback: SessionState): Sessio
   const tabs = Array.isArray(source.tabs)
     ? source.tabs.map(normalizeTab).filter((tab): tab is TopicTabState => tab !== null)
     : [];
-  const uniqueTabs = Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values())
-    .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
-    .slice(-MAX_TABS);
+  const uniqueTabs = limitTabs(
+    Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values()),
+    typeof source.activeTabId === "string" ? source.activeTabId : "",
+  );
   const validTabIds = new Set(uniqueTabs.map((tab) => tab.id));
   const secondaryTabIds = Array.isArray(source.secondaryTabIds)
     ? [...new Set(source.secondaryTabIds.filter((id): id is string => typeof id === "string" && validTabIds.has(id)))]
@@ -122,9 +137,12 @@ export function upsertTopicTab(
         suspended: false,
         lastActiveAt: now,
       };
-  const tabs = [...session.tabs.filter((tab) => tab.topicId !== input.topicId), nextTab]
-    .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
-    .slice(-MAX_TABS);
+  const tabs = limitTabs(
+    existing
+      ? session.tabs.map((tab) => tab.topicId === input.topicId ? nextTab : tab)
+      : [...session.tabs, nextTab],
+    nextTab.id,
+  );
   const staysSecondary = session.secondaryTabIds.includes(nextTab.id);
   return {
     ...session,

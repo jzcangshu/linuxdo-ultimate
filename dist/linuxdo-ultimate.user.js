@@ -2,8 +2,8 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.1.21
-// @description  Persistent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
+// @version      0.2.0
+// @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
 // @license      MIT
@@ -131,6 +131,8 @@
       paneSizes: { ...DEFAULT_SETTINGS.paneSizes },
       tabs: [],
       activeTabId: null,
+      secondaryTabIds: [],
+      secondaryActiveTabId: null,
       updatedAt: now
     };
   }
@@ -140,7 +142,12 @@
     if (source.schemaVersion !== SESSION_SCHEMA_VERSION || typeof source.sessionId !== "string") return fallback;
     const tabs = Array.isArray(source.tabs) ? source.tabs.map(normalizeTab).filter((tab) => tab !== null) : [];
     const uniqueTabs = Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values()).sort((a, b) => a.lastActiveAt - b.lastActiveAt).slice(-MAX_TABS);
-    const activeTabId = uniqueTabs.some((tab) => tab.id === source.activeTabId) ? source.activeTabId : uniqueTabs.at(-1)?.id ?? null;
+    const validTabIds = new Set(uniqueTabs.map((tab) => tab.id));
+    const secondaryTabIds = Array.isArray(source.secondaryTabIds) ? [...new Set(source.secondaryTabIds.filter((id) => typeof id === "string" && validTabIds.has(id)))] : [];
+    const secondaryIds = new Set(secondaryTabIds);
+    const primaryTabs = uniqueTabs.filter((tab) => !secondaryIds.has(tab.id));
+    const activeTabId = primaryTabs.some((tab) => tab.id === source.activeTabId) ? source.activeTabId : primaryTabs.at(-1)?.id ?? null;
+    const secondaryActiveTabId = secondaryTabIds.includes(source.secondaryActiveTabId ?? "") ? source.secondaryActiveTabId : secondaryTabIds.at(-1) ?? null;
     return {
       schemaVersion: SESSION_SCHEMA_VERSION,
       sessionId: source.sessionId,
@@ -150,6 +157,8 @@
       paneSizes: normalizePaneSizes(source.paneSizes),
       tabs: uniqueTabs,
       activeTabId,
+      secondaryTabIds,
+      secondaryActiveTabId,
       updatedAt: clampNumber(source.updatedAt, 0, Number.MAX_SAFE_INTEGER, fallback.updatedAt)
     };
   }
@@ -167,14 +176,32 @@
       lastActiveAt: now
     };
     const tabs = [...session.tabs.filter((tab) => tab.topicId !== input.topicId), nextTab].sort((a, b) => a.lastActiveAt - b.lastActiveAt).slice(-MAX_TABS);
-    return { ...session, tabs, activeTabId: nextTab.id, updatedAt: now };
+    const staysSecondary = session.secondaryTabIds.includes(nextTab.id);
+    return {
+      ...session,
+      tabs,
+      activeTabId: staysSecondary ? session.activeTabId : nextTab.id,
+      secondaryActiveTabId: staysSecondary ? nextTab.id : session.secondaryActiveTabId,
+      updatedAt: now
+    };
   }
   function closeTopicTab(session, tabId, now) {
     const index = session.tabs.findIndex((tab) => tab.id === tabId);
     if (index < 0) return session;
     const tabs = session.tabs.filter((tab) => tab.id !== tabId);
-    const nextActive = session.activeTabId === tabId ? tabs[Math.min(index, tabs.length - 1)]?.id ?? null : session.activeTabId;
-    return { ...session, tabs, activeTabId: nextActive, updatedAt: now };
+    const secondaryTabIds = session.secondaryTabIds.filter((id) => id !== tabId);
+    const secondaryIds = new Set(secondaryTabIds);
+    const primaryTabs = tabs.filter((tab) => !secondaryIds.has(tab.id));
+    const nextActive = session.activeTabId === tabId ? primaryTabs[Math.min(index, primaryTabs.length - 1)]?.id ?? primaryTabs.at(-1)?.id ?? null : session.activeTabId;
+    const nextSecondaryActive = session.secondaryActiveTabId === tabId ? secondaryTabIds.at(-1) ?? null : session.secondaryActiveTabId;
+    return {
+      ...session,
+      tabs,
+      activeTabId: nextActive,
+      secondaryTabIds,
+      secondaryActiveTabId: nextSecondaryActive,
+      updatedAt: now
+    };
   }
 
   // src/core/storage.ts
@@ -548,67 +575,6 @@
     return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
-  // src/discourse/direct-topic-handoff.ts
-  var DIRECT_TOPIC_HANDOFF_TTL_MS = 15e3;
-  var DIRECT_TOPIC_HANDOFF_KEY = "linuxdo-ultimate:direct-topic-handoff";
-  function saveDirectTopicHandoff(storage, handoff, now) {
-    try {
-      storage.setItem(DIRECT_TOPIC_HANDOFF_KEY, JSON.stringify({
-        schemaVersion: 2,
-        listUrl: handoff.listUrl,
-        topics: handoff.topics,
-        createdAt: now
-      }));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  function consumeDirectTopicHandoff(storage, now, baseUrl) {
-    let raw = null;
-    try {
-      raw = storage.getItem(DIRECT_TOPIC_HANDOFF_KEY);
-      storage.removeItem(DIRECT_TOPIC_HANDOFF_KEY);
-    } catch {
-      return null;
-    }
-    return parseDirectTopicHandoff(raw, now, baseUrl);
-  }
-  function peekDirectTopicHandoff(storage, now, baseUrl) {
-    let raw = null;
-    try {
-      raw = storage.getItem(DIRECT_TOPIC_HANDOFF_KEY);
-    } catch {
-      return null;
-    }
-    return parseDirectTopicHandoff(raw, now, baseUrl);
-  }
-  function parseDirectTopicHandoff(raw, now, baseUrl) {
-    if (!raw) return null;
-    try {
-      const value = JSON.parse(raw);
-      if (value.schemaVersion !== 2 || typeof value.listUrl !== "string" || !Array.isArray(value.topics) || value.topics.length === 0 || value.topics.length > 50 || typeof value.createdAt !== "number" || now < value.createdAt || now - value.createdAt > DIRECT_TOPIC_HANDOFF_TTL_MS) return null;
-      const base = new URL(baseUrl);
-      const listUrl = new URL(value.listUrl, base);
-      if (listUrl.origin !== base.origin || !isListPath(listUrl.pathname)) return null;
-      const topics = value.topics.map((topic) => {
-        if (!topic || typeof topic.url !== "string" || typeof topic.title !== "string") return null;
-        const url = new URL(topic.url, base);
-        if (url.origin !== base.origin || !/^\/(?:t|n)\/[^/]+\/\d+(?:\/\d+)?\/?$/.test(url.pathname)) return null;
-        return { url: url.href, title: topic.title.trim() || "\u5E16\u5B50" };
-      });
-      if (topics.some((topic) => topic === null)) return null;
-      return { listUrl: listUrl.href, topics };
-    } catch {
-      return null;
-    }
-  }
-  function isListPath(pathname) {
-    return pathname === "/" || ["/latest", "/new", "/unseen", "/hot", "/top", "/read", "/posted", "/bookmarks", "/categories", "/tags", "/search"].some(
-      (path) => pathname === path || pathname.startsWith(`${path}/`)
-    ) || pathname.startsWith("/c/") || pathname.startsWith("/tag/");
-  }
-
   // src/tabs/frame-pool.ts
   var TopicFramePool = class {
     constructor(container, maxLiveFrames, onMessage, onSuspend) {
@@ -637,12 +603,28 @@
         iframe.name = `ldu-topic:${tab.id}`;
         iframe.title = tab.title;
         iframe.dataset.tabId = tab.id;
-        iframe.addEventListener("load", () => {
+        const loadListener = () => {
+          const current = this.frames.get(tab.id);
+          if (!current || current.iframe !== iframe) return;
+          current.loaded = true;
+          this.restoreScroll(current);
           this.sendPreviewConfig(iframe);
+          this.flushCommands(current);
           this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
-        });
+        };
+        iframe.addEventListener("load", loadListener);
         iframe.src = tab.url;
-        record = { iframe, lastUsedAt: now, reportedUrl: null };
+        record = {
+          iframe,
+          lastUsedAt: now,
+          reportedUrl: null,
+          loaded: false,
+          commands: [],
+          loadListener,
+          restoreScrollY: tab.scrollY,
+          restoreTimer: null,
+          restoreDeadline: 0
+        };
         this.frames.set(tab.id, record);
         this.container.append(iframe);
       } else {
@@ -651,6 +633,8 @@
         const requestedUrl = new URL(tab.url, document.baseURI).href;
         if (record.iframe.src !== requestedUrl && record.reportedUrl !== requestedUrl) {
           record.reportedUrl = null;
+          record.loaded = false;
+          record.restoreScrollY = tab.scrollY;
           record.iframe.src = requestedUrl;
         }
       }
@@ -664,7 +648,7 @@
     }
     handleMessage(event) {
       const data = event.data;
-      if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
+      if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
       const record = this.frames.get(data.tabId);
       if (!record || event.source !== record.iframe.contentWindow) return;
       if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
@@ -674,21 +658,125 @@
           record.reportedUrl = null;
         }
       }
-      if (data.type === "ldu:frame-ready") this.sendPreviewConfig(record.iframe);
+      if (data.type === "ldu:frame-ready") {
+        record.loaded = true;
+        this.restoreScroll(record);
+        this.sendPreviewConfig(record.iframe);
+        this.flushCommands(record);
+      }
       this.onMessage(data, record.iframe);
     }
     remove(tabId) {
       const record = this.frames.get(tabId);
       if (!record) return;
+      record.commands = [];
+      this.cancelScrollRestore(record);
+      record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
     }
+    sendCommand(tabId, command) {
+      const record = this.frames.get(tabId);
+      if (!record) return;
+      if (!record.loaded) {
+        record.commands.push(command);
+        return;
+      }
+      record.iframe.contentWindow?.postMessage(command, location.origin);
+    }
+    getFrame(tabId) {
+      return this.frames.get(tabId)?.iframe ?? null;
+    }
+    reload(tabId) {
+      const record = this.frames.get(tabId);
+      if (!record) return false;
+      record.loaded = false;
+      record.reportedUrl = null;
+      try {
+        record.iframe.contentWindow?.location.reload();
+      } catch {
+        record.iframe.src = record.iframe.src;
+      }
+      return true;
+    }
+    detach(tabId) {
+      const record = this.frames.get(tabId);
+      if (!record) return null;
+      this.cancelScrollRestore(record);
+      record.iframe.removeEventListener("load", record.loadListener);
+      record.iframe.remove();
+      this.frames.delete(tabId);
+      return record;
+    }
+    adopt(tab, transfer, now) {
+      const iframe = transfer.iframe;
+      iframe.name = `ldu-topic:${tab.id}`;
+      iframe.dataset.tabId = tab.id;
+      iframe.title = tab.title;
+      const loadListener = () => {
+        const current = this.frames.get(tab.id);
+        if (!current || current.iframe !== iframe) return;
+        current.loaded = true;
+        this.restoreScroll(current);
+        this.sendPreviewConfig(iframe);
+        this.flushCommands(current);
+        this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
+      };
+      iframe.addEventListener("load", loadListener);
+      const requestedUrl = new URL(tab.url, document.baseURI).href;
+      if (iframe.src !== requestedUrl && transfer.reportedUrl !== requestedUrl) iframe.src = requestedUrl;
+      const record = {
+        ...transfer,
+        lastUsedAt: now,
+        reportedUrl: null,
+        loaded: false,
+        loadListener,
+        restoreScrollY: tab.scrollY,
+        restoreTimer: null,
+        restoreDeadline: 0
+      };
+      this.frames.set(tab.id, record);
+      this.container.append(iframe);
+      this.activate(tab, now);
+      return iframe;
+    }
     destroy() {
-      for (const record of this.frames.values()) record.iframe.remove();
+      for (const record of this.frames.values()) {
+        record.commands = [];
+        this.cancelScrollRestore(record);
+        record.iframe.removeEventListener("load", record.loadListener);
+        record.iframe.remove();
+      }
       this.frames.clear();
     }
     sendPreviewConfig(iframe) {
       iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+    }
+    flushCommands(record) {
+      const commands = record.commands.splice(0);
+      for (const command of commands) record.iframe.contentWindow?.postMessage(command, location.origin);
+    }
+    restoreScroll(record) {
+      const target = record.restoreScrollY;
+      if (target <= 0 || !record.iframe.contentWindow) return;
+      if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
+      if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + 5e3;
+      record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
+      if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
+        record.restoreScrollY = 0;
+        record.restoreDeadline = 0;
+        record.restoreTimer = null;
+        return;
+      }
+      record.restoreTimer = window.setTimeout(() => {
+        record.restoreTimer = null;
+        if ([...this.frames.values()].includes(record)) this.restoreScroll(record);
+      }, 100);
+    }
+    cancelScrollRestore(record) {
+      if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
+      record.restoreTimer = null;
+      record.restoreDeadline = 0;
     }
     suspendOverflow(activeTabId) {
       while (this.frames.size > this.liveLimit) {
@@ -696,10 +784,126 @@
         const candidate = candidates[0];
         if (!candidate) return;
         const [tabId, record] = candidate;
+        record.commands = [];
+        this.cancelScrollRestore(record);
+        record.iframe.removeEventListener("load", record.loadListener);
         record.iframe.remove();
         this.frames.delete(tabId);
         this.onSuspend(tabId, record.iframe);
       }
+    }
+  };
+
+  // src/tabs/list-frame.ts
+  var ListFrameController = class {
+    constructor(container, frameId, onMessage) {
+      this.container = container;
+      this.frameId = frameId;
+      this.onMessage = onMessage;
+    }
+    iframe = null;
+    reportedUrl = "";
+    frameConfig = { enabled: false, clickMode: "double", hidePosters: true };
+    restoreScrollY = 0;
+    restoreTimer = null;
+    restoreDeadline = 0;
+    mount(url) {
+      if (!this.iframe) {
+        const iframe = document.createElement("iframe");
+        iframe.className = "ldu-list-frame";
+        iframe.name = `ldu-list:${this.frameId}`;
+        iframe.title = "\u5E16\u5B50\u5217\u8868\u548C\u7AD9\u5185\u9875\u9762";
+        iframe.dataset.frameId = this.frameId;
+        iframe.addEventListener("load", () => {
+          this.sendPreviewConfig(iframe);
+          this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
+        });
+        this.iframe = iframe;
+        this.container.append(iframe);
+      }
+      const requestedUrl = this.resolveSameOrigin(url) ?? new URL("/", location.href);
+      const requested = requestedUrl.href;
+      if (this.iframe.src !== requested && this.reportedUrl !== requested) {
+        this.reportedUrl = "";
+        this.iframe.src = requested;
+      }
+      if (!this.iframe.src) this.iframe.src = requested;
+      return this.iframe;
+    }
+    navigate(url) {
+      const target = this.resolveSameOrigin(url);
+      if (!target) return;
+      if (!this.iframe) {
+        this.mount(target.href);
+        return;
+      }
+      const requested = target.href;
+      if (this.iframe.src === requested || this.reportedUrl === requested) return;
+      this.reportedUrl = "";
+      this.iframe.src = requested;
+    }
+    restoreScroll(scrollY) {
+      if (!this.iframe?.contentWindow || scrollY <= 0) return;
+      this.restoreScrollY = scrollY;
+      this.restoreDeadline = Date.now() + 5e3;
+      this.attemptScrollRestore();
+    }
+    getElement() {
+      return this.iframe;
+    }
+    setConfig(config) {
+      this.frameConfig = { ...config };
+      if (this.iframe) this.sendPreviewConfig(this.iframe);
+    }
+    handleMessage(event) {
+      const data = event.data;
+      if (!data || !["ldu:list-ready", "ldu:list-state", "ldu:list-interaction", "ldu:list-topic-open", "ldu:list-navigate", "ldu:list-preview-open", "ldu:list-preview-dismiss"].includes(data.type ?? "")) return;
+      if (data.frameId !== this.frameId || !this.iframe || event.source !== this.iframe.contentWindow || event.origin !== location.origin) return;
+      if ((data.type === "ldu:list-ready" || data.type === "ldu:list-state") && data.url) {
+        try {
+          this.reportedUrl = new URL(data.url, document.baseURI).href;
+        } catch {
+          this.reportedUrl = "";
+        }
+      }
+      this.onMessage(data, this.iframe);
+    }
+    sendPreviewConfig(iframe) {
+      iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.frameConfig }, location.origin);
+    }
+    resolveSameOrigin(url) {
+      try {
+        const resolved = new URL(url, document.baseURI);
+        return resolved.origin === location.origin && /^https?:$/.test(resolved.protocol) ? resolved : null;
+      } catch {
+        return null;
+      }
+    }
+    attemptScrollRestore() {
+      const iframe = this.iframe;
+      const target = this.restoreScrollY;
+      if (!iframe?.contentWindow || target <= 0) return;
+      if (this.restoreTimer !== null) window.clearTimeout(this.restoreTimer);
+      iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
+      if (Math.abs(iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= this.restoreDeadline) {
+        this.restoreScrollY = 0;
+        this.restoreDeadline = 0;
+        this.restoreTimer = null;
+        return;
+      }
+      this.restoreTimer = window.setTimeout(() => {
+        this.restoreTimer = null;
+        if (this.iframe === iframe) this.attemptScrollRestore();
+      }, 100);
+    }
+    destroy() {
+      if (this.restoreTimer !== null) window.clearTimeout(this.restoreTimer);
+      this.restoreTimer = null;
+      this.restoreScrollY = 0;
+      this.restoreDeadline = 0;
+      this.iframe?.remove();
+      this.iframe = null;
+      this.reportedUrl = "";
     }
   };
 
@@ -716,8 +920,19 @@
     getTabs() {
       return this.session.tabs.map((tab) => ({ ...tab }));
     }
+    getPrimaryTabs() {
+      const secondary = new Set(this.session.secondaryTabIds);
+      return this.session.tabs.filter((tab) => !secondary.has(tab.id)).map((tab) => ({ ...tab }));
+    }
+    getSecondaryTabs() {
+      const byId = new Map(this.session.tabs.map((tab) => [tab.id, tab]));
+      return this.session.secondaryTabIds.flatMap((id) => byId.has(id) ? [{ ...byId.get(id) }] : []);
+    }
     getActive() {
       return this.session.tabs.find((tab) => tab.id === this.session.activeTabId) ?? null;
+    }
+    getSecondaryActive() {
+      return this.session.tabs.find((tab) => tab.id === this.session.secondaryActiveTabId) ?? null;
     }
     setSessionFields(fields, now, notify = true) {
       this.session = { ...this.session, ...fields, updatedAt: now };
@@ -731,11 +946,27 @@
         const removeIds = new Set(removable.slice(0, removeCount).map((tab) => tab.id));
         this.session = { ...this.session, tabs: this.session.tabs.filter((tab) => !removeIds.has(tab.id)) };
       }
+      this.repairPanelOwnership();
       this.emit();
       return this.getActive();
     }
+    openSecondary(input, now) {
+      this.session = upsertTopicTab(this.session, input, now);
+      const tab = this.session.tabs.find((candidate) => candidate.topicId === input.topicId);
+      if (!this.session.secondaryTabIds.includes(tab.id)) {
+        this.session = {
+          ...this.session,
+          secondaryTabIds: [...this.session.secondaryTabIds, tab.id],
+          secondaryActiveTabId: tab.id,
+          activeTabId: this.session.activeTabId === tab.id ? this.getPrimaryTabs().find((candidate) => candidate.id !== tab.id)?.id ?? null : this.session.activeTabId
+        };
+      }
+      this.repairPanelOwnership();
+      this.emit();
+      return { ...tab };
+    }
     activate(tabId, now) {
-      if (!this.session.tabs.some((tab) => tab.id === tabId)) return null;
+      if (!this.getPrimaryTabs().some((tab) => tab.id === tabId)) return null;
       this.session = {
         ...this.session,
         activeTabId: tabId,
@@ -744,6 +975,63 @@
       };
       this.emit();
       return this.getActive();
+    }
+    activateSecondary(tabId, now) {
+      if (!this.session.secondaryTabIds.includes(tabId)) return null;
+      this.session = {
+        ...this.session,
+        secondaryActiveTabId: tabId,
+        tabs: this.session.tabs.map((tab) => tab.id === tabId ? { ...tab, lastActiveAt: now, suspended: false } : tab),
+        updatedAt: now
+      };
+      this.emit();
+      return this.getSecondaryActive();
+    }
+    moveToSecondary(tabId, now, notify = true) {
+      if (!this.session.tabs.some((tab) => tab.id === tabId)) return null;
+      if (this.session.secondaryTabIds.includes(tabId)) return this.activateSecondary(tabId, now);
+      const primaryTabs = this.getPrimaryTabs();
+      const index = primaryTabs.findIndex((tab) => tab.id === tabId);
+      const remaining = primaryTabs.filter((tab) => tab.id !== tabId);
+      this.session = {
+        ...this.session,
+        secondaryTabIds: [...this.session.secondaryTabIds, tabId],
+        secondaryActiveTabId: tabId,
+        activeTabId: this.session.activeTabId === tabId ? remaining[Math.min(index, remaining.length - 1)]?.id ?? null : this.session.activeTabId,
+        tabs: this.session.tabs.map((tab) => tab.id === tabId ? { ...tab, lastActiveAt: now, suspended: false } : tab),
+        updatedAt: now
+      };
+      if (notify) this.emit();
+      return this.getSecondaryActive();
+    }
+    mergeSecondaryIntoPrimary(now, notify = true) {
+      if (this.session.secondaryTabIds.length === 0) return;
+      const lastSecondary = this.session.secondaryActiveTabId;
+      this.session = {
+        ...this.session,
+        activeTabId: this.session.activeTabId ?? lastSecondary,
+        secondaryTabIds: [],
+        secondaryActiveTabId: null,
+        updatedAt: now
+      };
+      if (notify) this.emit();
+    }
+    closeOthersInPane(tabId, now) {
+      const secondary = this.session.secondaryTabIds.includes(tabId);
+      const paneTabs = secondary ? this.getSecondaryTabs() : this.getPrimaryTabs();
+      const removeIds = paneTabs.filter((tab) => tab.id !== tabId).map((tab) => tab.id);
+      if (removeIds.length === 0) return [];
+      const removeSet = new Set(removeIds);
+      this.session = {
+        ...this.session,
+        tabs: this.session.tabs.filter((tab) => !removeSet.has(tab.id)),
+        activeTabId: secondary ? this.session.activeTabId : tabId,
+        secondaryTabIds: this.session.secondaryTabIds.filter((id) => !removeSet.has(id)),
+        secondaryActiveTabId: secondary ? tabId : this.session.secondaryActiveTabId,
+        updatedAt: now
+      };
+      this.emit();
+      return removeIds;
     }
     update(tabId, patch, now, notify = true) {
       this.session = {
@@ -762,11 +1050,23 @@
     }
     clear(now) {
       if (this.session.tabs.length === 0) return;
-      this.session = { ...this.session, tabs: [], activeTabId: null, updatedAt: now };
+      this.session = { ...this.session, tabs: [], activeTabId: null, secondaryTabIds: [], secondaryActiveTabId: null, updatedAt: now };
       this.emit();
     }
     emit() {
       this.onChange?.(this.session);
+    }
+    repairPanelOwnership() {
+      const validIds = new Set(this.session.tabs.map((tab) => tab.id));
+      const secondaryTabIds = this.session.secondaryTabIds.filter((id) => validIds.has(id));
+      const secondaryIds = new Set(secondaryTabIds);
+      const primaryTabs = this.session.tabs.filter((tab) => !secondaryIds.has(tab.id));
+      this.session = {
+        ...this.session,
+        secondaryTabIds,
+        activeTabId: this.session.activeTabId && primaryTabs.some((tab) => tab.id === this.session.activeTabId) ? this.session.activeTabId : primaryTabs.at(-1)?.id ?? null,
+        secondaryActiveTabId: this.session.secondaryActiveTabId && secondaryTabIds.includes(this.session.secondaryActiveTabId) ? this.session.secondaryActiveTabId : secondaryTabIds.at(-1) ?? null
+      };
     }
   };
 
@@ -798,6 +1098,11 @@
       item.classList.toggle("is-active", tab.id === activeTabId);
       item.title = `${tab.title}
 ${tab.url}`;
+      item.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        callbacks.onContextMenu?.(tab.id, event.clientX, event.clientY);
+      });
       const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
       if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
       const button = document.createElement("button");
@@ -860,7 +1165,7 @@ ${tab.url}`;
 
 body.ldu-layout-active {
   overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow-y: hidden !important;
 }
 
 html.ldu-layout-two-root {
@@ -889,47 +1194,79 @@ body.ldu-layout-active .d-header .wrap {
 }
 
 body.ldu-layout-active #main-outlet-wrapper {
-  display: grid !important;
+  display: block !important;
   width: 100% !important;
   max-width: none !important;
-  height: auto !important;
   min-height: calc(100vh - var(--ldu-header-height)) !important;
   padding: 0 !important;
-  gap: 0 !important;
-  overflow: visible !important;
-  align-items: start !important;
 }
 
-body.ldu-layout-active.ldu-layout-three #main-outlet-wrapper {
+#ldu-layout-shell {
+  position: fixed;
+  z-index: 3;
+  inset: var(--ldu-header-height) 0 0;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#ldu-layout-shell[hidden] { display: none !important; }
+
+body.ldu-layout-active.ldu-layout-three #ldu-layout-shell {
   grid-template-columns: var(--ldu-sidebar-width) minmax(0, var(--ldu-topic-track)) minmax(0, var(--ldu-list-track)) !important;
   grid-template-areas: "sidebar topic list" !important;
 }
 
-body.ldu-layout-active.ldu-layout-three:not(.has-sidebar-page) #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-three:not(.has-sidebar-page) #ldu-layout-shell {
   grid-template-columns: minmax(0, var(--ldu-topic-track)) minmax(0, var(--ldu-list-track)) !important;
   grid-template-areas: "topic list" !important;
 }
 
-body.ldu-layout-active.ldu-layout-two #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-three.ldu-secondary-open #ldu-layout-shell {
+  grid-template-columns: var(--ldu-sidebar-width) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-list-track)) !important;
+  grid-template-areas: "sidebar topic secondary-topic list" !important;
+}
+
+body.ldu-layout-active.ldu-layout-three.ldu-secondary-open:not(.has-sidebar-page) #ldu-layout-shell {
+  grid-template-columns: minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-list-track)) !important;
+  grid-template-areas: "topic secondary-topic list" !important;
+}
+
+body.ldu-layout-active.ldu-layout-two #ldu-layout-shell {
   grid-template-columns: minmax(52px, var(--ldu-sidebar-width)) minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-track)) !important;
   grid-template-areas: "sidebar list topic" !important;
 }
 
-body.ldu-layout-active.ldu-layout-two:not(.has-sidebar-page) #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-two:not(.has-sidebar-page) #ldu-layout-shell {
   grid-template-columns: minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-track)) !important;
   grid-template-areas: "list topic" !important;
 }
 
+body.ldu-layout-active.ldu-layout-two.ldu-secondary-open #ldu-layout-shell {
+  grid-template-columns: minmax(52px, var(--ldu-sidebar-width)) minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) !important;
+  grid-template-areas: "sidebar list topic secondary-topic" !important;
+}
+
+body.ldu-layout-active.ldu-layout-two.ldu-secondary-open:not(.has-sidebar-page) #ldu-layout-shell {
+  grid-template-columns: minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) !important;
+  grid-template-areas: "list topic secondary-topic" !important;
+}
+
 body.ldu-layout-active #main-outlet-wrapper > .sidebar-wrapper {
-  grid-area: sidebar !important;
-  width: auto !important;
-  min-width: 0 !important;
-  position: sticky !important;
+  position: fixed !important;
+  z-index: 6;
   top: var(--ldu-header-height) !important;
+  bottom: 0;
+  left: 0;
+  width: var(--ldu-sidebar-width) !important;
+  min-width: 0 !important;
   height: calc(100vh - var(--ldu-header-height)) !important;
   max-height: none !important;
-  align-self: start !important;
   overflow: auto !important;
+  background: var(--ldu-surface);
   border-right: 1px solid var(--ldu-border);
 }
 
@@ -938,43 +1275,30 @@ body.ldu-layout-active:not(.has-sidebar-page) #main-outlet-wrapper > .sidebar-wr
 }
 
 body.ldu-layout-active #main-outlet {
-  grid-area: list !important;
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  max-height: none !important;
-  margin: 0 !important;
-  padding: 0 10px max(12px, env(safe-area-inset-bottom)) !important;
-  overflow-x: hidden !important;
-  overflow-y: visible !important;
-  container-type: inline-size;
+  display: none !important;
 }
 
-.ldu-list-scrollbar {
-  position: fixed;
-  z-index: 4;
-  width: 10px;
-  border-radius: 5px;
-  background: transparent;
-  cursor: pointer;
-  touch-action: none;
+.ldu-list-content {
+  position: relative;
+  grid-area: list;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--ldu-surface);
+  border-inline: 1px solid var(--ldu-border);
 }
 
-.ldu-list-scrollbar[hidden] { display: none; }
-
-.ldu-list-scrollbar-thumb {
+.ldu-list-frame {
   position: absolute;
-  inset-inline: 2px;
-  top: 0;
-  min-height: 36px;
-  border-radius: 3px;
-  background: var(--primary-medium, #777);
-  opacity: .62;
-  cursor: grab;
-  touch-action: none;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none !important;
+  border: 0;
+  background: var(--ldu-surface);
 }
-
-.ldu-list-scrollbar-thumb:active { cursor: grabbing; opacity: .82; }
 
 body.ldu-hide-posters #main-outlet .topic-list .posters {
   display: none !important;
@@ -990,7 +1314,8 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   #main-outlet .topic-list .main-link { width: 100% !important; }
 }
 
-#ldu-topic-panel {
+#ldu-topic-panel,
+#ldu-secondary-topic-panel {
   grid-area: topic;
   position: sticky;
   top: var(--ldu-header-height);
@@ -1006,7 +1331,22 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   border-inline: 1px solid var(--ldu-border);
 }
 
-#ldu-topic-panel[hidden] { display: none !important; }
+#ldu-layout-shell #ldu-topic-panel,
+#ldu-layout-shell #ldu-secondary-topic-panel {
+  position: relative;
+  top: auto;
+  width: auto;
+  height: 100%;
+  pointer-events: auto;
+}
+
+#ldu-topic-panel[hidden],
+#ldu-secondary-topic-panel[hidden] { display: none !important; }
+
+#ldu-secondary-topic-panel {
+  grid-area: secondary-topic;
+  border-left: 0;
+}
 
 .ldu-topic-toolbar {
   display: flex;
@@ -1052,6 +1392,47 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   background: color-mix(in srgb, var(--ldu-tab-category-color) 22%, var(--ldu-surface));
   box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
+
+.ldu-tab-context-menu {
+  position: fixed;
+  z-index: 1000002;
+  width: max-content;
+  min-width: 270px;
+  max-width: min(340px, calc(100vw - 16px));
+  padding: 6px 0;
+  overflow: hidden;
+  color: var(--primary, #202124);
+  border: 1px solid color-mix(in srgb, var(--primary, #202124) 14%, transparent);
+  border-radius: 6px;
+  background: var(--secondary, #fff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%), 0 2px 6px rgb(0 0 0 / 18%);
+  font-family: var(--font-family, Arial, sans-serif);
+  font-size: var(--font-down-1, 0.875rem);
+}
+
+.ldu-context-item {
+  display: grid;
+  width: 100%;
+  min-height: 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  padding: 5px 18px;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ldu-context-item:hover,
+.ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
+.ldu-context-item:disabled { opacity: 0.42; }
+.ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
+.ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 
 .ldu-tab-button {
   min-width: 0;
@@ -1507,6 +1888,41 @@ html[data-ldu-embedded-topic="true"] .d-header {
   display: none !important;
 }
 
+html[data-ldu-embedded-list="true"] #d-sidebar,
+html[data-ldu-embedded-list="true"] .sidebar-wrapper,
+html[data-ldu-embedded-list="true"] .d-header {
+  display: none !important;
+}
+
+html[data-ldu-embedded-list="true"],
+html[data-ldu-embedded-list="true"] body {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-container,
+html[data-ldu-embedded-list="true"] #main-outlet-wrapper,
+html[data-ldu-embedded-list="true"] #main-outlet {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-outlet-wrapper {
+  display: block !important;
+  padding: 0 !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-outlet {
+  padding: 0 10px max(12px, env(safe-area-inset-bottom)) !important;
+  container-type: inline-size;
+}
+
+html[data-ldu-embedded-list="true"][data-ldu-hide-posters="true"] #main-outlet .topic-list .posters {
+  display: none !important;
+}
+
 html[data-ldu-embedded-topic="true"] #main-container,
 html[data-ldu-embedded-topic="true"] #main-outlet,
 html[data-ldu-embedded-topic="true"] .post-stream,
@@ -1572,6 +1988,27 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
   padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
 }
 
+.ldu-action-toast {
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
+  border-radius: 8px;
+  background: var(--ldu-surface);
+  color: var(--ldu-text);
+  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
+  font-size: var(--font-down-1, .875rem);
+}
+
+.ldu-action-toast.is-error {
+  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
+  color: var(--ldu-danger);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ldu-icon-button,
   .ldu-resize-handle::after,
@@ -1607,31 +2044,34 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       this.paneSizes = { ...options.paneSizes };
       this.hidePosters = options.hidePosters;
     }
+    shell = null;
     panel = null;
     content = null;
+    secondaryPanel = null;
+    secondaryContent = null;
+    listContent = null;
     preference;
     paneSizes;
     hidePosters;
     open = false;
-    listScrollbar = null;
-    listScrollbarThumb = null;
-    listResizeObserver = null;
+    secondaryOpen = false;
     resizeListener = () => this.apply();
-    scrollListener = () => this.updateListScrollbar();
     mount() {
       ensureAppStyles();
       const wrapper = document.querySelector("#main-outlet-wrapper");
       const outlet = document.querySelector("#main-outlet");
       if (!wrapper || !outlet) return false;
-      if (!this.panel) {
-        this.panel = this.createPanel();
-        wrapper.append(this.panel);
-        this.content = this.panel.querySelector(".ldu-topic-content");
-        this.createListScrollbar(outlet);
+      if (!this.shell) {
+        this.shell = this.createShell();
+        document.body.append(this.shell);
+        this.panel = this.shell.querySelector("#ldu-topic-panel");
+        this.content = this.panel?.querySelector(".ldu-topic-content") ?? null;
+        this.secondaryPanel = this.shell.querySelector("#ldu-secondary-topic-panel");
+        this.secondaryContent = this.secondaryPanel?.querySelector(".ldu-topic-content") ?? null;
+        this.listContent = this.shell.querySelector(".ldu-list-content");
         window.addEventListener("resize", this.resizeListener, { passive: true });
-        window.addEventListener("scroll", this.scrollListener, { passive: true });
-      } else if (this.panel.parentElement !== wrapper) {
-        wrapper.append(this.panel);
+      } else if (this.shell.parentElement !== document.body) {
+        document.body.append(this.shell);
       }
       document.body.classList.toggle("ldu-hide-posters", this.hidePosters);
       this.apply();
@@ -1639,20 +2079,24 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
     }
     destroy() {
       window.removeEventListener("resize", this.resizeListener);
-      window.removeEventListener("scroll", this.scrollListener);
-      this.listResizeObserver?.disconnect();
-      this.listResizeObserver = null;
-      this.listScrollbar?.remove();
-      this.listScrollbar = null;
-      this.listScrollbarThumb = null;
-      this.panel?.remove();
+      this.shell?.remove();
+      this.shell = null;
       this.panel = null;
       this.content = null;
-      document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters");
+      this.secondaryPanel = null;
+      this.secondaryContent = null;
+      this.listContent = null;
+      this.open = false;
+      this.secondaryOpen = false;
+      document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open");
       document.documentElement.classList.remove("ldu-layout-two-root");
     }
     setOpen(open) {
       this.open = open;
+      this.apply();
+    }
+    setSecondaryOpen(open) {
+      this.secondaryOpen = open;
       this.apply();
     }
     setPreference(preference) {
@@ -1666,14 +2110,32 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
     getContentElement() {
       return this.content;
     }
+    getSecondaryContentElement() {
+      return this.secondaryContent;
+    }
+    getListContentElement() {
+      return this.listContent;
+    }
+    getShellElement() {
+      return this.shell;
+    }
     getTabStripElement() {
       return this.panel?.querySelector(".ldu-tab-strip") ?? null;
+    }
+    getSecondaryTabStripElement() {
+      return this.secondaryPanel?.querySelector(".ldu-tab-strip") ?? null;
     }
     getActionsElement() {
       return this.panel?.querySelector(".ldu-topic-actions") ?? null;
     }
+    getSecondaryActionsElement() {
+      return this.secondaryPanel?.querySelector(".ldu-topic-actions") ?? null;
+    }
     getPanelElement() {
       return this.panel;
+    }
+    getSecondaryPanelElement() {
+      return this.secondaryPanel;
     }
     setHidePosters(hide) {
       this.hidePosters = hide;
@@ -1683,154 +2145,55 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       return this.open ? resolveLayoutMode(this.preference, window.innerWidth) : "native";
     }
     apply() {
-      if (!this.panel) return;
+      if (!this.panel || !this.secondaryPanel || !this.shell) return;
       const mode = this.getMode();
       const active = mode !== "native";
       this.panel.hidden = !active;
+      this.secondaryPanel.hidden = !active || !this.secondaryOpen;
+      this.shell.hidden = !active;
       document.body.classList.toggle("ldu-layout-active", active);
       document.body.classList.toggle("ldu-layout-two", mode === "two");
       document.body.classList.toggle("ldu-layout-three", mode === "three");
       document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
+      document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
       document.documentElement.style.setProperty("--ldu-sidebar-width", `${this.paneSizes.sidebar}px`);
       document.documentElement.style.setProperty("--ldu-topic-track", `${1 - this.paneSizes.listRatio}fr`);
+      document.documentElement.style.setProperty("--ldu-topic-split-track", `${(1 - this.paneSizes.listRatio) / 2}fr`);
       document.documentElement.style.setProperty("--ldu-list-track", `${this.paneSizes.listRatio}fr`);
       this.updateSeparatorValues();
-      this.updateListScrollbar();
     }
-    createListScrollbar(outlet) {
-      if (this.listScrollbar) return;
-      const track = document.createElement("div");
-      track.className = "ldu-list-scrollbar";
-      track.hidden = true;
-      track.tabIndex = 0;
-      track.setAttribute("role", "scrollbar");
-      track.setAttribute("aria-label", "\u5E16\u5B50\u5217\u8868\u6EDA\u52A8\u6761");
-      track.setAttribute("aria-orientation", "vertical");
-      const thumb = document.createElement("div");
-      thumb.className = "ldu-list-scrollbar-thumb";
-      track.append(thumb);
-      document.body.append(track);
-      this.listScrollbar = track;
-      this.listScrollbarThumb = thumb;
-      track.addEventListener("pointerdown", (event) => {
-        if (event.target !== track || event.button !== 0) return;
-        event.preventDefault();
-        const rect = track.getBoundingClientRect();
-        const thumbHeight = thumb.getBoundingClientRect().height || Number.parseFloat(thumb.style.height) || 0;
-        this.scrollFromTrackPosition(event.clientY - rect.top - thumbHeight / 2, rect.height, thumbHeight);
-      });
-      track.addEventListener("keydown", (event) => this.handleScrollbarKey(event));
-      thumb.addEventListener("pointerdown", (event) => this.startScrollbarDrag(event, track, thumb));
-      if (typeof ResizeObserver === "function") {
-        this.listResizeObserver = new ResizeObserver(() => this.updateListScrollbar());
-        this.listResizeObserver.observe(outlet);
-      }
-    }
-    updateListScrollbar() {
-      const track = this.listScrollbar;
-      const thumb = this.listScrollbarThumb;
-      if (!track || !thumb) return;
-      const outlet = document.querySelector("#main-outlet");
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      if (this.getMode() !== "two" || !outlet || maxScroll <= 0) {
-        track.hidden = true;
-        return;
-      }
-      const listRect = outlet.getBoundingClientRect();
-      const headerBottom = document.querySelector(".d-header")?.getBoundingClientRect().bottom ?? 0;
-      const top = Math.max(0, headerBottom);
-      const height = Math.max(0, window.innerHeight - top);
-      if (height <= 0 || listRect.width <= 0) {
-        track.hidden = true;
-        return;
-      }
-      const trackWidth = 10;
-      track.hidden = false;
-      track.style.left = `${Math.max(0, Math.min(window.innerWidth - trackWidth, listRect.right - trackWidth - 4))}px`;
-      track.style.top = `${top}px`;
-      track.style.height = `${height}px`;
-      const thumbHeight = Math.min(height, Math.max(36, height * (window.innerHeight / document.documentElement.scrollHeight)));
-      const travel = Math.max(0, height - thumbHeight);
-      const thumbTop = maxScroll > 0 ? travel * (window.scrollY / maxScroll) : 0;
-      thumb.style.height = `${thumbHeight}px`;
-      thumb.style.transform = `translateY(${thumbTop}px)`;
-      track.setAttribute("aria-valuemin", "0");
-      track.setAttribute("aria-valuemax", String(Math.round(maxScroll)));
-      track.setAttribute("aria-valuenow", String(Math.round(window.scrollY)));
-    }
-    scrollFromTrackPosition(position, trackHeight, thumbHeight) {
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      const travel = Math.max(1, trackHeight - thumbHeight);
-      const ratio = Math.min(1, Math.max(0, position / travel));
-      window.scrollTo({ top: ratio * maxScroll, behavior: "instant" });
-    }
-    startScrollbarDrag(event, track, thumb) {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const pointerId = event.pointerId;
-      const startY = event.clientY;
-      const startScroll = window.scrollY;
-      const trackHeight = track.getBoundingClientRect().height || Number.parseFloat(track.style.height) || 0;
-      const thumbHeight = thumb.getBoundingClientRect().height || Number.parseFloat(thumb.style.height) || 0;
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      const travel = Math.max(1, trackHeight - thumbHeight);
-      try {
-        thumb.setPointerCapture(pointerId);
-      } catch {
-      }
-      const move = (moveEvent) => {
-        if (moveEvent.pointerId !== pointerId) return;
-        moveEvent.preventDefault();
-        const next = startScroll + (moveEvent.clientY - startY) / travel * maxScroll;
-        window.scrollTo({ top: Math.min(maxScroll, Math.max(0, next)), behavior: "instant" });
-      };
-      const finish = (finishEvent) => {
-        if (finishEvent.pointerId !== pointerId) return;
-        thumb.removeEventListener("pointermove", move);
-        thumb.removeEventListener("pointerup", finish);
-        thumb.removeEventListener("pointercancel", finish);
-        try {
-          thumb.releasePointerCapture(pointerId);
-        } catch {
-        }
-      };
-      thumb.addEventListener("pointermove", move);
-      thumb.addEventListener("pointerup", finish);
-      thumb.addEventListener("pointercancel", finish);
-    }
-    handleScrollbarKey(event) {
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      let next = null;
-      if (event.key === "ArrowUp") next = window.scrollY - 40;
-      if (event.key === "ArrowDown") next = window.scrollY + 40;
-      if (event.key === "PageUp") next = window.scrollY - window.innerHeight * 0.9;
-      if (event.key === "PageDown") next = window.scrollY + window.innerHeight * 0.9;
-      if (event.key === "Home") next = 0;
-      if (event.key === "End") next = maxScroll;
-      if (next === null) return;
-      event.preventDefault();
-      window.scrollTo({ top: Math.min(maxScroll, Math.max(0, next)), behavior: "instant" });
-    }
-    createPanel() {
+    createPanel(secondary = false) {
       const panel = document.createElement("section");
-      panel.id = "ldu-topic-panel";
+      panel.id = secondary ? "ldu-secondary-topic-panel" : "ldu-topic-panel";
+      panel.className = secondary ? "ldu-secondary-topic-panel" : "";
       panel.hidden = true;
-      panel.setAttribute("aria-label", "\u5E16\u5B50\u9605\u8BFB\u533A");
+      panel.setAttribute("aria-label", secondary ? "\u7B2C\u4E8C\u5E16\u5B50\u9605\u8BFB\u533A" : "\u5E16\u5B50\u9605\u8BFB\u533A");
       panel.innerHTML = `
       <div class="ldu-topic-toolbar">
-        <div class="ldu-tab-strip" role="tablist" aria-label="\u5DF2\u6253\u5F00\u7684\u5E16\u5B50"></div>
+        <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "\u7B2C\u4E8C\u9605\u8BFB\u533A" : "\u4E3B\u9605\u8BFB\u533A"}\u5DF2\u6253\u5F00\u7684\u5E16\u5B50"></div>
         <div class="ldu-topic-actions"></div>
       </div>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">\u4ECE\u5217\u8868\u4E2D\u9009\u62E9\u5E16\u5B50</div>
       </div>
-      <button class="ldu-resize-handle ldu-resize-before" type="button" aria-label="\u8C03\u6574\u5DE6\u4FA7\u533A\u57DF\u5BBD\u5EA6"></button>
-      <button class="ldu-resize-handle ldu-resize-after" type="button" aria-label="\u8C03\u6574\u4E3B\u9898\u5217\u8868\u5BBD\u5EA6"></button>
+      ${secondary ? "" : '<button class="ldu-resize-handle ldu-resize-before" type="button" aria-label="\u8C03\u6574\u5DE6\u4FA7\u533A\u57DF\u5BBD\u5EA6"></button><button class="ldu-resize-handle ldu-resize-after" type="button" aria-label="\u8C03\u6574\u4E3B\u9898\u5217\u8868\u5BBD\u5EA6"></button>'}
     `;
-      this.bindResizeHandle(panel.querySelector(".ldu-resize-before"), "before");
-      this.bindResizeHandle(panel.querySelector(".ldu-resize-after"), "after");
+      if (!secondary) {
+        this.bindResizeHandle(panel.querySelector(".ldu-resize-before"), "before");
+        this.bindResizeHandle(panel.querySelector(".ldu-resize-after"), "after");
+      }
       return panel;
+    }
+    createShell() {
+      const shell = document.createElement("div");
+      shell.id = "ldu-layout-shell";
+      shell.hidden = true;
+      shell.setAttribute("aria-label", "Linux Do \u5206\u5C4F\u5DE5\u4F5C\u533A");
+      const list = document.createElement("div");
+      list.className = "ldu-list-content";
+      list.setAttribute("aria-label", "\u975E\u9605\u8BFB\u9875\u533A\u57DF");
+      shell.append(list, this.createPanel(), this.createPanel(true));
+      return shell;
     }
     bindResizeHandle(handle, side) {
       if (!(handle instanceof HTMLElement)) return;
@@ -2152,6 +2515,87 @@ html[data-ldu-embedded-topic="true"] #main-outlet {
       const button = this.panel?.querySelector(".ldu-settings-donate");
       if (menu) menu.hidden = !open;
       button?.setAttribute("aria-expanded", String(open));
+    }
+  };
+
+  // src/ui/tab-context-menu.ts
+  var GROUPS = [
+    [
+      { action: "onMoveToSplit", key: "split", label: "\u5411\u65B0\u7684\u62C6\u5206\u89C6\u56FE\u4E2D\u6DFB\u52A0\u6807\u7B7E\u9875" },
+      { action: "onOpenBrowserTab", key: "browser-tab", label: "\u5728\u65B0\u7684\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u4E2D\u6253\u5F00" }
+    ],
+    [
+      { action: "onReload", key: "reload", label: "\u91CD\u65B0\u52A0\u8F7D", shortcut: "Ctrl+R" },
+      { action: "onCopyLink", key: "copy", label: "\u590D\u5236\u94FE\u63A5" }
+    ],
+    [{ action: "onBookmark", key: "bookmark", label: "\u6DFB\u52A0\u5230\u4E66\u7B7E" }],
+    [{ action: "onCloseOthers", key: "close-others", label: "\u5173\u95ED\u5176\u4ED6\u6807\u7B7E\u9875" }]
+  ];
+  var TabContextMenu = class {
+    constructor(callbacks) {
+      this.callbacks = callbacks;
+    }
+    root = null;
+    onOutsidePointer = (event) => {
+      if (!this.root?.contains(event.target)) this.close();
+    };
+    onKeyDown = (event) => {
+      if (event.key === "Escape") this.close();
+    };
+    open(tabId, clientX, clientY, splitDisabled = false) {
+      this.close();
+      const root = document.createElement("div");
+      root.className = "ldu-tab-context-menu";
+      root.setAttribute("role", "menu");
+      root.setAttribute("aria-label", "\u6807\u7B7E\u9875\u7BA1\u7406\u83DC\u5355");
+      for (const [groupIndex, group] of GROUPS.entries()) {
+        if (groupIndex > 0) {
+          const separator = document.createElement("div");
+          separator.className = "ldu-context-separator";
+          separator.setAttribute("role", "separator");
+          root.append(separator);
+        }
+        for (const item of group) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "ldu-context-item";
+          button.dataset.action = item.key;
+          button.setAttribute("role", "menuitem");
+          if (item.key === "split" && splitDisabled) button.disabled = true;
+          const label = document.createElement("span");
+          label.textContent = item.label;
+          button.append(label);
+          if (item.shortcut) {
+            const shortcut = document.createElement("span");
+            shortcut.className = "ldu-context-shortcut";
+            shortcut.textContent = item.shortcut;
+            button.append(shortcut);
+          }
+          button.addEventListener("click", () => {
+            this.close();
+            this.callbacks[item.action](tabId);
+          });
+          root.append(button);
+        }
+      }
+      document.body.append(root);
+      this.root = root;
+      const rect = root.getBoundingClientRect();
+      const margin = 8;
+      root.style.left = `${Math.max(margin, Math.min(clientX, window.innerWidth - rect.width - margin))}px`;
+      root.style.top = `${Math.max(margin, Math.min(clientY, window.innerHeight - rect.height - margin))}px`;
+      document.addEventListener("pointerdown", this.onOutsidePointer, true);
+      document.addEventListener("keydown", this.onKeyDown, true);
+      root.querySelector("button:not(:disabled)")?.focus();
+    }
+    close() {
+      document.removeEventListener("pointerdown", this.onOutsidePointer, true);
+      document.removeEventListener("keydown", this.onKeyDown, true);
+      this.root?.remove();
+      this.root = null;
+    }
+    destroy() {
+      this.close();
     }
   };
 
@@ -4116,20 +4560,26 @@ ${b.url}`;
       tab.contentReadyTimer = null;
     }
     function showLoadingBar(tab) {
-      if (!tab || !tab.pane) return null;
-      const existing = tab.pane.querySelector(".agy-loading-overlay");
-      if (existing) existing.remove();
-      tab.pane.setAttribute("aria-busy", "true");
+      if (tab?.pane) tab.pane.setAttribute("aria-busy", "false");
+      if (tab) tab.loadingBar = null;
+      return null;
+    }
+    function createErrorBar(tab, message) {
+      if (!tab?.pane) return null;
       const bar = document.createElement("div");
       bar.className = "agy-loading-overlay";
       bar.setAttribute("role", "status");
       bar.setAttribute("aria-live", "polite");
       bar.innerHTML = `
             <div class="agy-loading-card">
-                <div class="agy-spinner"></div>
-                <div class="agy-loading-text">\u9875\u9762\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019...</div>
+                <div class="agy-loading-text"></div>
             </div>
         `;
+      const textNode = bar.querySelector(".agy-loading-text");
+      if (textNode) {
+        textNode.textContent = `\u52A0\u8F7D\u51FA\u9519: ${message}`;
+        textNode.style.color = "#ff3b30";
+      }
       tab.pane.appendChild(bar);
       tab.loadingBar = bar;
       return bar;
@@ -4793,7 +5243,7 @@ ${tab.url}`;
       clearContentReadyTimer(tab);
       tab.loadState = "error";
       let bar = tab.loadingBar;
-      if (!bar) bar = showLoadingBar(tab);
+      if (!bar) bar = createErrorBar(tab, msg);
       if (!bar) return;
       if (tab.pane) tab.pane.setAttribute("aria-busy", "false");
       if (tab.iframe) tab.iframe.style.visibility = "hidden";
@@ -4801,11 +5251,6 @@ ${tab.url}`;
       if (textNode) {
         textNode.textContent = `\u52A0\u8F7D\u51FA\u9519: ${msg}`;
         textNode.style.color = "#ff3b30";
-      }
-      const spinner = bar.querySelector(".agy-spinner");
-      if (spinner) {
-        spinner.style.borderTopColor = "#ff3b30";
-        spinner.style.animationPlayState = "paused";
       }
     }
     function clampPreviewPosition(left, top, container) {
@@ -5206,7 +5651,9 @@ ${tab.url}`;
     session;
     tabStore;
     layout;
-    frames;
+    frames = null;
+    secondaryFrames = null;
+    listFrame = null;
     preview;
     settingsPanel;
     credit;
@@ -5214,7 +5661,6 @@ ${tab.url}`;
     routeTimer = null;
     persistTimer = null;
     lastRoute = "";
-    listScrollBound = false;
     restoredTabsTracked = false;
     trackedTopicKey = "";
     topicTrackTimers = [];
@@ -5224,6 +5670,7 @@ ${tab.url}`;
     hasRestoredSession = false;
     sessionLease;
     leaseTimer = null;
+    tabContextMenu;
     start() {
       this.settings = loadSettings(this.storage);
       ensureAppStyles();
@@ -5233,6 +5680,14 @@ ${tab.url}`;
         onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode })
       });
       this.preview.mount();
+      this.tabContextMenu = new TabContextMenu({
+        onMoveToSplit: (tabId) => this.moveTabToSecondary(tabId),
+        onOpenBrowserTab: (tabId) => this.openTabInBrowser(tabId),
+        onReload: (tabId) => this.reloadTab(tabId),
+        onCopyLink: (tabId) => void this.copyTabLink(tabId),
+        onBookmark: (tabId) => this.bookmarkTab(tabId),
+        onCloseOthers: (tabId) => this.closeOtherTabs(tabId)
+      });
       this.sessionLease = claimSessionId(
         this.storage,
         window.sessionStorage,
@@ -5245,8 +5700,7 @@ ${tab.url}`;
       const initial = createSession(sessionId, location.href, Date.now());
       initial.paneSizes = { ...this.settings.paneSizes };
       const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
-      const hasDirectTopicHandoff = Boolean(peekDirectTopicHandoff(window.sessionStorage, Date.now(), location.href));
-      const previousSession = !currentSession && !hasDirectTopicHandoff && classifyRoute(location.href) !== "topic" && this.settings.restoreSession ? loadLatestSession(this.storage, sessionId, location.href, Date.now()) : null;
+      const previousSession = !currentSession && classifyRoute(location.href) !== "topic" && this.settings.restoreSession ? loadLatestSession(this.storage, sessionId, location.href, Date.now()) : null;
       this.session = currentSession ?? previousSession ?? initial;
       this.hasRestoredSession = Boolean(previousSession?.tabs.length);
       this.tabStore = new TopicTabStore(this.session, this.settings.maxOpenTabs, (session) => {
@@ -5278,7 +5732,11 @@ ${tab.url}`;
     }
     bindGlobalEvents() {
       document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
-      window.addEventListener("message", (event) => this.frames?.handleMessage(event));
+      window.addEventListener("message", (event) => {
+        this.frames?.handleMessage(event);
+        this.secondaryFrames?.handleMessage(event);
+        this.listFrame?.handleMessage(event);
+      });
       window.addEventListener("popstate", () => this.scheduleRouteSync());
       window.addEventListener("hashchange", () => this.scheduleRouteSync());
       window.addEventListener("pagehide", (event) => this.handlePageHide(event), { capture: true });
@@ -5300,24 +5758,40 @@ ${tab.url}`;
       const target = event.target;
       const link = target instanceof Element ? target.closest("a[href]") : null;
       if (!link) return;
-      if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-map, .topic-timeline, .no-track-view-patch")) return;
-      if (classifyRoute(location.href) === "topic") {
+      if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
+      if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
         this.promoteDirectTopicNavigation(event, link);
         return;
       }
-      if (!isSupportedTopicTarget(link.href, location.href)) return;
-      const info = getTopicInfo(link.href);
-      if (!info) return;
+      if (isSupportedTopicTarget(link.href, location.href)) {
+        const info = getTopicInfo(link.href);
+        if (!info) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+        this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
+        return;
+      }
+      if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
+      let targetUrl;
+      try {
+        targetUrl = new URL(link.href, location.href);
+      } catch {
+        return;
+      }
+      if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
-      this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
+      this.navigateList(targetUrl.href);
     }
-    openTopic(topicId, url, title, postNumber, category) {
+    openTopic(topicId, url, title, postNumber, category, pane = "primary") {
       if (!this.layout.mount()) return;
+      this.ensureListFrame();
       this.ensureFrames();
       this.layout.setOpen(true);
-      this.tabStore.open({ topicId, url, title, ...postNumber ? { postNumber } : {}, ...category }, Date.now());
+      const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
+      if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
+      else this.tabStore.open(input, Date.now());
       const info = getTopicInfo(url);
       if (info) {
         const tracker = createBrowserViewTracker();
@@ -5334,25 +5808,6 @@ ${tab.url}`;
         this.lastRoute = location.href;
       }
       const route = classifyRoute(location.href);
-      const pendingHandoff = peekDirectTopicHandoff(window.sessionStorage, Date.now(), location.href);
-      if (route === "topic" && pendingHandoff) {
-        location.replace(pendingHandoff.listUrl);
-        return;
-      }
-      if (route === "topic" && this.tabStore.getTabs().length > 0) {
-        const info = getTopicInfo(location.href);
-        if (info) {
-          this.tabStore.open({
-            topicId: info.topicId,
-            url: info.url.href,
-            title: this.currentTopicTitle(info.topicId),
-            ...info.postNumber ? { postNumber: info.postNumber } : {}
-          }, Date.now());
-        }
-        const listUrl = isSplitRoute(this.tabStore.getSession().listUrl) ? this.tabStore.getSession().listUrl : new URL("/", location.href).href;
-        location.replace(listUrl);
-        return;
-      }
       const shouldHostSplit = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
       if (shouldHostSplit) {
         this.clearTopicTrackSchedule();
@@ -5361,33 +5816,30 @@ ${tab.url}`;
           return;
         }
         this.routeRetryAttempts = 0;
-        this.bindListScroll();
-        this.ensureFrames();
         const hasTabs = this.tabStore.getTabs().length > 0;
         this.layout.setOpen(hasTabs);
         if (hasTabs) {
+          this.ensureListFrame();
+          this.ensureFrames();
+          if (this.tabStore.getSecondaryTabs().length > 0) {
+            this.layout.setSecondaryOpen(true);
+            this.ensureSecondaryFrames();
+          }
           const active = this.tabStore.getActive();
           if (active) {
-            this.activateFrame(active);
+            this.activateFrame(active, "primary");
             if (this.hasRestoredSession && !this.restoredTabsTracked) {
               this.restoredTabsTracked = true;
               const info = getTopicInfo(active.url);
               if (info) void createBrowserViewTracker().track(info, "restored-tab", location.href);
             }
           }
-          this.restoreListScroll();
-        }
-        const handoff = consumeDirectTopicHandoff(window.sessionStorage, Date.now(), location.href);
-        if (handoff) {
-          this.tabStore.setSessionFields({ listUrl: handoff.listUrl, listScrollY: 0 }, Date.now(), false);
-          for (const topic of handoff.topics) {
-            const info = getTopicInfo(topic.url, location.href);
-            if (info) this.openTopic(info.topicId, info.url.href, topic.title, info.postNumber);
-          }
+          const secondaryActive = this.tabStore.getSecondaryActive();
+          if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
         }
         return;
       }
-      this.layout?.setOpen(false);
+      this.disposeSplitRuntime();
       if (route === "topic") {
         const info = getTopicInfo(location.href);
         if (info) this.scheduleTopicTracking(info.topicId, info.url.href);
@@ -5406,28 +5858,21 @@ ${tab.url}`;
       }
       if (targetUrl.origin !== location.origin) return;
       const targetRoute = classifyRoute(targetUrl.href, location.href);
-      const currentTopic = { url: current.url.href, title: this.currentTopicTitle(current.topicId) };
+      if (targetRoute === "topic" && getTopicInfo(targetUrl.href, location.href)?.topicId === current.topicId) return;
+      if (link.target === "_blank" || link.hasAttribute("download")) return;
+      const listUrl = targetRoute === "topic" ? new URL("/", location.href).href : targetUrl.href;
+      if (!this.layout.mount()) return;
+      this.clearTopicTrackSchedule();
+      this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
+      this.ensureListFrame(listUrl);
+      this.ensureFrames();
+      this.layout.setOpen(true);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber);
       if (targetRoute === "topic") {
         const target = getTopicInfo(targetUrl.href, location.href);
-        if (!target || target.topicId === current.topicId) return;
-        const saved = saveDirectTopicHandoff(window.sessionStorage, {
-          listUrl: new URL("/", location.href).href,
-          topics: [currentTopic, {
-            url: target.url.href,
-            title: link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`
-          }]
-        }, Date.now());
-        if (!saved) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        location.assign(new URL("/", location.href).href);
-        return;
-      }
-      if (targetRoute === "list" || targetRoute === "search") {
-        saveDirectTopicHandoff(window.sessionStorage, {
-          listUrl: targetUrl.href,
-          topics: [currentTopic]
-        }, Date.now());
+        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber);
       }
     }
     currentTopicTitle(topicId) {
@@ -5445,13 +5890,95 @@ ${tab.url}`;
       if (this.routeTimer !== null) window.clearTimeout(this.routeTimer);
       this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
     }
+    ensureListFrame(requestedUrl) {
+      const container = this.layout.getListContentElement();
+      if (!container) return;
+      if (!this.listFrame) {
+        this.listFrame = new ListFrameController(
+          container,
+          this.session.sessionId,
+          (message, iframe) => this.handleListFrameMessage(message, iframe)
+        );
+      }
+      this.listFrame.setConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode,
+        hidePosters: this.settings.hidePosters
+      });
+      const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
+      let resolved;
+      try {
+        resolved = new URL(storedListUrl || "/", location.href);
+      } catch {
+        resolved = new URL("/", location.href);
+      }
+      const listUrl = resolved.origin !== location.origin || getTopicInfo(resolved.href, location.href) ? new URL("/", location.href).href : resolved.href;
+      this.listFrame.mount(listUrl);
+    }
+    navigateList(url) {
+      let target;
+      try {
+        target = new URL(url, location.href);
+      } catch {
+        return;
+      }
+      if (target.origin !== location.origin || getTopicInfo(target.href, location.href)) return;
+      if (!this.layout.mount()) return;
+      this.tabStore.setSessionFields({ listUrl: target.href, listScrollY: 0 }, Date.now(), false);
+      saveSession(this.storage, this.tabStore.getSession());
+      this.ensureListFrame(target.href);
+      this.listFrame?.navigate(target.href);
+    }
+    handleListFrameMessage(message, iframe) {
+      if (message.type === "ldu:list-interaction") {
+        document.body.dispatchEvent(new MouseEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0
+        }));
+        return;
+      }
+      if (message.type === "ldu:list-preview-open") {
+        this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
+        return;
+      }
+      if (message.type === "ldu:list-preview-dismiss") {
+        this.preview.close();
+        return;
+      }
+      if (message.type === "ldu:list-topic-open") {
+        const info = message.url ? getTopicInfo(message.url, location.href) : null;
+        if (!info) return;
+        const category = message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : void 0;
+        this.openTopic(info.topicId, info.url.href, message.topicTitle || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category);
+        return;
+      }
+      if (message.type === "ldu:list-navigate" && message.url) {
+        this.navigateList(message.url);
+        return;
+      }
+      if (!message.url || getTopicInfo(message.url, location.href)) return;
+      const previousSession = this.tabStore.getSession();
+      const nextListUrl = new URL(message.url, location.href).href;
+      const sameListUrl = previousSession.listUrl === nextListUrl;
+      const savedScrollY = sameListUrl ? previousSession.listScrollY : 0;
+      this.tabStore.setSessionFields({
+        listUrl: nextListUrl,
+        ...message.type === "ldu:list-state" && typeof message.scrollY === "number" ? { listScrollY: message.scrollY } : !sameListUrl ? { listScrollY: 0 } : {}
+      }, Date.now(), false);
+      if (message.type === "ldu:list-state") this.schedulePersist();
+      if (message.type === "ldu:list-ready") {
+        this.listFrame?.restoreScroll(savedScrollY);
+        this.schedulePersist();
+      }
+    }
     ensureFrames() {
       const content = this.layout.getContentElement();
       if (!content || this.frames) return;
       this.frames = new TopicFramePool(
         content,
         this.settings.maxLiveFrames,
-        (message, iframe) => this.handleFrameMessage(message, iframe),
+        (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
         (tabId, iframe) => {
           const scrollY = iframe.contentWindow?.scrollY ?? 0;
           this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
@@ -5463,6 +5990,24 @@ ${tab.url}`;
         clickMode: this.settings.previewClickMode
       });
       this.renderTabs();
+    }
+    ensureSecondaryFrames() {
+      const content = this.layout.getSecondaryContentElement();
+      if (!content || this.secondaryFrames) return;
+      this.secondaryFrames = new TopicFramePool(
+        content,
+        this.settings.maxLiveFrames,
+        (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
+        (tabId, iframe) => {
+          const scrollY = iframe.contentWindow?.scrollY ?? 0;
+          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+          this.schedulePersist();
+        }
+      );
+      this.secondaryFrames.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
     }
     mountSettings() {
       if (this.settingsPanel) return;
@@ -5491,9 +6036,19 @@ ${tab.url}`;
         saveSession(this.storage, this.tabStore.getSession());
       }
       this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
+      this.secondaryFrames?.setMaxLiveFrames(this.settings.maxLiveFrames);
       this.frames?.setPreviewConfig({
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode
+      });
+      this.secondaryFrames?.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
+      this.listFrame?.setConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode,
+        hidePosters: this.settings.hidePosters
       });
       this.settingsPanel?.setSettings(this.settings);
       this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
@@ -5503,12 +6058,24 @@ ${tab.url}`;
       if (patch.colorizeTabs !== void 0) this.renderTabs();
       const canShowTabs = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
       if (!canShowTabs) {
-        this.layout.setOpen(false);
+        this.disposeSplitRuntime();
         return;
       }
+      if (!this.layout.mount()) return;
       const active = this.tabStore.getActive();
-      this.layout.setOpen(Boolean(active));
-      if (active) this.activateFrame(active);
+      const hasTabs = this.tabStore.getTabs().length > 0;
+      this.layout.setOpen(hasTabs);
+      if (hasTabs) {
+        this.ensureListFrame();
+        this.ensureFrames();
+        if (active) this.activateFrame(active, "primary");
+        const secondaryActive = this.tabStore.getSecondaryActive();
+        if (secondaryActive) {
+          this.layout.setSecondaryOpen(true);
+          this.ensureSecondaryFrames();
+          this.activateFrame(secondaryActive, "secondary");
+        }
+      }
     }
     persistPaneSizes(paneSizes) {
       this.settings = normalizeSettings({ ...this.settings, paneSizes });
@@ -5534,13 +6101,15 @@ ${tab.url}`;
       this.topicTrackTimers = [];
       this.trackedTopicKey = "";
     }
-    activateFrame(tab) {
-      if (!tab || !this.frames) return;
-      const iframe = this.frames.activate(tab, Date.now());
-      const empty = this.layout.getContentElement()?.querySelector(".ldu-topic-empty");
+    activateFrame(tab, pane) {
+      const pool = pane === "secondary" ? this.secondaryFrames : this.frames;
+      if (!tab || !pool) return;
+      pool.activate(tab, Date.now());
+      const content = pane === "secondary" ? this.layout.getSecondaryContentElement() : this.layout.getContentElement();
+      const empty = content?.querySelector(".ldu-topic-empty");
       if (empty) empty.hidden = true;
     }
-    handleFrameMessage(message, iframe) {
+    handleFrameMessage(message, iframe, pane) {
       const tab = this.tabStore.getTabs().find((candidate) => candidate.id === message.tabId);
       if (!tab) return;
       if (message.type === "ldu:frame-interaction") {
@@ -5549,6 +6118,14 @@ ${tab.url}`;
           cancelable: true,
           button: 0
         }));
+        return;
+      }
+      if (message.type === "ldu:bookmark-result") {
+        this.showActionToast(message.message || (message.ok ? "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E" : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"), message.ok === false);
+        return;
+      }
+      if (message.type === "ldu:list-navigate" && message.url) {
+        this.navigateList(message.url);
         return;
       }
       if (message.type === "ldu:preview-open") {
@@ -5562,7 +6139,7 @@ ${tab.url}`;
       if (message.type === "ldu:topic-open") {
         const info2 = message.url ? getTopicInfo(message.url, location.href) : null;
         if (!info2 || !isSupportedTopicTarget(info2.url.href, tab.url)) return;
-        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber);
+        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber, void 0, pane);
         return;
       }
       const info = message.url ? getTopicInfo(message.url) : null;
@@ -5584,19 +6161,33 @@ ${tab.url}`;
     renderTabs() {
       const root = this.layout?.getTabStripElement();
       if (!root || !this.tabStore) return;
-      renderTabStrip(root, this.tabStore.getTabs(), this.tabStore.getSession().activeTabId, {
+      const primaryTabs = this.tabStore.getPrimaryTabs();
+      const secondaryTabs = this.tabStore.getSecondaryTabs();
+      this.layout.setSecondaryOpen(secondaryTabs.length > 0);
+      if (secondaryTabs.length > 0) this.ensureSecondaryFrames();
+      else if (this.secondaryFrames) {
+        this.secondaryFrames.destroy();
+        this.secondaryFrames = null;
+      }
+      renderTabStrip(root, primaryTabs, this.tabStore.getSession().activeTabId, {
         onActivate: (tabId) => {
           const tab = this.tabStore.activate(tabId, Date.now());
-          if (tab) this.activateFrame(tab);
+          if (tab) this.activateFrame(tab, "primary");
         },
-        onClose: (tabId) => {
-          this.frames?.remove(tabId);
-          this.tabStore.close(tabId, Date.now());
-          const active2 = this.tabStore.getActive();
-          if (active2) this.activateFrame(active2);
-          else this.layout.setOpen(false);
-        }
+        onClose: (tabId) => this.closeTab(tabId, "primary"),
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y)
       }, { colorizeTabs: this.settings.colorizeTabs });
+      const secondaryRoot = this.layout.getSecondaryTabStripElement();
+      if (secondaryRoot) {
+        renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
+          onActivate: (tabId) => {
+            const tab = this.tabStore.activateSecondary(tabId, Date.now());
+            if (tab) this.activateFrame(tab, "secondary");
+          },
+          onClose: (tabId) => this.closeTab(tabId, "secondary"),
+          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true)
+        }, { colorizeTabs: this.settings.colorizeTabs });
+      }
       const actions = this.layout.getActionsElement();
       if (actions && !actions.querySelector(".ldu-close-all")) {
         const close = document.createElement("button");
@@ -5606,43 +6197,170 @@ ${tab.url}`;
         close.title = "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E";
         close.setAttribute("aria-label", "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E");
         close.addEventListener("click", () => {
-          for (const tab of this.tabStore.getTabs()) this.frames?.remove(tab.id);
+          for (const tab of this.tabStore.getTabs()) {
+            this.frames?.remove(tab.id);
+            this.secondaryFrames?.remove(tab.id);
+          }
           this.tabStore.clear(Date.now());
-          this.layout.setOpen(false);
+          this.disposeSplitRuntime();
         });
         actions.append(close);
       }
+      const secondaryActions = this.layout.getSecondaryActionsElement();
+      if (secondaryActions && !secondaryActions.querySelector(".ldu-close-secondary")) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "ldu-icon-button ldu-close-secondary";
+        close.textContent = "\xD7";
+        close.title = "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A";
+        close.setAttribute("aria-label", "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A\u5E76\u5C06\u6807\u7B7E\u79FB\u56DE\u4E3B\u9605\u8BFB\u533A");
+        close.addEventListener("click", () => this.closeSecondaryPanel());
+        secondaryActions.append(close);
+      }
       const empty = this.layout.getContentElement()?.querySelector(".ldu-topic-empty");
-      if (empty) empty.hidden = this.tabStore.getTabs().length > 0;
+      if (empty) empty.hidden = primaryTabs.length > 0;
+      const secondaryEmpty = this.layout.getSecondaryContentElement()?.querySelector(".ldu-topic-empty");
+      if (secondaryEmpty) secondaryEmpty.hidden = secondaryTabs.length > 0;
       const active = this.tabStore.getActive();
-      if (active) this.activateFrame(active);
+      if (active) this.activateFrame(active, "primary");
+      const secondaryActive = this.tabStore.getSecondaryActive();
+      if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
     }
-    bindListScroll() {
-      if (this.listScrollBound) return;
-      this.listScrollBound = true;
-      let timer = null;
-      window.addEventListener("scroll", () => {
-        if (!isSplitRoute(location.href)) return;
-        if (timer !== null) window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          timer = null;
-          if (!isSplitRoute(location.href)) return;
-          this.tabStore.setSessionFields({ listUrl: location.href, listScrollY: window.scrollY }, Date.now(), false);
-          this.schedulePersist();
-        }, 180);
-      }, { passive: true });
+    closeTab(tabId, pane) {
+      (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
+      this.tabStore.close(tabId, Date.now());
+      if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
     }
-    restoreListScroll() {
-      if (this.tabStore.getSession().listUrl !== location.href) return;
-      window.setTimeout(() => window.scrollTo({ top: this.tabStore.getSession().listScrollY, behavior: "instant" }), 0);
+    moveTabToSecondary(tabId) {
+      if (this.tabStore.getSession().secondaryTabIds.includes(tabId)) return;
+      const tab = this.captureLiveFrameState(tabId, this.frames);
+      if (!tab || !this.layout.mount()) return;
+      const transfer = this.frames?.detach(tabId) ?? null;
+      this.layout.setSecondaryOpen(true);
+      this.ensureSecondaryFrames();
+      const moved = this.tabStore.moveToSecondary(tabId, Date.now(), false);
+      if (!moved) return;
+      if (transfer && this.secondaryFrames) this.secondaryFrames.adopt(moved, transfer, Date.now());
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
+    }
+    closeSecondaryPanel() {
+      const secondaryTabs = this.tabStore.getSecondaryTabs();
+      const transfers = secondaryTabs.flatMap((tab) => {
+        const current = this.captureLiveFrameState(tab.id, this.secondaryFrames) ?? tab;
+        const transfer = this.secondaryFrames?.detach(tab.id);
+        return transfer ? [{ tab: current, transfer }] : [];
+      });
+      this.tabStore.mergeSecondaryIntoPrimary(Date.now(), false);
+      for (const { tab, transfer } of transfers) this.frames?.adopt(tab, transfer, Date.now());
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
+    }
+    openTabInBrowser(tabId) {
+      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+      if (!tab) return;
+      const anchor = document.createElement("a");
+      anchor.href = tab.url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.click();
+    }
+    reloadTab(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      this.captureLiveFrameState(tabId, secondary ? this.secondaryFrames : this.frames);
+      const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+      if (!tab) return;
+      const pool = secondary ? this.secondaryFrames : this.frames;
+      this.activateFrame(tab, secondary ? "secondary" : "primary");
+      pool?.reload(tabId);
+    }
+    async copyTabLink(tabId) {
+      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+      if (!tab) return;
+      try {
+        await navigator.clipboard.writeText(tab.url);
+        return;
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = tab.url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.append(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+    }
+    bookmarkTab(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+      if (!tab) return;
+      this.activateFrame(tab, secondary ? "secondary" : "primary");
+      (secondary ? this.secondaryFrames : this.frames)?.sendCommand(tabId, {
+        type: "ldu:bookmark",
+        topicId: tab.topicId
+      });
+    }
+    closeOtherTabs(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      const paneTabs = secondary ? this.tabStore.getSecondaryTabs() : this.tabStore.getPrimaryTabs();
+      for (const tab of paneTabs) {
+        if (tab.id !== tabId) (secondary ? this.secondaryFrames : this.frames)?.remove(tab.id);
+      }
+      this.tabStore.closeOthersInPane(tabId, Date.now());
     }
     persistSession() {
       const active = this.tabStore?.getActive();
-      if (active && this.frames) {
-        const iframe = document.querySelector(`iframe[data-tab-id="${CSS.escape(active.id)}"]`);
-        if (iframe) this.tabStore.update(active.id, { scrollY: iframe.contentWindow?.scrollY ?? active.scrollY }, Date.now(), false);
-      }
+      if (active && this.frames) this.captureLiveFrameState(active.id, this.frames);
+      const secondaryActive = this.tabStore?.getSecondaryActive();
+      if (secondaryActive && this.secondaryFrames) this.captureLiveFrameState(secondaryActive.id, this.secondaryFrames);
       if (this.tabStore) saveSession(this.storage, this.tabStore.getSession());
+    }
+    captureLiveFrameState(tabId, pool) {
+      const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+      const iframe = pool?.getFrame(tabId);
+      if (!tab || !iframe?.contentWindow) return tab;
+      let url = tab.url;
+      let title = tab.title;
+      let scrollY = tab.scrollY;
+      try {
+        const currentUrl = iframe.contentWindow.location.href;
+        if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
+        const currentTitle = iframe.contentDocument?.title?.trim();
+        if (currentTitle) title = currentTitle;
+        scrollY = iframe.contentWindow.scrollY;
+      } catch {
+        return tab;
+      }
+      const info = getTopicInfo(url, tab.url);
+      this.tabStore.update(tabId, {
+        url,
+        title,
+        scrollY,
+        ...info?.postNumber ? { postNumber: info.postNumber } : {},
+        suspended: false
+      }, Date.now(), false);
+      return this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? tab;
+    }
+    showActionToast(message, isError) {
+      document.querySelector(".ldu-action-toast")?.remove();
+      const toast = document.createElement("div");
+      toast.className = `ldu-action-toast${isError ? " is-error" : ""}`;
+      toast.setAttribute("role", isError ? "alert" : "status");
+      toast.textContent = message;
+      document.body.append(toast);
+      window.setTimeout(() => toast.remove(), 2800);
+    }
+    disposeSplitRuntime() {
+      this.preview?.close();
+      this.frames?.destroy();
+      this.frames = null;
+      this.secondaryFrames?.destroy();
+      this.secondaryFrames = null;
+      this.tabContextMenu?.close();
+      this.listFrame?.destroy();
+      this.listFrame = null;
+      this.layout?.destroy();
     }
     handlePageHide(event) {
       this.persistSession();
@@ -5666,6 +6384,10 @@ ${tab.url}`;
   var DOUBLE_CLICK_DELAY_MS = 300;
   function bootFrameBridge() {
     const frameName = window.name;
+    if (frameName.startsWith("ldu-list:")) {
+      bootListBridge(frameName.slice("ldu-list:".length));
+      return;
+    }
     if (!frameName.startsWith("ldu-topic:")) return;
     const tabId = frameName.slice("ldu-topic:".length);
     document.documentElement.dataset.lduEmbeddedTopic = "true";
@@ -5720,7 +6442,7 @@ ${currentCategory.categoryColor}` : "";
     };
     const getPreviewableLink = (target) => {
       const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href)) return null;
+      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
       if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
       if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
       return link;
@@ -5728,6 +6450,12 @@ ${currentCategory.categoryColor}` : "";
     const getTopicLink = (target) => {
       const link = target instanceof Element ? target.closest("a[href]") : null;
       if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const getListNavigationLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !/^https?:/i.test(link.href) || new URL(link.href, location.href).origin !== location.origin || getTopicInfo(link.href)) return null;
       if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
       return link;
     };
@@ -5761,9 +6489,54 @@ ${currentCategory.categoryColor}` : "";
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || event.origin !== location.origin) return;
       const data = event.data;
+      if (data?.type === "ldu:bookmark") {
+        const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        if (!topicId || !csrfToken) return;
+        const body = new URLSearchParams({
+          bookmarkable_type: "Topic",
+          bookmarkable_id: topicId
+        });
+        void fetch("/bookmarks.json", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-CSRF-Token": csrfToken,
+            "X-Requested-With": "XMLHttpRequest"
+          },
+          body
+        }).then(async (response) => {
+          if (!response.ok) {
+            let message = "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25";
+            try {
+              const payload = await response.json();
+              if (Array.isArray(payload.errors) && typeof payload.errors[0] === "string") message = payload.errors[0];
+            } catch {
+            }
+            throw new Error(message);
+          }
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: true,
+            message: "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E"
+          }, location.origin);
+        }).catch((error) => {
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: false,
+            message: error instanceof Error && error.message ? error.message : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
+          }, location.origin);
+        });
+        return;
+      }
       if (data?.type !== "ldu:preview-config") return;
       previewEnabled = data.enabled === true;
       previewClickMode = data.clickMode === "single" ? "single" : "double";
+      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
       if (!previewEnabled) cancelPendingClick();
     });
     document.addEventListener("pointerdown", (event) => {
@@ -5777,6 +6550,13 @@ ${currentCategory.categoryColor}` : "";
         event.preventDefault();
         event.stopImmediatePropagation();
         sendTopicOpen(topicLink);
+        return;
+      }
+      const listLink = getListNavigationLink(event.target);
+      if (listLink) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.parent.postMessage({ type: "ldu:list-navigate", tabId, url: listLink.href }, location.origin);
         return;
       }
       if (!previewEnabled) return;
@@ -5815,6 +6595,136 @@ ${currentCategory.categoryColor}` : "";
       window.parent.postMessage({ type: "ldu:preview-dismiss", tabId }, location.origin);
     }, true);
     send("ldu:frame-ready");
+  }
+  function bootListBridge(frameId) {
+    document.documentElement.dataset.lduEmbeddedList = "true";
+    ensureAppStyles(document);
+    const DOUBLE_CLICK_DELAY_MS2 = 300;
+    let timer = null;
+    let clickTimer = null;
+    let previewEnabled = false;
+    let previewClickMode = "double";
+    let replayingClick = false;
+    let lastUrl = "";
+    let lastTitle = "";
+    const send = (type) => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        const payload = { type, frameId, url: location.href, title: document.title, scrollY: window.scrollY };
+        lastUrl = location.href;
+        lastTitle = document.title;
+        window.parent.postMessage(payload, location.origin);
+      }, type === "ldu:list-ready" ? 0 : 100);
+    };
+    const cancelPendingClick = () => {
+      if (clickTimer !== null) window.clearTimeout(clickTimer);
+      clickTimer = null;
+    };
+    const isPlainPrimaryClick = (event) => event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+    const getTopicLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const getPreviewableLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
+      if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const sendTopic = (link) => {
+      const info = getTopicInfo(link.href, location.href);
+      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+      window.parent.postMessage({
+        type: "ldu:list-topic-open",
+        frameId,
+        url: link.href,
+        topicId: info?.topicId,
+        postNumber: info?.postNumber,
+        topicTitle: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
+        ...category ?? {}
+      }, location.origin);
+    };
+    const sendPreview = (link) => {
+      const rect = link.getBoundingClientRect();
+      window.parent.postMessage({ type: "ldu:list-preview-open", frameId, url: link.href, anchorRect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      } }, location.origin);
+    };
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.type !== "ldu:preview-config") return;
+      previewEnabled = data.enabled === true;
+      previewClickMode = data.clickMode === "single" ? "single" : "double";
+      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
+      if (!previewEnabled) cancelPendingClick();
+    });
+    window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });
+    window.addEventListener("load", () => send("ldu:list-ready"), { once: true });
+    document.addEventListener("DOMContentLoaded", () => send("ldu:list-ready"), { once: true });
+    window.addEventListener("popstate", () => send("ldu:list-state"));
+    window.addEventListener("hashchange", () => send("ldu:list-state"));
+    document.addEventListener("pointerdown", () => {
+      window.parent.postMessage({ type: "ldu:list-interaction", frameId }, location.origin);
+    }, true);
+    new MutationObserver(() => {
+      if (lastUrl === location.href && lastTitle === document.title) return;
+      send("ldu:list-state");
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    document.addEventListener("click", (event) => {
+      if (replayingClick || !isPlainPrimaryClick(event)) return;
+      const topic = getTopicLink(event.target);
+      if (topic) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        sendTopic(topic);
+        return;
+      }
+      if (!previewEnabled) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (previewClickMode === "single") {
+        sendPreview(link);
+        return;
+      }
+      cancelPendingClick();
+      if (event.detail >= 2) return;
+      clickTimer = window.setTimeout(() => {
+        clickTimer = null;
+        if (!link.isConnected) return;
+        replayingClick = true;
+        try {
+          link.click();
+        } finally {
+          replayingClick = false;
+        }
+      }, DOUBLE_CLICK_DELAY_MS2);
+    }, true);
+    document.addEventListener("dblclick", (event) => {
+      if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      cancelPendingClick();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      sendPreview(link);
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      window.parent.postMessage({ type: "ldu:list-preview-dismiss", frameId }, location.origin);
+    }, true);
+    send("ldu:list-ready");
   }
 
   // src/main.ts

@@ -87,4 +87,18 @@ describe("topic tab category colors", () => {
     expect(root.querySelector(".ldu-tab-button")).not.toBeNull();
     expect(root.querySelector(".ldu-tab-close")).not.toBeNull();
   });
+
+  it("opens the custom menu on right click without activating the tab", () => {
+    const root = document.createElement("div");
+    const onActivate = vi.fn();
+    const onContextMenu = vi.fn();
+    renderTabStrip(root, [tab("帖子")], "topic-1", {
+      onActivate, onClose: vi.fn(), onContextMenu,
+    });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 80, clientY: 90 });
+    root.querySelector(".ldu-tab-item")!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onContextMenu).toHaveBeenCalledWith("topic-1", 80, 90);
+    expect(onActivate).not.toHaveBeenCalled();
+  });
 });

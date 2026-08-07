@@ -17,7 +17,7 @@ export const APP_STYLES = `
 
 body.ldu-layout-active {
   overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow-y: hidden !important;
 }
 
 html.ldu-layout-two-root {
@@ -46,47 +46,79 @@ body.ldu-layout-active .d-header .wrap {
 }
 
 body.ldu-layout-active #main-outlet-wrapper {
-  display: grid !important;
+  display: block !important;
   width: 100% !important;
   max-width: none !important;
-  height: auto !important;
   min-height: calc(100vh - var(--ldu-header-height)) !important;
   padding: 0 !important;
-  gap: 0 !important;
-  overflow: visible !important;
-  align-items: start !important;
 }
 
-body.ldu-layout-active.ldu-layout-three #main-outlet-wrapper {
+#ldu-layout-shell {
+  position: fixed;
+  z-index: 3;
+  inset: var(--ldu-header-height) 0 0;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#ldu-layout-shell[hidden] { display: none !important; }
+
+body.ldu-layout-active.ldu-layout-three #ldu-layout-shell {
   grid-template-columns: var(--ldu-sidebar-width) minmax(0, var(--ldu-topic-track)) minmax(0, var(--ldu-list-track)) !important;
   grid-template-areas: "sidebar topic list" !important;
 }
 
-body.ldu-layout-active.ldu-layout-three:not(.has-sidebar-page) #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-three:not(.has-sidebar-page) #ldu-layout-shell {
   grid-template-columns: minmax(0, var(--ldu-topic-track)) minmax(0, var(--ldu-list-track)) !important;
   grid-template-areas: "topic list" !important;
 }
 
-body.ldu-layout-active.ldu-layout-two #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-three.ldu-secondary-open #ldu-layout-shell {
+  grid-template-columns: var(--ldu-sidebar-width) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-list-track)) !important;
+  grid-template-areas: "sidebar topic secondary-topic list" !important;
+}
+
+body.ldu-layout-active.ldu-layout-three.ldu-secondary-open:not(.has-sidebar-page) #ldu-layout-shell {
+  grid-template-columns: minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-list-track)) !important;
+  grid-template-areas: "topic secondary-topic list" !important;
+}
+
+body.ldu-layout-active.ldu-layout-two #ldu-layout-shell {
   grid-template-columns: minmax(52px, var(--ldu-sidebar-width)) minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-track)) !important;
   grid-template-areas: "sidebar list topic" !important;
 }
 
-body.ldu-layout-active.ldu-layout-two:not(.has-sidebar-page) #main-outlet-wrapper {
+body.ldu-layout-active.ldu-layout-two:not(.has-sidebar-page) #ldu-layout-shell {
   grid-template-columns: minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-track)) !important;
   grid-template-areas: "list topic" !important;
 }
 
+body.ldu-layout-active.ldu-layout-two.ldu-secondary-open #ldu-layout-shell {
+  grid-template-columns: minmax(52px, var(--ldu-sidebar-width)) minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) !important;
+  grid-template-areas: "sidebar list topic secondary-topic" !important;
+}
+
+body.ldu-layout-active.ldu-layout-two.ldu-secondary-open:not(.has-sidebar-page) #ldu-layout-shell {
+  grid-template-columns: minmax(0, var(--ldu-list-track)) minmax(0, var(--ldu-topic-split-track)) minmax(0, var(--ldu-topic-split-track)) !important;
+  grid-template-areas: "list topic secondary-topic" !important;
+}
+
 body.ldu-layout-active #main-outlet-wrapper > .sidebar-wrapper {
-  grid-area: sidebar !important;
-  width: auto !important;
-  min-width: 0 !important;
-  position: sticky !important;
+  position: fixed !important;
+  z-index: 6;
   top: var(--ldu-header-height) !important;
+  bottom: 0;
+  left: 0;
+  width: var(--ldu-sidebar-width) !important;
+  min-width: 0 !important;
   height: calc(100vh - var(--ldu-header-height)) !important;
   max-height: none !important;
-  align-self: start !important;
   overflow: auto !important;
+  background: var(--ldu-surface);
   border-right: 1px solid var(--ldu-border);
 }
 
@@ -95,43 +127,30 @@ body.ldu-layout-active:not(.has-sidebar-page) #main-outlet-wrapper > .sidebar-wr
 }
 
 body.ldu-layout-active #main-outlet {
-  grid-area: list !important;
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  max-height: none !important;
-  margin: 0 !important;
-  padding: 0 10px max(12px, env(safe-area-inset-bottom)) !important;
-  overflow-x: hidden !important;
-  overflow-y: visible !important;
-  container-type: inline-size;
+  display: none !important;
 }
 
-.ldu-list-scrollbar {
-  position: fixed;
-  z-index: 4;
-  width: 10px;
-  border-radius: 5px;
-  background: transparent;
-  cursor: pointer;
-  touch-action: none;
+.ldu-list-content {
+  position: relative;
+  grid-area: list;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--ldu-surface);
+  border-inline: 1px solid var(--ldu-border);
 }
 
-.ldu-list-scrollbar[hidden] { display: none; }
-
-.ldu-list-scrollbar-thumb {
+.ldu-list-frame {
   position: absolute;
-  inset-inline: 2px;
-  top: 0;
-  min-height: 36px;
-  border-radius: 3px;
-  background: var(--primary-medium, #777);
-  opacity: .62;
-  cursor: grab;
-  touch-action: none;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none !important;
+  border: 0;
+  background: var(--ldu-surface);
 }
-
-.ldu-list-scrollbar-thumb:active { cursor: grabbing; opacity: .82; }
 
 body.ldu-hide-posters #main-outlet .topic-list .posters {
   display: none !important;
@@ -147,7 +166,8 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   #main-outlet .topic-list .main-link { width: 100% !important; }
 }
 
-#ldu-topic-panel {
+#ldu-topic-panel,
+#ldu-secondary-topic-panel {
   grid-area: topic;
   position: sticky;
   top: var(--ldu-header-height);
@@ -163,7 +183,22 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   border-inline: 1px solid var(--ldu-border);
 }
 
-#ldu-topic-panel[hidden] { display: none !important; }
+#ldu-layout-shell #ldu-topic-panel,
+#ldu-layout-shell #ldu-secondary-topic-panel {
+  position: relative;
+  top: auto;
+  width: auto;
+  height: 100%;
+  pointer-events: auto;
+}
+
+#ldu-topic-panel[hidden],
+#ldu-secondary-topic-panel[hidden] { display: none !important; }
+
+#ldu-secondary-topic-panel {
+  grid-area: secondary-topic;
+  border-left: 0;
+}
 
 .ldu-topic-toolbar {
   display: flex;
@@ -209,6 +244,47 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   background: color-mix(in srgb, var(--ldu-tab-category-color) 22%, var(--ldu-surface));
   box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
+
+.ldu-tab-context-menu {
+  position: fixed;
+  z-index: 1000002;
+  width: max-content;
+  min-width: 270px;
+  max-width: min(340px, calc(100vw - 16px));
+  padding: 6px 0;
+  overflow: hidden;
+  color: var(--primary, #202124);
+  border: 1px solid color-mix(in srgb, var(--primary, #202124) 14%, transparent);
+  border-radius: 6px;
+  background: var(--secondary, #fff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%), 0 2px 6px rgb(0 0 0 / 18%);
+  font-family: var(--font-family, Arial, sans-serif);
+  font-size: var(--font-down-1, 0.875rem);
+}
+
+.ldu-context-item {
+  display: grid;
+  width: 100%;
+  min-height: 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  padding: 5px 18px;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ldu-context-item:hover,
+.ldu-context-item:focus-visible { background: var(--primary-low, #e8eaed); outline: none; }
+.ldu-context-item:disabled { opacity: 0.42; }
+.ldu-context-shortcut { color: var(--primary-medium, #5f6368); }
+.ldu-context-separator { height: 1px; margin: 5px 0; background: var(--primary-low, #dadce0); }
 
 .ldu-tab-button {
   min-width: 0;
@@ -664,6 +740,41 @@ html[data-ldu-embedded-topic="true"] .d-header {
   display: none !important;
 }
 
+html[data-ldu-embedded-list="true"] #d-sidebar,
+html[data-ldu-embedded-list="true"] .sidebar-wrapper,
+html[data-ldu-embedded-list="true"] .d-header {
+  display: none !important;
+}
+
+html[data-ldu-embedded-list="true"],
+html[data-ldu-embedded-list="true"] body {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-container,
+html[data-ldu-embedded-list="true"] #main-outlet-wrapper,
+html[data-ldu-embedded-list="true"] #main-outlet {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-outlet-wrapper {
+  display: block !important;
+  padding: 0 !important;
+}
+
+html[data-ldu-embedded-list="true"] #main-outlet {
+  padding: 0 10px max(12px, env(safe-area-inset-bottom)) !important;
+  container-type: inline-size;
+}
+
+html[data-ldu-embedded-list="true"][data-ldu-hide-posters="true"] #main-outlet .topic-list .posters {
+  display: none !important;
+}
+
 html[data-ldu-embedded-topic="true"] #main-container,
 html[data-ldu-embedded-topic="true"] #main-outlet,
 html[data-ldu-embedded-topic="true"] .post-stream,
@@ -727,6 +838,27 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
 
 html[data-ldu-embedded-topic="true"] #main-outlet {
   padding: 12px clamp(12px, 3vw, 40px) max(12px, env(safe-area-inset-bottom)) !important;
+}
+
+.ldu-action-toast {
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--success, #2e7d32) 35%, var(--ldu-border));
+  border-radius: 8px;
+  background: var(--ldu-surface);
+  color: var(--ldu-text);
+  box-shadow: 0 8px 28px rgb(0 0 0 / .2);
+  font-size: var(--font-down-1, .875rem);
+}
+
+.ldu-action-toast.is-error {
+  border-color: color-mix(in srgb, var(--ldu-danger) 45%, var(--ldu-border));
+  color: var(--ldu-danger);
 }
 
 @media (prefers-reduced-motion: reduce) {

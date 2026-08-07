@@ -16,7 +16,7 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(7\.5rem,\s*16%\)/s);
     expect(APP_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.container\.posts[^}]+grid-template-areas:\s*"posts timeline"/s);
     expect(APP_STYLES).not.toMatch(/data-ldu-embedded-topic[^}]+\.topic-(?:navigation|timeline)[^}]+display:\s*none/s);
-    expect(APP_STYLES).toMatch(/#main-outlet\s*\{[^}]+overflow-x:\s*hidden/s);
+    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-x:\s*hidden/s);
   });
 
   it("stacks timeline footer actions into a compact two-row grid", () => {
@@ -54,18 +54,17 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-topic-frame\s*\{[^}]+max-height:\s*none\s*!important/s);
   });
 
-  it("keeps Discourse infinite loading on the native page scroll root", () => {
-    expect(APP_STYLES).toMatch(/body\.ldu-layout-active\s*\{[^}]+overflow-y:\s*auto\s*!important/s);
-    expect(APP_STYLES).toMatch(/#main-outlet-wrapper\s*\{[^}]+height:\s*auto\s*!important/s);
-    expect(APP_STYLES).toMatch(/body\.ldu-layout-active #main-outlet\s*\{[^}]+overflow-y:\s*visible\s*!important/s);
-    expect(APP_STYLES).toMatch(/#ldu-topic-panel\s*\{[^}]+position:\s*sticky/s);
-    expect(APP_STYLES).not.toMatch(/body\.ldu-layout-active #main-outlet\s*\{[^}]+overflow-y:\s*auto/s);
+  it("keeps Discourse infinite loading on the independent list-frame scroll root", () => {
+    expect(APP_STYLES).toMatch(/body\.ldu-layout-active\s*\{[^}]+overflow-y:\s*hidden\s*!important/s);
+    expect(APP_STYLES).toMatch(/data-ldu-embedded-list[^}]+body[^}]+overflow-y:\s*auto\s*!important/s);
+    expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+height:\s*100%/s);
+    expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+max-height:\s*none\s*!important/s);
+    expect(APP_STYLES).toMatch(/#ldu-layout-shell\s*\{[^}]+position:\s*fixed/s);
   });
 
-  it("places a synchronized page scrollbar at the list edge in right-detail mode", () => {
-    expect(APP_STYLES).toMatch(/html\.ldu-layout-two-root\s*\{[^}]+scrollbar-width:\s*none/s);
-    expect(APP_STYLES).toMatch(/\.ldu-list-scrollbar\s*\{[^}]+position:\s*fixed/s);
-    expect(APP_STYLES).toMatch(/\.ldu-list-scrollbar-thumb\s*\{[^}]+position:\s*absolute/s);
+  it("uses the list iframe native scrollbar in right-detail mode", () => {
+    expect(APP_STYLES).toMatch(/\.ldu-list-content\s*\{[^}]+grid-area:\s*list/s);
+    expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+border:\s*0/s);
   });
 
   it("uses the supplied compact hierarchical settings surface", () => {

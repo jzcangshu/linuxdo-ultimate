@@ -26,6 +26,24 @@ describe("session state", () => {
     const restored = normalizeSession(legacy, fallback);
     expect(restored.tabs).toHaveLength(1);
     expect(restored.paneSizes).toEqual({ sidebar: 216, listRatio: 0.35 });
+    expect(restored.secondaryTabIds).toEqual([]);
+    expect(restored.secondaryActiveTabId).toBeNull();
+  });
+
+  it("normalizes secondary panel ownership without duplicating or losing tabs", () => {
+    let state = createSession("session-a", "https://linux.do/latest", 100);
+    state = upsertTopicTab(state, { topicId: "1", url: "/t/topic/1", title: "One" }, 101);
+    state = upsertTopicTab(state, { topicId: "2", url: "/t/topic/2", title: "Two" }, 102);
+    const restored = normalizeSession({
+      ...state,
+      secondaryTabIds: ["topic-1", "topic-1", "missing"],
+      secondaryActiveTabId: "missing",
+      activeTabId: "topic-1",
+    }, createSession("fallback", "/", 999));
+
+    expect(restored.secondaryTabIds).toEqual(["topic-1"]);
+    expect(restored.secondaryActiveTabId).toBe("topic-1");
+    expect(restored.activeTabId).toBe("topic-2");
   });
 
   it("deduplicates a topic and updates its target post", () => {
@@ -83,5 +101,17 @@ describe("session state", () => {
     const closed = closeTopicTab(state, state.activeTabId!, 103);
     expect(closed.tabs).toHaveLength(1);
     expect(closed.activeTabId).toBe(closed.tabs[0]?.id);
+  });
+
+  it("repairs the secondary active tab when a moved tab is closed", () => {
+    let state = createSession("session-a", "https://linux.do/latest", 100);
+    state = upsertTopicTab(state, { topicId: "1", url: "/t/topic/1", title: "One" }, 101);
+    state = upsertTopicTab(state, { topicId: "2", url: "/t/topic/2", title: "Two" }, 102);
+    state = { ...state, secondaryTabIds: ["topic-1"], secondaryActiveTabId: "topic-1" };
+
+    const closed = closeTopicTab(state, "topic-1", 103);
+    expect(closed.secondaryTabIds).toEqual([]);
+    expect(closed.secondaryActiveTabId).toBeNull();
+    expect(closed.activeTabId).toBe("topic-2");
   });
 });

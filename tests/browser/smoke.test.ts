@@ -20,7 +20,7 @@ describe("browser smoke", () => {
         <li class="chat-header-icon"><a class="btn" href="/chat">Chat</a></li>
       </ul></div></div></header>
       <div id="main-container"><div id="main-outlet-wrapper">
-        <aside class="sidebar-wrapper"></aside>
+        <aside class="sidebar-wrapper"><a class="category-link" href="/c/develop/4">开发调优</a></aside>
         <main id="main-outlet"><table class="topic-list"><tbody><tr>
           <td><a class="title" href="/t/topic/42">Test topic</a></td>
           <td class="posters">avatars</td>
@@ -42,8 +42,35 @@ describe("browser smoke", () => {
     expect(document.body.classList.contains("ldu-layout-two")).toBe(true);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
+    const retainedTopicFrame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;
+    document.querySelector<HTMLAnchorElement>(".category-link")!.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    }));
+    expect(location.pathname).toBe("/");
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src).toContain("/c/develop/4");
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")).toBe(retainedTopicFrame);
     expect(getComputedStyle(document.querySelector<HTMLElement>(".posters")!).display).toBe("none");
     expect(document.querySelector(".d-header-icons > .ldu-settings-host")).not.toBeNull();
+
+    const contextEvent = new MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 180, clientY: 80,
+    });
+    document.querySelector<HTMLElement>("#ldu-topic-panel .ldu-tab-item")!.dispatchEvent(contextEvent);
+    expect(contextEvent.defaultPrevented).toBe(true);
+    document.querySelector<HTMLButtonElement>('.ldu-tab-context-menu [data-action="split"]')!.click();
+    expect(document.querySelectorAll("#ldu-topic-panel .ldu-tab-item")).toHaveLength(0);
+    expect(document.querySelectorAll("#ldu-secondary-topic-panel .ldu-tab-item")).toHaveLength(1);
+    expect(document.querySelector("#ldu-secondary-topic-panel .ldu-topic-frame")).toBe(retainedTopicFrame);
+    expect(document.body.classList.contains("ldu-secondary-open")).toBe(true);
+    retainedTopicFrame.contentWindow!.history.replaceState({}, "", "/t/topic/42/15");
+    Object.defineProperty(retainedTopicFrame.contentWindow, "scrollY", { configurable: true, value: 1800 });
+    document.querySelector<HTMLButtonElement>(".ldu-close-secondary")!.click();
+    expect(document.querySelectorAll("#ldu-topic-panel .ldu-tab-item")).toHaveLength(1);
+    expect(document.querySelectorAll("#ldu-secondary-topic-panel .ldu-tab-item")).toHaveLength(0);
+    expect(document.querySelector("#ldu-topic-panel .ldu-topic-frame")).toBe(retainedTopicFrame);
+    expect(new URL(retainedTopicFrame.src).pathname).toBe("/t/topic/42/15");
 
     const nativeChatHandler = vi.fn((event: Event) => event.preventDefault());
     document.querySelector<HTMLAnchorElement>('.chat-header-icon a')!.addEventListener("click", nativeChatHandler);

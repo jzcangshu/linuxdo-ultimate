@@ -1,7 +1,7 @@
 import type { TopicTabState } from "../core/types";
 
 export interface FrameMessage {
-  type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open";
+  type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:bookmark-result" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open" | "ldu:list-navigate";
   tabId: string;
   url?: string;
   title?: string;
@@ -9,6 +9,8 @@ export interface FrameMessage {
   postNumber?: number;
   categoryName?: string;
   categoryColor?: string;
+  ok?: boolean;
+  message?: string;
   anchorRect?: { left: number; top: number; right: number; bottom: number; width: number; height: number };
 }
 
@@ -21,7 +23,16 @@ interface FrameRecord {
   iframe: HTMLIFrameElement;
   lastUsedAt: number;
   reportedUrl: string | null;
+  loaded: boolean;
+  commands: FrameCommand[];
+  loadListener: () => void;
+  restoreScrollY: number;
+  restoreTimer: number | null;
+  restoreDeadline: number;
 }
+
+export type FrameCommand = { type: "ldu:bookmark"; topicId: string };
+export type FrameTransfer = FrameRecord;
 
 export class TopicFramePool {
   private readonly frames = new Map<string, FrameRecord>();
@@ -53,12 +64,28 @@ export class TopicFramePool {
       iframe.name = `ldu-topic:${tab.id}`;
       iframe.title = tab.title;
       iframe.dataset.tabId = tab.id;
-      iframe.addEventListener("load", () => {
+      const loadListener = () => {
+        const current = this.frames.get(tab.id);
+        if (!current || current.iframe !== iframe) return;
+        current.loaded = true;
+        this.restoreScroll(current);
         this.sendPreviewConfig(iframe);
+        this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
-      });
+      };
+      iframe.addEventListener("load", loadListener);
       iframe.src = tab.url;
-      record = { iframe, lastUsedAt: now, reportedUrl: null };
+      record = {
+        iframe,
+        lastUsedAt: now,
+        reportedUrl: null,
+        loaded: false,
+        commands: [],
+        loadListener,
+        restoreScrollY: tab.scrollY,
+        restoreTimer: null,
+        restoreDeadline: 0,
+      };
       this.frames.set(tab.id, record);
       this.container.append(iframe);
     } else {
@@ -67,6 +94,8 @@ export class TopicFramePool {
       const requestedUrl = new URL(tab.url, document.baseURI).href;
       if (record.iframe.src !== requestedUrl && record.reportedUrl !== requestedUrl) {
         record.reportedUrl = null;
+        record.loaded = false;
+        record.restoreScrollY = tab.scrollY;
         record.iframe.src = requestedUrl;
       }
     }
@@ -82,7 +111,7 @@ export class TopicFramePool {
 
   handleMessage(event: MessageEvent): void {
     const data = event.data as Partial<FrameMessage> | null;
-    if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
+    if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
     const record = this.frames.get(data.tabId);
     if (!record || event.source !== record.iframe.contentWindow) return;
     if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
@@ -92,24 +121,136 @@ export class TopicFramePool {
         record.reportedUrl = null;
       }
     }
-    if (data.type === "ldu:frame-ready") this.sendPreviewConfig(record.iframe);
+    if (data.type === "ldu:frame-ready") {
+      record.loaded = true;
+      this.restoreScroll(record);
+      this.sendPreviewConfig(record.iframe);
+      this.flushCommands(record);
+    }
     this.onMessage(data as FrameMessage, record.iframe);
   }
 
   remove(tabId: string): void {
     const record = this.frames.get(tabId);
     if (!record) return;
+    record.commands = [];
+    this.cancelScrollRestore(record);
+    record.iframe.removeEventListener("load", record.loadListener);
     record.iframe.remove();
     this.frames.delete(tabId);
   }
 
+  sendCommand(tabId: string, command: FrameCommand): void {
+    const record = this.frames.get(tabId);
+    if (!record) return;
+    if (!record.loaded) {
+      record.commands.push(command);
+      return;
+    }
+    record.iframe.contentWindow?.postMessage(command, location.origin);
+  }
+
+  getFrame(tabId: string): HTMLIFrameElement | null {
+    return this.frames.get(tabId)?.iframe ?? null;
+  }
+
+  reload(tabId: string): boolean {
+    const record = this.frames.get(tabId);
+    if (!record) return false;
+    record.loaded = false;
+    record.reportedUrl = null;
+    try {
+      record.iframe.contentWindow?.location.reload();
+    } catch {
+      record.iframe.src = record.iframe.src;
+    }
+    return true;
+  }
+
+  detach(tabId: string): FrameTransfer | null {
+    const record = this.frames.get(tabId);
+    if (!record) return null;
+    this.cancelScrollRestore(record);
+    record.iframe.removeEventListener("load", record.loadListener);
+    record.iframe.remove();
+    this.frames.delete(tabId);
+    return record;
+  }
+
+  adopt(tab: TopicTabState, transfer: FrameTransfer, now: number): HTMLIFrameElement {
+    const iframe = transfer.iframe;
+    iframe.name = `ldu-topic:${tab.id}`;
+    iframe.dataset.tabId = tab.id;
+    iframe.title = tab.title;
+    const loadListener = () => {
+      const current = this.frames.get(tab.id);
+      if (!current || current.iframe !== iframe) return;
+      current.loaded = true;
+      this.restoreScroll(current);
+      this.sendPreviewConfig(iframe);
+      this.flushCommands(current);
+      this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
+    };
+    iframe.addEventListener("load", loadListener);
+    const requestedUrl = new URL(tab.url, document.baseURI).href;
+    if (iframe.src !== requestedUrl && transfer.reportedUrl !== requestedUrl) iframe.src = requestedUrl;
+    const record: FrameRecord = {
+      ...transfer,
+      lastUsedAt: now,
+      reportedUrl: null,
+      loaded: false,
+      loadListener,
+      restoreScrollY: tab.scrollY,
+      restoreTimer: null,
+      restoreDeadline: 0,
+    };
+    this.frames.set(tab.id, record);
+    this.container.append(iframe);
+    this.activate(tab, now);
+    return iframe;
+  }
+
   destroy(): void {
-    for (const record of this.frames.values()) record.iframe.remove();
+    for (const record of this.frames.values()) {
+      record.commands = [];
+      this.cancelScrollRestore(record);
+      record.iframe.removeEventListener("load", record.loadListener);
+      record.iframe.remove();
+    }
     this.frames.clear();
   }
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+  }
+
+  private flushCommands(record: FrameRecord): void {
+    const commands = record.commands.splice(0);
+    for (const command of commands) record.iframe.contentWindow?.postMessage(command, location.origin);
+  }
+
+  private restoreScroll(record: FrameRecord): void {
+    const target = record.restoreScrollY;
+    if (target <= 0 || !record.iframe.contentWindow) return;
+    if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
+    if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + 5_000;
+    record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
+    if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
+      record.restoreScrollY = 0;
+      record.restoreDeadline = 0;
+      record.restoreTimer = null;
+      return;
+    }
+    record.restoreTimer = window.setTimeout(() => {
+      record.restoreTimer = null;
+      if ([...this.frames.values()].includes(record)) this.restoreScroll(record);
+    }, 100);
+  }
+
+  private cancelScrollRestore(record: FrameRecord): void {
+    if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
+    record.restoreTimer = null;
+    record.restoreDeadline = 0;
   }
 
   private suspendOverflow(activeTabId: string): void {
@@ -120,6 +261,9 @@ export class TopicFramePool {
       const candidate = candidates[0];
       if (!candidate) return;
       const [tabId, record] = candidate;
+      record.commands = [];
+      this.cancelScrollRestore(record);
+      record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
       this.onSuspend(tabId, record.iframe);

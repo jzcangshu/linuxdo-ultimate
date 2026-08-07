@@ -34,6 +34,7 @@ describe("vendored upstream previewer", () => {
     expect(firstFrame.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
     expect(firstFrame.name).toMatch(/^agy-preview-frame:\d+$/);
     expect(document.querySelector(".agy-refresh-btn")).not.toBeNull();
+    expect(document.querySelector(".agy-loading-overlay")).toBeNull();
     expect(document.querySelector(".agy-click-mode-toggle")).toBeNull();
     expect(requests).toHaveLength(1);
 

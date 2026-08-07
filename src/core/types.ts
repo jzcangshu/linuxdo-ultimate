@@ -44,6 +44,8 @@ export interface SessionState {
   paneSizes: PaneSizes;
   tabs: TopicTabState[];
   activeTabId: string | null;
+  secondaryTabIds: string[];
+  secondaryActiveTabId: string | null;
   updatedAt: number;
 }
 

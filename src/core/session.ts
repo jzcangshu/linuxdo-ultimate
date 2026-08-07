@@ -56,6 +56,8 @@ export function createSession(sessionId: string, listUrl: string, now: number): 
     paneSizes: { ...DEFAULT_SETTINGS.paneSizes },
     tabs: [],
     activeTabId: null,
+    secondaryTabIds: [],
+    secondaryActiveTabId: null,
     updatedAt: now,
   };
 }
@@ -70,9 +72,18 @@ export function normalizeSession(value: unknown, fallback: SessionState): Sessio
   const uniqueTabs = Array.from(new Map(tabs.map((tab) => [tab.topicId, tab])).values())
     .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
     .slice(-MAX_TABS);
-  const activeTabId = uniqueTabs.some((tab) => tab.id === source.activeTabId)
+  const validTabIds = new Set(uniqueTabs.map((tab) => tab.id));
+  const secondaryTabIds = Array.isArray(source.secondaryTabIds)
+    ? [...new Set(source.secondaryTabIds.filter((id): id is string => typeof id === "string" && validTabIds.has(id)))]
+    : [];
+  const secondaryIds = new Set(secondaryTabIds);
+  const primaryTabs = uniqueTabs.filter((tab) => !secondaryIds.has(tab.id));
+  const activeTabId = primaryTabs.some((tab) => tab.id === source.activeTabId)
     ? source.activeTabId!
-    : uniqueTabs.at(-1)?.id ?? null;
+    : primaryTabs.at(-1)?.id ?? null;
+  const secondaryActiveTabId = secondaryTabIds.includes(source.secondaryActiveTabId ?? "")
+    ? source.secondaryActiveTabId!
+    : secondaryTabIds.at(-1) ?? null;
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     sessionId: source.sessionId,
@@ -82,6 +93,8 @@ export function normalizeSession(value: unknown, fallback: SessionState): Sessio
     paneSizes: normalizePaneSizes(source.paneSizes),
     tabs: uniqueTabs,
     activeTabId,
+    secondaryTabIds,
+    secondaryActiveTabId,
     updatedAt: clampNumber(source.updatedAt, 0, Number.MAX_SAFE_INTEGER, fallback.updatedAt),
   };
 }
@@ -110,15 +123,35 @@ export function upsertTopicTab(
   const tabs = [...session.tabs.filter((tab) => tab.topicId !== input.topicId), nextTab]
     .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
     .slice(-MAX_TABS);
-  return { ...session, tabs, activeTabId: nextTab.id, updatedAt: now };
+  const staysSecondary = session.secondaryTabIds.includes(nextTab.id);
+  return {
+    ...session,
+    tabs,
+    activeTabId: staysSecondary ? session.activeTabId : nextTab.id,
+    secondaryActiveTabId: staysSecondary ? nextTab.id : session.secondaryActiveTabId,
+    updatedAt: now,
+  };
 }
 
 export function closeTopicTab(session: SessionState, tabId: string, now: number): SessionState {
   const index = session.tabs.findIndex((tab) => tab.id === tabId);
   if (index < 0) return session;
   const tabs = session.tabs.filter((tab) => tab.id !== tabId);
+  const secondaryTabIds = session.secondaryTabIds.filter((id) => id !== tabId);
+  const secondaryIds = new Set(secondaryTabIds);
+  const primaryTabs = tabs.filter((tab) => !secondaryIds.has(tab.id));
   const nextActive = session.activeTabId === tabId
-    ? tabs[Math.min(index, tabs.length - 1)]?.id ?? null
+    ? primaryTabs[Math.min(index, primaryTabs.length - 1)]?.id ?? primaryTabs.at(-1)?.id ?? null
     : session.activeTabId;
-  return { ...session, tabs, activeTabId: nextActive, updatedAt: now };
+  const nextSecondaryActive = session.secondaryActiveTabId === tabId
+    ? secondaryTabIds.at(-1) ?? null
+    : session.secondaryActiveTabId;
+  return {
+    ...session,
+    tabs,
+    activeTabId: nextActive,
+    secondaryTabIds,
+    secondaryActiveTabId: nextSecondaryActive,
+    updatedAt: now,
+  };
 }

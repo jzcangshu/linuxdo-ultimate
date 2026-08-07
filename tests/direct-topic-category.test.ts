@@ -2,8 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { startLinuxDoApp } from "../src/app";
 
-describe("direct topic promotion", () => {
-  it("creates the independent shell only after the user opens another topic", () => {
+describe("direct topic category promotion", () => {
+  it("promotes a top topic category link into the independent list pane", () => {
     localStorage.clear();
     sessionStorage.clear();
     history.replaceState({}, "", "/t/current/66");
@@ -18,24 +18,24 @@ describe("direct topic promotion", () => {
       <header class="d-header"><div class="contents"><ul class="d-header-icons"></ul></div></header>
       <div id="main-outlet-wrapper">
         <aside class="sidebar-wrapper"></aside>
-        <main id="main-outlet"><h1 class="fancy-title">原先阅读的帖子</h1><a class="next-topic" href="/t/next/77/3">随后点击的帖子</a></main>
+        <main id="main-outlet">
+          <h1 class="fancy-title">原先阅读的帖子</h1>
+          <div class="topic-map"><a class="badge-category__wrapper" href="/c/develop/4">开发调优</a></div>
+        </main>
       </div>
     `;
 
     startLinuxDoApp();
     document.dispatchEvent(new Event("DOMContentLoaded"));
-    expect(document.body.classList.contains("ldu-layout-active")).toBe(false);
+    const category = document.querySelector<HTMLAnchorElement>(".badge-category__wrapper")!;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    category.dispatchEvent(click);
 
-    document.querySelector<HTMLAnchorElement>(".next-topic")!.dispatchEvent(new MouseEvent("click", {
-      bubbles: true, cancelable: true, button: 0,
-    }));
-
+    expect(click.defaultPrevented).toBe(true);
     expect(location.pathname).toBe("/t/current/66");
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
-    expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(2);
-    expect([...document.querySelectorAll(".ldu-tab-button")].map((button) => button.textContent))
-      .toEqual(["原先阅读的帖子", "随后点击的帖子"]);
-    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src).toBe(`${location.origin}/`);
-    expect(document.querySelector("#main-outlet-wrapper #ldu-topic-panel")).toBeNull();
+    expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src)
+      .toBe(`${location.origin}/c/develop/4`);
   });
 });

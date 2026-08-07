@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LayoutController } from "../src/ui/layout-controller";
 
-describe("right-detail list scrollbar", () => {
+describe("right-detail independent list viewport", () => {
   afterEach(() => {
     document.body.replaceChildren();
     document.body.className = "";
@@ -10,7 +10,7 @@ describe("right-detail list scrollbar", () => {
     vi.restoreAllMocks();
   });
 
-  it("places a synchronized scrollbar inside the list edge while retaining page scrolling", () => {
+  it("uses an iframe host instead of mirroring the top-level page scrollbar", () => {
     vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(900);
     Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 3600 });
@@ -32,12 +32,10 @@ describe("right-detail list scrollbar", () => {
     controller.setOpen(true);
     controller.mount();
 
-    const scrollbar = document.querySelector<HTMLElement>(".ldu-list-scrollbar")!;
+    const listHost = document.querySelector<HTMLElement>(".ldu-list-content")!;
     expect(document.documentElement.classList.contains("ldu-layout-two-root")).toBe(true);
-    expect(scrollbar.hidden).toBe(false);
-    expect(scrollbar.style.left).toBe("486px");
-    expect(scrollbar.style.top).toBe("52px");
-    expect(scrollbar.style.height).toBe("848px");
+    expect(listHost).not.toBeNull();
+    expect(document.querySelector(".ldu-list-scrollbar")).toBeNull();
     expect(document.body.classList.contains("ldu-layout-active")).toBe(true);
 
     controller.destroy();

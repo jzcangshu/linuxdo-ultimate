@@ -154,4 +154,59 @@ describe("topic frame pool", () => {
     expect(host.querySelectorAll("iframe")).toHaveLength(10);
     expect(suspended).toEqual(["topic-1"]);
   });
+
+  it("queues a command until its frame has loaded and delivers it once", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate(tab("1"), 1);
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage");
+    postMessage.mockClear();
+
+    pool.sendCommand("topic-1", { type: "ldu:bookmark", topicId: "1" });
+    expect(postMessage).not.toHaveBeenCalledWith({ type: "ldu:bookmark", topicId: "1" }, location.origin);
+    frame.dispatchEvent(new Event("load"));
+    expect(postMessage).toHaveBeenCalledWith({ type: "ldu:bookmark", topicId: "1" }, location.origin);
+    frame.dispatchEvent(new Event("load"));
+    expect(postMessage.mock.calls.filter(([message]) => (message as { type?: string }).type === "ldu:bookmark")).toHaveLength(1);
+  });
+
+  it("can transfer a live frame between pools without duplicating it", () => {
+    const firstHost = document.createElement("div");
+    const secondHost = document.createElement("div");
+    const first = new TopicFramePool(firstHost, 2, vi.fn(), vi.fn());
+    const second = new TopicFramePool(secondHost, 2, vi.fn(), vi.fn());
+    const frame = first.activate(tab("1", "/t/topic/1/6"), 1);
+    const latestState = new MessageEvent("message", {
+      data: { type: "ldu:frame-state", tabId: "topic-1", url: new URL("/t/topic/1/18", location.href).href },
+    });
+    Object.defineProperty(latestState, "source", { value: frame.contentWindow });
+    first.handleMessage(latestState);
+    const transfer = first.detach("topic-1");
+    expect(transfer?.iframe).toBe(frame);
+    expect(firstHost.querySelector("iframe")).toBeNull();
+    const current = { ...tab("1", "/t/topic/1/18"), scrollY: 2200 };
+    expect(second.adopt(current, transfer!, 2)).toBe(frame);
+    expect(secondHost.querySelectorAll("iframe")).toHaveLength(1);
+    expect(new URL(frame.src).pathname).toBe("/t/topic/1/18");
+  });
+
+  it("restores the captured scroll position after a transferred frame reloads", () => {
+    vi.useFakeTimers();
+    const firstHost = document.createElement("div");
+    const secondHost = document.createElement("div");
+    document.body.append(firstHost, secondHost);
+    const first = new TopicFramePool(firstHost, 2, vi.fn(), vi.fn());
+    const second = new TopicFramePool(secondHost, 2, vi.fn(), vi.fn());
+    const frame = first.activate(tab("1"), 1);
+    const transfer = first.detach("topic-1")!;
+
+    second.adopt({ ...tab("1", "/t/topic/1/18"), scrollY: 2200 }, transfer, 2);
+    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
+    frame.dispatchEvent(new Event("load"));
+    vi.runOnlyPendingTimers();
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 2200, behavior: "instant" });
+    vi.useRealTimers();
+  });
 });

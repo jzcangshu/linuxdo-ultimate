@@ -3,6 +3,7 @@ import type { TopicTabState } from "../core/types";
 export interface TabStripCallbacks {
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
+  onContextMenu?: (tabId: string, clientX: number, clientY: number) => void;
 }
 
 export interface TabStripOptions {
@@ -51,6 +52,11 @@ export function renderTabStrip(
     item.setAttribute("role", "presentation");
     item.classList.toggle("is-active", tab.id === activeTabId);
     item.title = `${tab.title}\n${tab.url}`;
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      callbacks.onContextMenu?.(tab.id, event.clientX, event.clientY);
+    });
     const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
     if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
 

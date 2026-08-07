@@ -18,17 +18,18 @@ interface LayoutControllerOptions {
 }
 
 export class LayoutController {
+  private shell: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
   private content: HTMLElement | null = null;
+  private secondaryPanel: HTMLElement | null = null;
+  private secondaryContent: HTMLElement | null = null;
+  private listContent: HTMLElement | null = null;
   private preference: LayoutPreference;
   private paneSizes: PaneSizes;
   private hidePosters: boolean;
   private open = false;
-  private listScrollbar: HTMLElement | null = null;
-  private listScrollbarThumb: HTMLElement | null = null;
-  private listResizeObserver: ResizeObserver | null = null;
+  private secondaryOpen = false;
   private readonly resizeListener = () => this.apply();
-  private readonly scrollListener = () => this.updateListScrollbar();
 
   constructor(private readonly options: LayoutControllerOptions) {
     this.preference = options.preference;
@@ -41,15 +42,17 @@ export class LayoutController {
     const wrapper = document.querySelector<HTMLElement>("#main-outlet-wrapper");
     const outlet = document.querySelector<HTMLElement>("#main-outlet");
     if (!wrapper || !outlet) return false;
-    if (!this.panel) {
-      this.panel = this.createPanel();
-      wrapper.append(this.panel);
-      this.content = this.panel.querySelector<HTMLElement>(".ldu-topic-content");
-      this.createListScrollbar(outlet);
+    if (!this.shell) {
+      this.shell = this.createShell();
+      document.body.append(this.shell);
+      this.panel = this.shell.querySelector<HTMLElement>("#ldu-topic-panel");
+      this.content = this.panel?.querySelector<HTMLElement>(".ldu-topic-content") ?? null;
+      this.secondaryPanel = this.shell.querySelector<HTMLElement>("#ldu-secondary-topic-panel");
+      this.secondaryContent = this.secondaryPanel?.querySelector<HTMLElement>(".ldu-topic-content") ?? null;
+      this.listContent = this.shell.querySelector<HTMLElement>(".ldu-list-content");
       window.addEventListener("resize", this.resizeListener, { passive: true });
-      window.addEventListener("scroll", this.scrollListener, { passive: true });
-    } else if (this.panel.parentElement !== wrapper) {
-      wrapper.append(this.panel);
+    } else if (this.shell.parentElement !== document.body) {
+      document.body.append(this.shell);
     }
     document.body.classList.toggle("ldu-hide-posters", this.hidePosters);
     this.apply();
@@ -58,21 +61,26 @@ export class LayoutController {
 
   destroy(): void {
     window.removeEventListener("resize", this.resizeListener);
-    window.removeEventListener("scroll", this.scrollListener);
-    this.listResizeObserver?.disconnect();
-    this.listResizeObserver = null;
-    this.listScrollbar?.remove();
-    this.listScrollbar = null;
-    this.listScrollbarThumb = null;
-    this.panel?.remove();
+    this.shell?.remove();
+    this.shell = null;
     this.panel = null;
     this.content = null;
-    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters");
+    this.secondaryPanel = null;
+    this.secondaryContent = null;
+    this.listContent = null;
+    this.open = false;
+    this.secondaryOpen = false;
+    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open");
     document.documentElement.classList.remove("ldu-layout-two-root");
   }
 
   setOpen(open: boolean): void {
     this.open = open;
+    this.apply();
+  }
+
+  setSecondaryOpen(open: boolean): void {
+    this.secondaryOpen = open;
     this.apply();
   }
 
@@ -90,15 +98,29 @@ export class LayoutController {
     return this.content;
   }
 
+  getSecondaryContentElement(): HTMLElement | null { return this.secondaryContent; }
+
+  getListContentElement(): HTMLElement | null { return this.listContent; }
+  getShellElement(): HTMLElement | null { return this.shell; }
+
   getTabStripElement(): HTMLElement | null {
     return this.panel?.querySelector<HTMLElement>(".ldu-tab-strip") ?? null;
+  }
+
+  getSecondaryTabStripElement(): HTMLElement | null {
+    return this.secondaryPanel?.querySelector<HTMLElement>(".ldu-tab-strip") ?? null;
   }
 
   getActionsElement(): HTMLElement | null {
     return this.panel?.querySelector<HTMLElement>(".ldu-topic-actions") ?? null;
   }
 
+  getSecondaryActionsElement(): HTMLElement | null {
+    return this.secondaryPanel?.querySelector<HTMLElement>(".ldu-topic-actions") ?? null;
+  }
+
   getPanelElement(): HTMLElement | null { return this.panel; }
+  getSecondaryPanelElement(): HTMLElement | null { return this.secondaryPanel; }
 
   setHidePosters(hide: boolean): void {
     this.hidePosters = hide;
@@ -110,155 +132,57 @@ export class LayoutController {
   }
 
   private apply(): void {
-    if (!this.panel) return;
+    if (!this.panel || !this.secondaryPanel || !this.shell) return;
     const mode = this.getMode();
     const active = mode !== "native";
     this.panel.hidden = !active;
+    this.secondaryPanel.hidden = !active || !this.secondaryOpen;
+    this.shell.hidden = !active;
     document.body.classList.toggle("ldu-layout-active", active);
     document.body.classList.toggle("ldu-layout-two", mode === "two");
     document.body.classList.toggle("ldu-layout-three", mode === "three");
     document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
+    document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
     document.documentElement.style.setProperty("--ldu-sidebar-width", `${this.paneSizes.sidebar}px`);
     document.documentElement.style.setProperty("--ldu-topic-track", `${1 - this.paneSizes.listRatio}fr`);
+    document.documentElement.style.setProperty("--ldu-topic-split-track", `${(1 - this.paneSizes.listRatio) / 2}fr`);
     document.documentElement.style.setProperty("--ldu-list-track", `${this.paneSizes.listRatio}fr`);
     this.updateSeparatorValues();
-    this.updateListScrollbar();
   }
 
-  private createListScrollbar(outlet: HTMLElement): void {
-    if (this.listScrollbar) return;
-    const track = document.createElement("div");
-    track.className = "ldu-list-scrollbar";
-    track.hidden = true;
-    track.tabIndex = 0;
-    track.setAttribute("role", "scrollbar");
-    track.setAttribute("aria-label", "帖子列表滚动条");
-    track.setAttribute("aria-orientation", "vertical");
-    const thumb = document.createElement("div");
-    thumb.className = "ldu-list-scrollbar-thumb";
-    track.append(thumb);
-    document.body.append(track);
-    this.listScrollbar = track;
-    this.listScrollbarThumb = thumb;
-
-    track.addEventListener("pointerdown", (event) => {
-      if (event.target !== track || event.button !== 0) return;
-      event.preventDefault();
-      const rect = track.getBoundingClientRect();
-      const thumbHeight = thumb.getBoundingClientRect().height || Number.parseFloat(thumb.style.height) || 0;
-      this.scrollFromTrackPosition(event.clientY - rect.top - (thumbHeight / 2), rect.height, thumbHeight);
-    });
-    track.addEventListener("keydown", (event) => this.handleScrollbarKey(event));
-    thumb.addEventListener("pointerdown", (event) => this.startScrollbarDrag(event, track, thumb));
-    if (typeof ResizeObserver === "function") {
-      this.listResizeObserver = new ResizeObserver(() => this.updateListScrollbar());
-      this.listResizeObserver.observe(outlet);
-    }
-  }
-
-  private updateListScrollbar(): void {
-    const track = this.listScrollbar;
-    const thumb = this.listScrollbarThumb;
-    if (!track || !thumb) return;
-    const outlet = document.querySelector<HTMLElement>("#main-outlet");
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    if (this.getMode() !== "two" || !outlet || maxScroll <= 0) {
-      track.hidden = true;
-      return;
-    }
-    const listRect = outlet.getBoundingClientRect();
-    const headerBottom = document.querySelector<HTMLElement>(".d-header")?.getBoundingClientRect().bottom ?? 0;
-    const top = Math.max(0, headerBottom);
-    const height = Math.max(0, window.innerHeight - top);
-    if (height <= 0 || listRect.width <= 0) {
-      track.hidden = true;
-      return;
-    }
-    const trackWidth = 10;
-    track.hidden = false;
-    track.style.left = `${Math.max(0, Math.min(window.innerWidth - trackWidth, listRect.right - trackWidth - 4))}px`;
-    track.style.top = `${top}px`;
-    track.style.height = `${height}px`;
-    const thumbHeight = Math.min(height, Math.max(36, height * (window.innerHeight / document.documentElement.scrollHeight)));
-    const travel = Math.max(0, height - thumbHeight);
-    const thumbTop = maxScroll > 0 ? travel * (window.scrollY / maxScroll) : 0;
-    thumb.style.height = `${thumbHeight}px`;
-    thumb.style.transform = `translateY(${thumbTop}px)`;
-    track.setAttribute("aria-valuemin", "0");
-    track.setAttribute("aria-valuemax", String(Math.round(maxScroll)));
-    track.setAttribute("aria-valuenow", String(Math.round(window.scrollY)));
-  }
-
-  private scrollFromTrackPosition(position: number, trackHeight: number, thumbHeight: number): void {
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    const travel = Math.max(1, trackHeight - thumbHeight);
-    const ratio = Math.min(1, Math.max(0, position / travel));
-    window.scrollTo({ top: ratio * maxScroll, behavior: "instant" });
-  }
-
-  private startScrollbarDrag(event: PointerEvent, track: HTMLElement, thumb: HTMLElement): void {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const pointerId = event.pointerId;
-    const startY = event.clientY;
-    const startScroll = window.scrollY;
-    const trackHeight = track.getBoundingClientRect().height || Number.parseFloat(track.style.height) || 0;
-    const thumbHeight = thumb.getBoundingClientRect().height || Number.parseFloat(thumb.style.height) || 0;
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    const travel = Math.max(1, trackHeight - thumbHeight);
-    try { thumb.setPointerCapture(pointerId); } catch { /* Pointer capture is optional. */ }
-    const move = (moveEvent: PointerEvent) => {
-      if (moveEvent.pointerId !== pointerId) return;
-      moveEvent.preventDefault();
-      const next = startScroll + ((moveEvent.clientY - startY) / travel * maxScroll);
-      window.scrollTo({ top: Math.min(maxScroll, Math.max(0, next)), behavior: "instant" });
-    };
-    const finish = (finishEvent: PointerEvent) => {
-      if (finishEvent.pointerId !== pointerId) return;
-      thumb.removeEventListener("pointermove", move);
-      thumb.removeEventListener("pointerup", finish);
-      thumb.removeEventListener("pointercancel", finish);
-      try { thumb.releasePointerCapture(pointerId); } catch { /* Pointer capture is optional. */ }
-    };
-    thumb.addEventListener("pointermove", move);
-    thumb.addEventListener("pointerup", finish);
-    thumb.addEventListener("pointercancel", finish);
-  }
-
-  private handleScrollbarKey(event: KeyboardEvent): void {
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    let next: number | null = null;
-    if (event.key === "ArrowUp") next = window.scrollY - 40;
-    if (event.key === "ArrowDown") next = window.scrollY + 40;
-    if (event.key === "PageUp") next = window.scrollY - (window.innerHeight * 0.9);
-    if (event.key === "PageDown") next = window.scrollY + (window.innerHeight * 0.9);
-    if (event.key === "Home") next = 0;
-    if (event.key === "End") next = maxScroll;
-    if (next === null) return;
-    event.preventDefault();
-    window.scrollTo({ top: Math.min(maxScroll, Math.max(0, next)), behavior: "instant" });
-  }
-
-  private createPanel(): HTMLElement {
+  private createPanel(secondary = false): HTMLElement {
     const panel = document.createElement("section");
-    panel.id = "ldu-topic-panel";
+    panel.id = secondary ? "ldu-secondary-topic-panel" : "ldu-topic-panel";
+    panel.className = secondary ? "ldu-secondary-topic-panel" : "";
     panel.hidden = true;
-    panel.setAttribute("aria-label", "帖子阅读区");
+    panel.setAttribute("aria-label", secondary ? "第二帖子阅读区" : "帖子阅读区");
     panel.innerHTML = `
       <div class="ldu-topic-toolbar">
-        <div class="ldu-tab-strip" role="tablist" aria-label="已打开的帖子"></div>
+        <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "第二阅读区" : "主阅读区"}已打开的帖子"></div>
         <div class="ldu-topic-actions"></div>
       </div>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">从列表中选择帖子</div>
       </div>
-      <button class="ldu-resize-handle ldu-resize-before" type="button" aria-label="调整左侧区域宽度"></button>
-      <button class="ldu-resize-handle ldu-resize-after" type="button" aria-label="调整主题列表宽度"></button>
+      ${secondary ? "" : '<button class="ldu-resize-handle ldu-resize-before" type="button" aria-label="调整左侧区域宽度"></button><button class="ldu-resize-handle ldu-resize-after" type="button" aria-label="调整主题列表宽度"></button>'}
     `;
-    this.bindResizeHandle(panel.querySelector(".ldu-resize-before"), "before");
-    this.bindResizeHandle(panel.querySelector(".ldu-resize-after"), "after");
+    if (!secondary) {
+      this.bindResizeHandle(panel.querySelector(".ldu-resize-before"), "before");
+      this.bindResizeHandle(panel.querySelector(".ldu-resize-after"), "after");
+    }
     return panel;
+  }
+
+  private createShell(): HTMLElement {
+    const shell = document.createElement("div");
+    shell.id = "ldu-layout-shell";
+    shell.hidden = true;
+    shell.setAttribute("aria-label", "Linux Do 分屏工作区");
+    const list = document.createElement("div");
+    list.className = "ldu-list-content";
+    list.setAttribute("aria-label", "非阅读页区域");
+    shell.append(list, this.createPanel(), this.createPanel(true));
+    return shell;
   }
 
   private bindResizeHandle(handle: Element | null, side: "before" | "after"): void {

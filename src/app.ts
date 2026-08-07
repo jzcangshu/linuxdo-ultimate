@@ -16,17 +16,18 @@ import {
   stageSessionClose,
 } from "./core/storage";
 import type { SessionLease } from "./core/storage";
-import type { SessionState, Settings } from "./core/types";
+import type { SessionState, Settings, TopicTabState } from "./core/types";
 import { classifyRoute, getTopicInfo, isSplitRoute, isSupportedTopicTarget } from "./discourse/routes";
 import { createBrowserViewTracker } from "./discourse/view-tracker";
-import { consumeDirectTopicHandoff, peekDirectTopicHandoff, saveDirectTopicHandoff } from "./discourse/direct-topic-handoff";
 import { readTopicCategory, type TopicCategoryPresentation } from "./discourse/category";
 import { TopicFramePool, type FrameMessage } from "./tabs/frame-pool";
+import { ListFrameController, type ListFrameMessage } from "./tabs/list-frame";
 import { TopicTabStore } from "./tabs/tab-store";
 import { renderTabStrip } from "./tabs/tab-strip";
 import { LayoutController } from "./ui/layout-controller";
 import { SettingsPanel } from "./ui/settings-panel";
 import { ensureAppStyles } from "./ui/styles";
+import { TabContextMenu } from "./ui/tab-context-menu";
 import { PreviewController } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
 
@@ -48,7 +49,9 @@ class LinuxDoApp {
   private session!: SessionState;
   private tabStore!: TopicTabStore;
   private layout!: LayoutController;
-  private frames!: TopicFramePool;
+  private frames: TopicFramePool | null = null;
+  private secondaryFrames: TopicFramePool | null = null;
+  private listFrame: ListFrameController | null = null;
   private preview!: PreviewController;
   private settingsPanel!: SettingsPanel;
   private credit!: CreditWidget;
@@ -56,7 +59,6 @@ class LinuxDoApp {
   private routeTimer: number | null = null;
   private persistTimer: number | null = null;
   private lastRoute = "";
-  private listScrollBound = false;
   private restoredTabsTracked = false;
   private trackedTopicKey = "";
   private topicTrackTimers: number[] = [];
@@ -66,6 +68,7 @@ class LinuxDoApp {
   private hasRestoredSession = false;
   private sessionLease!: SessionLease;
   private leaseTimer: number | null = null;
+  private tabContextMenu!: TabContextMenu;
 
   start(): void {
     this.settings = loadSettings(this.storage);
@@ -76,6 +79,14 @@ class LinuxDoApp {
       onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode }),
     });
     this.preview.mount();
+    this.tabContextMenu = new TabContextMenu({
+      onMoveToSplit: (tabId) => this.moveTabToSecondary(tabId),
+      onOpenBrowserTab: (tabId) => this.openTabInBrowser(tabId),
+      onReload: (tabId) => this.reloadTab(tabId),
+      onCopyLink: (tabId) => void this.copyTabLink(tabId),
+      onBookmark: (tabId) => this.bookmarkTab(tabId),
+      onCloseOthers: (tabId) => this.closeOtherTabs(tabId),
+    });
     this.sessionLease = claimSessionId(
       this.storage,
       window.sessionStorage,
@@ -88,9 +99,7 @@ class LinuxDoApp {
     const initial = createSession(sessionId, location.href, Date.now());
     initial.paneSizes = { ...this.settings.paneSizes };
     const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
-    const hasDirectTopicHandoff = Boolean(peekDirectTopicHandoff(window.sessionStorage, Date.now(), location.href));
     const previousSession = !currentSession
-      && !hasDirectTopicHandoff
       && classifyRoute(location.href) !== "topic"
       && this.settings.restoreSession
       ? loadLatestSession(this.storage, sessionId, location.href, Date.now())
@@ -127,7 +136,11 @@ class LinuxDoApp {
 
   private bindGlobalEvents(): void {
     document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
-    window.addEventListener("message", (event) => this.frames?.handleMessage(event));
+    window.addEventListener("message", (event) => {
+      this.frames?.handleMessage(event);
+      this.secondaryFrames?.handleMessage(event);
+      this.listFrame?.handleMessage(event);
+    });
     window.addEventListener("popstate", () => this.scheduleRouteSync());
     window.addEventListener("hashchange", () => this.scheduleRouteSync());
     window.addEventListener("pagehide", (event) => this.handlePageHide(event), { capture: true });
@@ -150,18 +163,27 @@ class LinuxDoApp {
     const target = event.target;
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link) return;
-    if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-map, .topic-timeline, .no-track-view-patch")) return;
-    if (classifyRoute(location.href) === "topic") {
+    if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
+    if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
       this.promoteDirectTopicNavigation(event, link);
       return;
     }
-    if (!isSupportedTopicTarget(link.href, location.href)) return;
-    const info = getTopicInfo(link.href);
-    if (!info) return;
+    if (isSupportedTopicTarget(link.href, location.href)) {
+      const info = getTopicInfo(link.href);
+      if (!info) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
+      this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined);
+      return;
+    }
+    if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
+    let targetUrl: URL;
+    try { targetUrl = new URL(link.href, location.href); } catch { return; }
+    if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const category = readTopicCategory(link.closest(".topic-list-item, .latest-topic-list-item, .search-result") ?? document);
-    this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined);
+    this.navigateList(targetUrl.href);
   }
 
   private openTopic(
@@ -170,11 +192,15 @@ class LinuxDoApp {
     title: string,
     postNumber?: number,
     category?: TopicCategoryPresentation,
+    pane: "primary" | "secondary" = "primary",
   ): void {
     if (!this.layout.mount()) return;
+    this.ensureListFrame();
     this.ensureFrames();
     this.layout.setOpen(true);
-    this.tabStore.open({ topicId, url, title, ...(postNumber ? { postNumber } : {}), ...category }, Date.now());
+    const input = { topicId, url, title, ...(postNumber ? { postNumber } : {}), ...category };
+    if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
+    else this.tabStore.open(input, Date.now());
     const info = getTopicInfo(url);
     if (info) {
       const tracker = createBrowserViewTracker();
@@ -192,27 +218,6 @@ class LinuxDoApp {
       this.lastRoute = location.href;
     }
     const route = classifyRoute(location.href);
-    const pendingHandoff = peekDirectTopicHandoff(window.sessionStorage, Date.now(), location.href);
-    if (route === "topic" && pendingHandoff) {
-      location.replace(pendingHandoff.listUrl);
-      return;
-    }
-    if (route === "topic" && this.tabStore.getTabs().length > 0) {
-      const info = getTopicInfo(location.href);
-      if (info) {
-        this.tabStore.open({
-          topicId: info.topicId,
-          url: info.url.href,
-          title: this.currentTopicTitle(info.topicId),
-          ...(info.postNumber ? { postNumber: info.postNumber } : {}),
-        }, Date.now());
-      }
-      const listUrl = isSplitRoute(this.tabStore.getSession().listUrl)
-        ? this.tabStore.getSession().listUrl
-        : new URL("/", location.href).href;
-      location.replace(listUrl);
-      return;
-    }
     const shouldHostSplit = this.settings.enabled
       && this.settings.tabsEnabled
       && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
@@ -223,33 +228,30 @@ class LinuxDoApp {
         return;
       }
       this.routeRetryAttempts = 0;
-      this.bindListScroll();
-      this.ensureFrames();
       const hasTabs = this.tabStore.getTabs().length > 0;
       this.layout.setOpen(hasTabs);
       if (hasTabs) {
+        this.ensureListFrame();
+        this.ensureFrames();
+        if (this.tabStore.getSecondaryTabs().length > 0) {
+          this.layout.setSecondaryOpen(true);
+          this.ensureSecondaryFrames();
+        }
         const active = this.tabStore.getActive();
         if (active) {
-          this.activateFrame(active);
+          this.activateFrame(active, "primary");
           if (this.hasRestoredSession && !this.restoredTabsTracked) {
             this.restoredTabsTracked = true;
             const info = getTopicInfo(active.url);
             if (info) void createBrowserViewTracker().track(info, "restored-tab", location.href);
           }
         }
-        this.restoreListScroll();
-      }
-      const handoff = consumeDirectTopicHandoff(window.sessionStorage, Date.now(), location.href);
-      if (handoff) {
-        this.tabStore.setSessionFields({ listUrl: handoff.listUrl, listScrollY: 0 }, Date.now(), false);
-        for (const topic of handoff.topics) {
-          const info = getTopicInfo(topic.url, location.href);
-          if (info) this.openTopic(info.topicId, info.url.href, topic.title, info.postNumber);
-        }
+        const secondaryActive = this.tabStore.getSecondaryActive();
+        if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
       }
       return;
     }
-    this.layout?.setOpen(false);
+    this.disposeSplitRuntime();
     if (route === "topic") {
       const info = getTopicInfo(location.href);
       if (info) this.scheduleTopicTracking(info.topicId, info.url.href);
@@ -269,28 +271,21 @@ class LinuxDoApp {
     }
     if (targetUrl.origin !== location.origin) return;
     const targetRoute = classifyRoute(targetUrl.href, location.href);
-    const currentTopic = { url: current.url.href, title: this.currentTopicTitle(current.topicId) };
+    if (targetRoute === "topic" && getTopicInfo(targetUrl.href, location.href)?.topicId === current.topicId) return;
+    if (link.target === "_blank" || link.hasAttribute("download")) return;
+    const listUrl = targetRoute === "topic" ? new URL("/", location.href).href : targetUrl.href;
+    if (!this.layout.mount()) return;
+    this.clearTopicTrackSchedule();
+    this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
+    this.ensureListFrame(listUrl);
+    this.ensureFrames();
+    this.layout.setOpen(true);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber);
     if (targetRoute === "topic") {
       const target = getTopicInfo(targetUrl.href, location.href);
-      if (!target || target.topicId === current.topicId) return;
-      const saved = saveDirectTopicHandoff(window.sessionStorage, {
-        listUrl: new URL("/", location.href).href,
-        topics: [currentTopic, {
-          url: target.url.href,
-          title: link.textContent?.trim() || `主题 ${target.topicId}`,
-        }],
-      }, Date.now());
-      if (!saved) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      location.assign(new URL("/", location.href).href);
-      return;
-    }
-    if (targetRoute === "list" || targetRoute === "search") {
-      saveDirectTopicHandoff(window.sessionStorage, {
-        listUrl: targetUrl.href,
-        topics: [currentTopic],
-      }, Date.now());
+      if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `主题 ${target.topicId}`, target.postNumber);
     }
   }
 
@@ -314,13 +309,96 @@ class LinuxDoApp {
     this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
   }
 
+  private ensureListFrame(requestedUrl?: string): void {
+    const container = this.layout.getListContentElement();
+    if (!container) return;
+    if (!this.listFrame) {
+      this.listFrame = new ListFrameController(
+        container,
+        this.session.sessionId,
+        (message, iframe) => this.handleListFrameMessage(message, iframe),
+      );
+    }
+    this.listFrame.setConfig({
+      enabled: this.settings.enabled && this.settings.previewEnabled,
+      clickMode: this.settings.previewClickMode,
+      hidePosters: this.settings.hidePosters,
+    });
+    const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
+    let resolved: URL;
+    try { resolved = new URL(storedListUrl || "/", location.href); } catch { resolved = new URL("/", location.href); }
+    const listUrl = resolved.origin !== location.origin || getTopicInfo(resolved.href, location.href)
+      ? new URL("/", location.href).href
+      : resolved.href;
+    this.listFrame.mount(listUrl);
+  }
+
+  private navigateList(url: string): void {
+    let target: URL;
+    try { target = new URL(url, location.href); } catch { return; }
+    if (target.origin !== location.origin || getTopicInfo(target.href, location.href)) return;
+    if (!this.layout.mount()) return;
+    this.tabStore.setSessionFields({ listUrl: target.href, listScrollY: 0 }, Date.now(), false);
+    saveSession(this.storage, this.tabStore.getSession());
+    this.ensureListFrame(target.href);
+    this.listFrame?.navigate(target.href);
+  }
+
+  private handleListFrameMessage(message: ListFrameMessage, iframe: HTMLIFrameElement): void {
+    if (message.type === "ldu:list-interaction") {
+      document.body.dispatchEvent(new MouseEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      }));
+      return;
+    }
+    if (message.type === "ldu:list-preview-open") {
+      this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
+      return;
+    }
+    if (message.type === "ldu:list-preview-dismiss") {
+      this.preview.close();
+      return;
+    }
+    if (message.type === "ldu:list-topic-open") {
+      const info = message.url ? getTopicInfo(message.url, location.href) : null;
+      if (!info) return;
+      const category = message.categoryName && message.categoryColor
+        ? { categoryName: message.categoryName, categoryColor: message.categoryColor }
+        : undefined;
+      this.openTopic(info.topicId, info.url.href, message.topicTitle || `主题 ${info.topicId}`, info.postNumber, category);
+      return;
+    }
+    if (message.type === "ldu:list-navigate" && message.url) {
+      this.navigateList(message.url);
+      return;
+    }
+    if (!message.url || getTopicInfo(message.url, location.href)) return;
+    const previousSession = this.tabStore.getSession();
+    const nextListUrl = new URL(message.url, location.href).href;
+    const sameListUrl = previousSession.listUrl === nextListUrl;
+    const savedScrollY = sameListUrl ? previousSession.listScrollY : 0;
+    this.tabStore.setSessionFields({
+      listUrl: nextListUrl,
+      ...(message.type === "ldu:list-state" && typeof message.scrollY === "number"
+        ? { listScrollY: message.scrollY }
+        : !sameListUrl ? { listScrollY: 0 } : {}),
+    }, Date.now(), false);
+    if (message.type === "ldu:list-state") this.schedulePersist();
+    if (message.type === "ldu:list-ready") {
+      this.listFrame?.restoreScroll(savedScrollY);
+      this.schedulePersist();
+    }
+  }
+
   private ensureFrames(): void {
     const content = this.layout.getContentElement();
     if (!content || this.frames) return;
     this.frames = new TopicFramePool(
       content,
       this.settings.maxLiveFrames,
-      (message, iframe) => this.handleFrameMessage(message, iframe),
+      (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
       (tabId, iframe) => {
         const scrollY = iframe.contentWindow?.scrollY ?? 0;
         this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
@@ -332,6 +410,25 @@ class LinuxDoApp {
       clickMode: this.settings.previewClickMode,
     });
     this.renderTabs();
+  }
+
+  private ensureSecondaryFrames(): void {
+    const content = this.layout.getSecondaryContentElement();
+    if (!content || this.secondaryFrames) return;
+    this.secondaryFrames = new TopicFramePool(
+      content,
+      this.settings.maxLiveFrames,
+      (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
+      (tabId, iframe) => {
+        const scrollY = iframe.contentWindow?.scrollY ?? 0;
+        this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+        this.schedulePersist();
+      },
+    );
+    this.secondaryFrames.setPreviewConfig({
+      enabled: this.settings.enabled && this.settings.previewEnabled,
+      clickMode: this.settings.previewClickMode,
+    });
   }
 
   private mountSettings(): void {
@@ -365,9 +462,19 @@ class LinuxDoApp {
       saveSession(this.storage, this.tabStore.getSession());
     }
     this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
+    this.secondaryFrames?.setMaxLiveFrames(this.settings.maxLiveFrames);
     this.frames?.setPreviewConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
+    });
+    this.secondaryFrames?.setPreviewConfig({
+      enabled: this.settings.enabled && this.settings.previewEnabled,
+      clickMode: this.settings.previewClickMode,
+    });
+    this.listFrame?.setConfig({
+      enabled: this.settings.enabled && this.settings.previewEnabled,
+      clickMode: this.settings.previewClickMode,
+      hidePosters: this.settings.hidePosters,
     });
     this.settingsPanel?.setSettings(this.settings);
     this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
@@ -379,12 +486,24 @@ class LinuxDoApp {
       && this.settings.tabsEnabled
       && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
     if (!canShowTabs) {
-      this.layout.setOpen(false);
+      this.disposeSplitRuntime();
       return;
     }
+    if (!this.layout.mount()) return;
     const active = this.tabStore.getActive();
-    this.layout.setOpen(Boolean(active));
-    if (active) this.activateFrame(active);
+    const hasTabs = this.tabStore.getTabs().length > 0;
+    this.layout.setOpen(hasTabs);
+    if (hasTabs) {
+      this.ensureListFrame();
+      this.ensureFrames();
+      if (active) this.activateFrame(active, "primary");
+      const secondaryActive = this.tabStore.getSecondaryActive();
+      if (secondaryActive) {
+        this.layout.setSecondaryOpen(true);
+        this.ensureSecondaryFrames();
+        this.activateFrame(secondaryActive, "secondary");
+      }
+    }
   }
 
   private persistPaneSizes(paneSizes: Settings["paneSizes"]): void {
@@ -414,14 +533,16 @@ class LinuxDoApp {
     this.trackedTopicKey = "";
   }
 
-  private activateFrame(tab: ReturnType<TopicTabStore["getActive"]>): void {
-    if (!tab || !this.frames) return;
-    const iframe = this.frames.activate(tab, Date.now());
-    const empty = this.layout.getContentElement()?.querySelector<HTMLElement>(".ldu-topic-empty");
+  private activateFrame(tab: ReturnType<TopicTabStore["getActive"]>, pane: "primary" | "secondary"): void {
+    const pool = pane === "secondary" ? this.secondaryFrames : this.frames;
+    if (!tab || !pool) return;
+    pool.activate(tab, Date.now());
+    const content = pane === "secondary" ? this.layout.getSecondaryContentElement() : this.layout.getContentElement();
+    const empty = content?.querySelector<HTMLElement>(".ldu-topic-empty");
     if (empty) empty.hidden = true;
   }
 
-  private handleFrameMessage(message: FrameMessage, iframe: HTMLIFrameElement): void {
+  private handleFrameMessage(message: FrameMessage, iframe: HTMLIFrameElement, pane: "primary" | "secondary"): void {
     const tab = this.tabStore.getTabs().find((candidate) => candidate.id === message.tabId);
     if (!tab) return;
     if (message.type === "ldu:frame-interaction") {
@@ -430,6 +551,14 @@ class LinuxDoApp {
         cancelable: true,
         button: 0,
       }));
+      return;
+    }
+    if (message.type === "ldu:bookmark-result") {
+      this.showActionToast(message.message || (message.ok ? "已添加到书签" : "添加书签失败"), message.ok === false);
+      return;
+    }
+    if (message.type === "ldu:list-navigate" && message.url) {
+      this.navigateList(message.url);
       return;
     }
     if (message.type === "ldu:preview-open") {
@@ -443,7 +572,7 @@ class LinuxDoApp {
     if (message.type === "ldu:topic-open") {
       const info = message.url ? getTopicInfo(message.url, location.href) : null;
       if (!info || !isSupportedTopicTarget(info.url.href, tab.url)) return;
-      this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber);
+      this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber, undefined, pane);
       return;
     }
     const info = message.url ? getTopicInfo(message.url) : null;
@@ -468,19 +597,33 @@ class LinuxDoApp {
   private renderTabs(): void {
     const root = this.layout?.getTabStripElement();
     if (!root || !this.tabStore) return;
-    renderTabStrip(root, this.tabStore.getTabs(), this.tabStore.getSession().activeTabId, {
+    const primaryTabs = this.tabStore.getPrimaryTabs();
+    const secondaryTabs = this.tabStore.getSecondaryTabs();
+    this.layout.setSecondaryOpen(secondaryTabs.length > 0);
+    if (secondaryTabs.length > 0) this.ensureSecondaryFrames();
+    else if (this.secondaryFrames) {
+      this.secondaryFrames.destroy();
+      this.secondaryFrames = null;
+    }
+    renderTabStrip(root, primaryTabs, this.tabStore.getSession().activeTabId, {
       onActivate: (tabId) => {
         const tab = this.tabStore.activate(tabId, Date.now());
-        if (tab) this.activateFrame(tab);
+        if (tab) this.activateFrame(tab, "primary");
       },
-      onClose: (tabId) => {
-        this.frames?.remove(tabId);
-        this.tabStore.close(tabId, Date.now());
-        const active = this.tabStore.getActive();
-        if (active) this.activateFrame(active);
-        else this.layout.setOpen(false);
-      },
+      onClose: (tabId) => this.closeTab(tabId, "primary"),
+      onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
     }, { colorizeTabs: this.settings.colorizeTabs });
+    const secondaryRoot = this.layout.getSecondaryTabStripElement();
+    if (secondaryRoot) {
+      renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
+        onActivate: (tabId) => {
+          const tab = this.tabStore.activateSecondary(tabId, Date.now());
+          if (tab) this.activateFrame(tab, "secondary");
+        },
+        onClose: (tabId) => this.closeTab(tabId, "secondary"),
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+      }, { colorizeTabs: this.settings.colorizeTabs });
+    }
     const actions = this.layout.getActionsElement();
     if (actions && !actions.querySelector(".ldu-close-all")) {
       const close = document.createElement("button");
@@ -490,46 +633,182 @@ class LinuxDoApp {
       close.title = "关闭所有帖子标签";
       close.setAttribute("aria-label", "关闭所有帖子标签");
       close.addEventListener("click", () => {
-        for (const tab of this.tabStore.getTabs()) this.frames?.remove(tab.id);
+        for (const tab of this.tabStore.getTabs()) {
+          this.frames?.remove(tab.id);
+          this.secondaryFrames?.remove(tab.id);
+        }
         this.tabStore.clear(Date.now());
-        this.layout.setOpen(false);
+        this.disposeSplitRuntime();
       });
       actions.append(close);
     }
+    const secondaryActions = this.layout.getSecondaryActionsElement();
+    if (secondaryActions && !secondaryActions.querySelector(".ldu-close-secondary")) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "ldu-icon-button ldu-close-secondary";
+      close.textContent = "×";
+      close.title = "关闭第二阅读区";
+      close.setAttribute("aria-label", "关闭第二阅读区并将标签移回主阅读区");
+      close.addEventListener("click", () => this.closeSecondaryPanel());
+      secondaryActions.append(close);
+    }
     const empty = this.layout.getContentElement()?.querySelector<HTMLElement>(".ldu-topic-empty");
-    if (empty) empty.hidden = this.tabStore.getTabs().length > 0;
+    if (empty) empty.hidden = primaryTabs.length > 0;
+    const secondaryEmpty = this.layout.getSecondaryContentElement()?.querySelector<HTMLElement>(".ldu-topic-empty");
+    if (secondaryEmpty) secondaryEmpty.hidden = secondaryTabs.length > 0;
     const active = this.tabStore.getActive();
-    if (active) this.activateFrame(active);
+    if (active) this.activateFrame(active, "primary");
+    const secondaryActive = this.tabStore.getSecondaryActive();
+    if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
   }
 
-  private bindListScroll(): void {
-    if (this.listScrollBound) return;
-    this.listScrollBound = true;
-    let timer: number | null = null;
-    window.addEventListener("scroll", () => {
-      if (!isSplitRoute(location.href)) return;
-      if (timer !== null) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        timer = null;
-        if (!isSplitRoute(location.href)) return;
-        this.tabStore.setSessionFields({ listUrl: location.href, listScrollY: window.scrollY }, Date.now(), false);
-        this.schedulePersist();
-      }, 180);
-    }, { passive: true });
+  private closeTab(tabId: string, pane: "primary" | "secondary"): void {
+    (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
+    this.tabStore.close(tabId, Date.now());
+    if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
   }
 
-  private restoreListScroll(): void {
-    if (this.tabStore.getSession().listUrl !== location.href) return;
-    window.setTimeout(() => window.scrollTo({ top: this.tabStore.getSession().listScrollY, behavior: "instant" }), 0);
+  private moveTabToSecondary(tabId: string): void {
+    if (this.tabStore.getSession().secondaryTabIds.includes(tabId)) return;
+    const tab = this.captureLiveFrameState(tabId, this.frames);
+    if (!tab || !this.layout.mount()) return;
+    const transfer = this.frames?.detach(tabId) ?? null;
+    this.layout.setSecondaryOpen(true);
+    this.ensureSecondaryFrames();
+    const moved = this.tabStore.moveToSecondary(tabId, Date.now(), false);
+    if (!moved) return;
+    if (transfer && this.secondaryFrames) this.secondaryFrames.adopt(moved, transfer, Date.now());
+    saveSession(this.storage, this.tabStore.getSession());
+    this.renderTabs();
+  }
+
+  private closeSecondaryPanel(): void {
+    const secondaryTabs = this.tabStore.getSecondaryTabs();
+    const transfers = secondaryTabs.flatMap((tab) => {
+      const current = this.captureLiveFrameState(tab.id, this.secondaryFrames) ?? tab;
+      const transfer = this.secondaryFrames?.detach(tab.id);
+      return transfer ? [{ tab: current, transfer }] : [];
+    });
+    this.tabStore.mergeSecondaryIntoPrimary(Date.now(), false);
+    for (const { tab, transfer } of transfers) this.frames?.adopt(tab, transfer, Date.now());
+    saveSession(this.storage, this.tabStore.getSession());
+    this.renderTabs();
+  }
+
+  private openTabInBrowser(tabId: string): void {
+    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    const anchor = document.createElement("a");
+    anchor.href = tab.url;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.click();
+  }
+
+  private reloadTab(tabId: string): void {
+    const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+    this.captureLiveFrameState(tabId, secondary ? this.secondaryFrames : this.frames);
+    const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+    if (!tab) return;
+    const pool = secondary ? this.secondaryFrames : this.frames;
+    this.activateFrame(tab, secondary ? "secondary" : "primary");
+    pool?.reload(tabId);
+  }
+
+  private async copyTabLink(tabId: string): Promise<void> {
+    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    try {
+      await navigator.clipboard.writeText(tab.url);
+      return;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = tab.url;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+  }
+
+  private bookmarkTab(tabId: string): void {
+    const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+    const tab = secondary ? this.tabStore.activateSecondary(tabId, Date.now()) : this.tabStore.activate(tabId, Date.now());
+    if (!tab) return;
+    this.activateFrame(tab, secondary ? "secondary" : "primary");
+    (secondary ? this.secondaryFrames : this.frames)?.sendCommand(tabId, {
+      type: "ldu:bookmark",
+      topicId: tab.topicId,
+    });
+  }
+
+  private closeOtherTabs(tabId: string): void {
+    const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+    const paneTabs = secondary ? this.tabStore.getSecondaryTabs() : this.tabStore.getPrimaryTabs();
+    for (const tab of paneTabs) {
+      if (tab.id !== tabId) (secondary ? this.secondaryFrames : this.frames)?.remove(tab.id);
+    }
+    this.tabStore.closeOthersInPane(tabId, Date.now());
   }
 
   private persistSession(): void {
     const active = this.tabStore?.getActive();
-    if (active && this.frames) {
-      const iframe = document.querySelector<HTMLIFrameElement>(`iframe[data-tab-id="${CSS.escape(active.id)}"]`);
-      if (iframe) this.tabStore.update(active.id, { scrollY: iframe.contentWindow?.scrollY ?? active.scrollY }, Date.now(), false);
-    }
+    if (active && this.frames) this.captureLiveFrameState(active.id, this.frames);
+    const secondaryActive = this.tabStore?.getSecondaryActive();
+    if (secondaryActive && this.secondaryFrames) this.captureLiveFrameState(secondaryActive.id, this.secondaryFrames);
     if (this.tabStore) saveSession(this.storage, this.tabStore.getSession());
+  }
+
+  private captureLiveFrameState(tabId: string, pool: TopicFramePool | null): TopicTabState | null {
+    const tab = this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? null;
+    const iframe = pool?.getFrame(tabId);
+    if (!tab || !iframe?.contentWindow) return tab;
+    let url = tab.url;
+    let title = tab.title;
+    let scrollY = tab.scrollY;
+    try {
+      const currentUrl = iframe.contentWindow.location.href;
+      if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
+      const currentTitle = iframe.contentDocument?.title?.trim();
+      if (currentTitle) title = currentTitle;
+      scrollY = iframe.contentWindow.scrollY;
+    } catch {
+      return tab;
+    }
+    const info = getTopicInfo(url, tab.url);
+    this.tabStore.update(tabId, {
+      url,
+      title,
+      scrollY,
+      ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
+      suspended: false,
+    }, Date.now(), false);
+    return this.tabStore.getTabs().find((candidate) => candidate.id === tabId) ?? tab;
+  }
+
+  private showActionToast(message: string, isError: boolean): void {
+    document.querySelector(".ldu-action-toast")?.remove();
+    const toast = document.createElement("div");
+    toast.className = `ldu-action-toast${isError ? " is-error" : ""}`;
+    toast.setAttribute("role", isError ? "alert" : "status");
+    toast.textContent = message;
+    document.body.append(toast);
+    window.setTimeout(() => toast.remove(), 2_800);
+  }
+
+  private disposeSplitRuntime(): void {
+    this.preview?.close();
+    this.frames?.destroy();
+    this.frames = null;
+    this.secondaryFrames?.destroy();
+    this.secondaryFrames = null;
+    this.tabContextMenu?.close();
+    this.listFrame?.destroy();
+    this.listFrame = null;
+    this.layout?.destroy();
   }
 
   private handlePageHide(event: PageTransitionEvent): void {

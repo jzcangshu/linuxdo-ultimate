@@ -2212,23 +2212,31 @@ export function installLinkHoverPreviewer(options) {
     }
 
     /**
-     * 创建或重置居中加载遮罩，返回该元素。
+     * 正常加载不再覆盖预览内容。页面本身会先显示空白/已有缓存内容，
+     * 只有真正失败时才由 showError 创建错误提示。
      */
     function showLoadingBar(tab) {
-        if (!tab || !tab.pane) return null;
-        const existing = tab.pane.querySelector('.agy-loading-overlay');
-        if (existing) existing.remove();
-        tab.pane.setAttribute('aria-busy', 'true');
+        if (tab?.pane) tab.pane.setAttribute('aria-busy', 'false');
+        if (tab) tab.loadingBar = null;
+        return null;
+    }
+
+    function createErrorBar(tab, message) {
+        if (!tab?.pane) return null;
         const bar = document.createElement('div');
         bar.className = 'agy-loading-overlay';
         bar.setAttribute('role', 'status');
         bar.setAttribute('aria-live', 'polite');
         bar.innerHTML = `
             <div class="agy-loading-card">
-                <div class="agy-spinner"></div>
-                <div class="agy-loading-text">页面加载中，请稍候...</div>
+                <div class="agy-loading-text"></div>
             </div>
         `;
+        const textNode = bar.querySelector('.agy-loading-text');
+        if (textNode) {
+            textNode.textContent = `加载出错: ${message}`;
+            textNode.style.color = '#ff3b30';
+        }
         tab.pane.appendChild(bar);
         tab.loadingBar = bar;
         return bar;
@@ -2983,7 +2991,7 @@ export function installLinkHoverPreviewer(options) {
         clearContentReadyTimer(tab);
         tab.loadState = 'error';
         let bar = tab.loadingBar;
-        if (!bar) bar = showLoadingBar(tab);
+        if (!bar) bar = createErrorBar(tab, msg);
         if (!bar) return;
         if (tab.pane) tab.pane.setAttribute('aria-busy', 'false');
         if (tab.iframe) tab.iframe.style.visibility = 'hidden';
@@ -2991,11 +2999,6 @@ export function installLinkHoverPreviewer(options) {
         if (textNode) {
             textNode.textContent = `加载出错: ${msg}`;
             textNode.style.color = '#ff3b30';
-        }
-        const spinner = bar.querySelector('.agy-spinner');
-        if (spinner) {
-            spinner.style.borderTopColor = '#ff3b30';
-            spinner.style.animationPlayState = 'paused';
         }
     }
 

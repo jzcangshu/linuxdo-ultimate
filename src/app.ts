@@ -30,16 +30,20 @@ import { SettingsPanel } from "./ui/settings-panel";
 import { ensureAppStyles } from "./ui/styles";
 import { TabContextMenu } from "./ui/tab-context-menu";
 import { setIcon } from "./ui/icons";
-import { PreviewController } from "./preview/upstream-preview-controller";
+import { PreviewController, type PreviewLoader } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
 
 const ROUTE_DEBOUNCE_MS = 100;
 const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
 const LIST_HANDOFF_TIMEOUT_MS = 3_000;
 
-export function startLinuxDoApp(): void {
+export interface LinuxDoAppOptions {
+  loadPreviewer?: PreviewLoader;
+}
+
+export function startLinuxDoApp(options: LinuxDoAppOptions = {}): void {
   if (window.self !== window.top) return;
-  const start = () => new LinuxDoApp().start();
+  const start = () => new LinuxDoApp(options).start();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start, { once: true });
   } else {
@@ -76,6 +80,8 @@ class LinuxDoApp {
   private tabContextMenu!: TabContextMenu;
   private listHandoffTimer: number | null = null;
 
+  constructor(private readonly options: LinuxDoAppOptions) {}
+
   start(): void {
     this.settings = loadSettings(this.storage);
     ensureAppStyles();
@@ -83,6 +89,7 @@ class LinuxDoApp {
       isEnabled: () => this.settings.enabled && this.settings.previewEnabled,
       clickMode: () => this.settings.previewClickMode,
       onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode }),
+      loadPreviewer: this.options.loadPreviewer ?? (() => Promise.reject(new Error("Preview runtime is unavailable"))),
     });
     this.preview.mount();
     this.tabContextMenu = new TabContextMenu({

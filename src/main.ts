@@ -8,6 +8,7 @@ declare global {
 
 import { startLinuxDoApp } from "./app";
 import { bootFrameBridge } from "./frame-bridge";
+import { installLinkHoverPreviewer } from "./preview/link-hover-previewer-upstream";
 
 export function boot(): void {
   if (window.__linuxDoUltimateLoaded) return;
@@ -19,6 +20,6 @@ if (typeof window !== "undefined") {
     bootFrameBridge();
   } else {
     boot();
-    startLinuxDoApp();
+    startLinuxDoApp({ loadPreviewer: () => installLinkHoverPreviewer });
   }
 }

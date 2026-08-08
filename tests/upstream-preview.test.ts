@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
 import { PreviewController } from "../src/preview/upstream-preview-controller";
+import { installLinkHoverPreviewer } from "../src/preview/link-hover-previewer-upstream";
+
+const loadPreviewer = () => installLinkHoverPreviewer;
 
 describe("vendored upstream previewer", () => {
   afterEach(() => {
@@ -30,7 +33,7 @@ describe("vendored upstream previewer", () => {
       return 1;
     });
 
-    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double" });
+    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double", loadPreviewer });
     controller.mount();
     const hoverLink = document.createElement("a");
     hoverLink.href = "https://hover.example/file.zip";
@@ -83,7 +86,7 @@ describe("vendored upstream previewer", () => {
     vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
     vi.stubGlobal("GM_setValue", vi.fn());
     vi.stubGlobal("GM_xmlhttpRequest", vi.fn());
-    const controller = new PreviewController({ isEnabled: () => enabled, clickMode: () => "double" });
+    const controller = new PreviewController({ isEnabled: () => enabled, clickMode: () => "double", loadPreviewer });
 
     controller.mount();
     expect(document.head.textContent).not.toContain(".agy-preview-container");
@@ -129,7 +132,7 @@ describe("vendored upstream previewer", () => {
     vi.stubGlobal("GM_getValue", vi.fn((_key: string, fallback: unknown) => fallback));
     vi.stubGlobal("GM_setValue", vi.fn());
     vi.stubGlobal("GM_xmlhttpRequest", vi.fn());
-    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double" });
+    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double", loadPreviewer });
     controller.mount();
     const topic = document.createElement("a");
     topic.href = `${location.origin}/t/topic/42`;

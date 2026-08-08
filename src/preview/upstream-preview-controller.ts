@@ -1,31 +1,69 @@
 import { getTopicInfo } from "../discourse/routes";
-import { installLinkHoverPreviewer } from "./link-hover-previewer-upstream";
 
 interface PreviewOptions {
   isEnabled: () => boolean;
   clickMode: () => "double" | "single";
   onClickModeChange?: (mode: "double" | "single") => void;
+  loadPreviewer: PreviewLoader;
 }
 
-interface UpstreamPreviewApi {
+export interface UpstreamPreviewApi {
   openFromFrame: (url: string, anchorRect: { left: number; top: number; bottom: number }) => void;
   close: () => void;
   syncClickMode: () => void;
 }
 
+export interface UpstreamPreviewOptions {
+  isEnabled: () => boolean;
+  clickMode: () => "double" | "single";
+  onClickModeChange?: (mode: "double" | "single") => void;
+  isPreviewableUrl: (url: string, link: HTMLAnchorElement | null) => boolean;
+}
+
+export type PreviewInstaller = (options: UpstreamPreviewOptions) => UpstreamPreviewApi | undefined;
+export type PreviewLoader = () => PreviewInstaller | Promise<PreviewInstaller>;
+
 export class PreviewController {
   private api: UpstreamPreviewApi | null = null;
+  private loading: Promise<UpstreamPreviewApi | null> | null = null;
 
   constructor(private readonly options: PreviewOptions) {}
 
   mount(): void {
-    if (this.api || !this.options.isEnabled()) return;
-    this.api = installLinkHoverPreviewer({
+    const result = this.ensureApi();
+    if (result instanceof Promise) void result;
+  }
+
+  private install(installer: PreviewInstaller): UpstreamPreviewApi | null {
+    if (this.api || !this.options.isEnabled()) return this.api;
+    const installed = installer({
       isEnabled: this.options.isEnabled,
       clickMode: this.options.clickMode,
-      onClickModeChange: this.options.onClickModeChange,
+      ...(this.options.onClickModeChange ? { onClickModeChange: this.options.onClickModeChange } : {}),
       isPreviewableUrl: (url: string, link: HTMLAnchorElement | null) => this.isPreviewable(url, link),
-    }) as UpstreamPreviewApi;
+    });
+    this.api = installed ?? null;
+    return this.api;
+  }
+
+  private ensureApi(): UpstreamPreviewApi | null | Promise<UpstreamPreviewApi | null> {
+    if (this.api || !this.options.isEnabled()) return this.api;
+    if (this.loading) return this.loading;
+    try {
+      const loaded = this.options.loadPreviewer();
+      if (!(loaded instanceof Promise)) return this.install(loaded);
+      this.loading = loaded
+        .then((installer) => this.install(installer))
+        .catch((error: unknown) => {
+          console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+          return null;
+        })
+        .finally(() => { this.loading = null; });
+      return this.loading;
+    } catch (error) {
+      console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+      return null;
+    }
   }
 
   close(): void {
@@ -33,8 +71,9 @@ export class PreviewController {
   }
 
   syncClickMode(): void {
-    this.mount();
-    this.api?.syncClickMode();
+    const result = this.ensureApi();
+    if (result instanceof Promise) void result.then((api) => api?.syncClickMode());
+    else result?.syncClickMode();
   }
 
   openFromFrame(
@@ -43,15 +82,19 @@ export class PreviewController {
     anchorRect: { left: number; bottom: number } | undefined,
   ): void {
     if (!this.options.isEnabled() || !this.isPreviewable(url, null)) return;
-    this.mount();
-    if (!this.api) return;
     const frameRect = iframe.getBoundingClientRect();
     const rect = anchorRect ?? { left: 0, bottom: 0 };
-    this.api.openFromFrame(url, {
-      left: frameRect.left + rect.left,
-      top: frameRect.top + rect.bottom,
-      bottom: frameRect.top + rect.bottom,
-    });
+    const open = (api: UpstreamPreviewApi | null) => {
+      if (!api || !this.options.isEnabled()) return;
+      api.openFromFrame(url, {
+        left: frameRect.left + rect.left,
+        top: frameRect.top + rect.bottom,
+        bottom: frameRect.top + rect.bottom,
+      });
+    };
+    const result = this.ensureApi();
+    if (result instanceof Promise) void result.then(open);
+    else open(result);
   }
 
   private isPreviewable(url: string, link: HTMLAnchorElement | null): boolean {

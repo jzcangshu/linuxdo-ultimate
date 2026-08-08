@@ -3050,6 +3050,1685 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
   };
 
+  // src/preview/upstream-preview-controller.ts
+  var PreviewController = class {
+    constructor(options) {
+      this.options = options;
+    }
+    api = null;
+    loading = null;
+    mount() {
+      const result = this.ensureApi();
+      if (result instanceof Promise) void result;
+    }
+    install(installer) {
+      if (this.api || !this.options.isEnabled()) return this.api;
+      const installed = installer({
+        isEnabled: this.options.isEnabled,
+        clickMode: this.options.clickMode,
+        ...this.options.onClickModeChange ? { onClickModeChange: this.options.onClickModeChange } : {},
+        isPreviewableUrl: (url, link) => this.isPreviewable(url, link)
+      });
+      this.api = installed ?? null;
+      return this.api;
+    }
+    ensureApi() {
+      if (this.api || !this.options.isEnabled()) return this.api;
+      if (this.loading) return this.loading;
+      try {
+        const loaded = this.options.loadPreviewer();
+        if (!(loaded instanceof Promise)) return this.install(loaded);
+        this.loading = loaded.then((installer) => this.install(installer)).catch((error) => {
+          console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+          return null;
+        }).finally(() => {
+          this.loading = null;
+        });
+        return this.loading;
+      } catch (error) {
+        console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+        return null;
+      }
+    }
+    close() {
+      this.api?.close();
+    }
+    syncClickMode() {
+      const result = this.ensureApi();
+      if (result instanceof Promise) void result.then((api) => api?.syncClickMode());
+      else result?.syncClickMode();
+    }
+    openFromFrame(url, iframe, anchorRect) {
+      if (!this.options.isEnabled() || !this.isPreviewable(url, null)) return;
+      const frameRect = iframe.getBoundingClientRect();
+      const rect = anchorRect ?? { left: 0, bottom: 0 };
+      const open = (api) => {
+        if (!api || !this.options.isEnabled()) return;
+        api.openFromFrame(url, {
+          left: frameRect.left + rect.left,
+          top: frameRect.top + rect.bottom,
+          bottom: frameRect.top + rect.bottom
+        });
+      };
+      const result = this.ensureApi();
+      if (result instanceof Promise) void result.then(open);
+      else open(result);
+    }
+    isPreviewable(url, link) {
+      if (!/^https?:/i.test(url) || getTopicInfo(url)) return false;
+      if (!link) return true;
+      if (link.closest(".d-header, .sidebar-wrapper, .ldu-topic-toolbar, .ldu-settings-panel")) return false;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return false;
+      if (link.matches(".lightbox") || link.querySelector("img, picture")) return false;
+      return !link.closest("img, picture, .lightbox-wrapper");
+    }
+  };
+
+  // src/credit/credit-widget.ts
+  var REFRESH_INTERVAL_MS = 3e5;
+  var SHARED_CACHE_TTL_MS = 6e4;
+  var SHARED_CACHE_KEY = "linuxdo-ultimate:credit-cache:v1";
+  var SHARED_REQUEST_LOCK = "linuxdo-ultimate:credit-refresh";
+  var CreditWidget = class {
+    constructor(options = {}) {
+      this.options = options;
+    }
+    host = null;
+    button = null;
+    value = null;
+    tooltip = null;
+    communityBalance = null;
+    gamificationScore = null;
+    username = null;
+    tooltipContent = "\u52A0\u8F7D\u4E2D...";
+    timeoutId = null;
+    inFlight = null;
+    requestGeneration = 0;
+    activeRequestController = null;
+    mounted = false;
+    enabled = false;
+    mount(enabled) {
+      if (this.mounted || !(this.options.isTopLevel?.() ?? window.self === window.top)) return;
+      this.mounted = true;
+      this.createWidget();
+      document.addEventListener("visibilitychange", () => this.handleVisibilityChange());
+      this.ensureHost();
+      this.setEnabled(enabled);
+    }
+    ensureHost() {
+      if (!this.host) return;
+      const language = document.querySelector(".d-header-icons > .language-switcher");
+      if (language) {
+        if (language.nextElementSibling !== this.host) language.after(this.host);
+      } else {
+        const icons = document.querySelector(".d-header-icons");
+        if (!icons) return;
+        if (this.host.parentElement !== icons) icons.append(this.host);
+      }
+      if (this.enabled) this.startUpdates();
+    }
+    setEnabled(enabled) {
+      if (!this.mounted) {
+        this.mount(enabled);
+        return;
+      }
+      this.enabled = enabled;
+      if (this.host) this.host.hidden = !enabled;
+      if (this.tooltip) this.tooltip.hidden = true;
+      if (!enabled) {
+        this.requestGeneration += 1;
+        this.activeRequestController?.abort();
+        this.activeRequestController = null;
+        this.inFlight = null;
+        this.clearSchedule();
+        return;
+      }
+      this.ensureHost();
+      if (this.host?.isConnected) this.startUpdates();
+    }
+    startUpdates() {
+      if (!this.enabled || !this.isVisible() || this.inFlight || this.timeoutId !== null) return;
+      void this.fetchData(false);
+    }
+    createWidget() {
+      const host = document.createElement("li");
+      host.className = "header-dropdown-toggle ldu-credit-host";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn no-text language-switcher-trigger btn-flat ldu-credit-button is-loading";
+      button.title = "Credit \u79EF\u5206\u6536\u5165\uFF0C\u70B9\u51FB\u5237\u65B0";
+      button.setAttribute("aria-label", "Credit \u79EF\u5206\u6536\u5165\uFF0C\u70B9\u51FB\u5237\u65B0");
+      button.setAttribute("aria-describedby", "ldu-credit-tooltip");
+      const value = document.createElement("span");
+      value.className = "ldu-credit-value";
+      value.setAttribute("aria-live", "polite");
+      value.textContent = "\xB7\xB7\xB7";
+      button.append(value);
+      host.append(button);
+      const tooltip = document.createElement("div");
+      tooltip.id = "ldu-credit-tooltip";
+      tooltip.className = "ldu-credit-tooltip";
+      tooltip.hidden = true;
+      tooltip.setAttribute("role", "tooltip");
+      document.body.append(tooltip);
+      const showTooltip = () => {
+        if (!this.enabled) return;
+        tooltip.textContent = this.tooltipContent;
+        tooltip.hidden = false;
+        const rect = button.getBoundingClientRect();
+        const left = Math.max(8, Math.min(window.innerWidth - tooltip.offsetWidth - 8, rect.right - tooltip.offsetWidth));
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${rect.bottom + 6}px`;
+      };
+      const hideTooltip = () => {
+        tooltip.hidden = true;
+      };
+      button.addEventListener("mouseenter", showTooltip);
+      button.addEventListener("mouseleave", hideTooltip);
+      button.addEventListener("focus", showTooltip);
+      button.addEventListener("blur", hideTooltip);
+      button.addEventListener("click", () => {
+        this.setLoading("\u5237\u65B0\u4E2D...");
+        void this.fetchData(true);
+      });
+      this.host = host;
+      this.button = button;
+      this.value = value;
+      this.tooltip = tooltip;
+    }
+    fetchData(force) {
+      if (!this.enabled || !this.isVisible()) return Promise.resolve();
+      if (this.inFlight) return this.inFlight;
+      const generation = ++this.requestGeneration;
+      const startedAt = this.now();
+      const controller = new AbortController();
+      this.activeRequestController = controller;
+      const task = (async () => {
+        try {
+          const cached = !force ? this.readSharedSnapshot() : null;
+          const snapshot = cached ?? await this.fetchSnapshotCoordinated(force, startedAt, controller.signal);
+          if (!this.enabled || generation !== this.requestGeneration) return;
+          this.communityBalance = snapshot.communityBalance;
+          this.gamificationScore = snapshot.gamificationScore;
+          this.username = snapshot.username;
+          if (!cached) this.writeSharedSnapshot(snapshot);
+          this.updateDisplay();
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          console.error("[Linux.do Ultimate] LDC request failed", error);
+          if (this.enabled && generation === this.requestGeneration) this.showError();
+        }
+      })().finally(() => {
+        if (this.activeRequestController === controller) this.activeRequestController = null;
+        if (this.inFlight === task) this.inFlight = null;
+        if (this.enabled && this.isVisible() && generation === this.requestGeneration) this.scheduleNext();
+      });
+      this.inFlight = task;
+      return task;
+    }
+    async fetchSnapshot(signal) {
+      const credit = await this.request("https://credit.linux.do/api/v1/oauth/user-info", signal);
+      const rawBalance = credit?.data?.["community-balance"] ?? credit?.data?.community_balance;
+      const username = credit?.data?.username ?? credit?.data?.nickname;
+      const communityBalance = Number.parseFloat(String(rawBalance));
+      if (!username || !Number.isFinite(communityBalance)) throw new Error("invalid credit response");
+      const data = await this.request(`https://linux.do/u/${encodeURIComponent(username)}.json`, signal);
+      const gamificationScore = Number.parseFloat(String(data?.user?.gamification_score));
+      if (!Number.isFinite(gamificationScore)) throw new Error("invalid gamification response");
+      return { communityBalance, gamificationScore, username, updatedAt: this.now() };
+    }
+    async fetchSnapshotCoordinated(force, startedAt, signal) {
+      const locks = typeof navigator !== "undefined" ? navigator.locks : void 0;
+      if (!locks) return this.fetchSnapshot(signal);
+      return locks.request(SHARED_REQUEST_LOCK, { signal }, async () => {
+        const shared = this.readSharedSnapshot();
+        if (shared && (!force || shared.updatedAt >= startedAt)) return shared;
+        const snapshot = await this.fetchSnapshot(signal);
+        this.writeSharedSnapshot(snapshot);
+        return snapshot;
+      });
+    }
+    scheduleNext() {
+      this.clearSchedule();
+      this.timeoutId = window.setTimeout(() => {
+        this.timeoutId = null;
+        void this.fetchData(false);
+      }, REFRESH_INTERVAL_MS);
+    }
+    clearSchedule() {
+      if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+    handleVisibilityChange() {
+      if (!this.isVisible()) {
+        this.clearSchedule();
+        return;
+      }
+      if (this.enabled) this.startUpdates();
+    }
+    isVisible() {
+      return this.options.isVisible?.() ?? document.visibilityState !== "hidden";
+    }
+    now() {
+      return this.options.now?.() ?? Date.now();
+    }
+    readSharedSnapshot() {
+      try {
+        const raw = localStorage.getItem(SHARED_CACHE_KEY);
+        if (raw === null) return null;
+        const value = JSON.parse(raw);
+        if (!value || this.now() - Number(value.updatedAt) >= SHARED_CACHE_TTL_MS || !Number.isFinite(value.communityBalance) || !Number.isFinite(value.gamificationScore) || typeof value.username !== "string") {
+          this.clearSharedSnapshot();
+          return null;
+        }
+        return value;
+      } catch {
+        this.clearSharedSnapshot();
+        return null;
+      }
+    }
+    clearSharedSnapshot() {
+      try {
+        localStorage.removeItem(SHARED_CACHE_KEY);
+      } catch {
+      }
+    }
+    writeSharedSnapshot(snapshot) {
+      try {
+        localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(snapshot));
+      } catch {
+      }
+    }
+    updateDisplay() {
+      if (this.communityBalance === null || this.gamificationScore === null || !this.value || !this.button) return;
+      const difference = this.gamificationScore - this.communityBalance;
+      this.value.textContent = `${difference > 0 ? "+" : ""}${difference.toFixed(2)}`;
+      this.button.classList.remove("is-loading", "is-positive", "is-negative", "is-neutral");
+      this.button.classList.add(difference > 0 ? "is-positive" : difference < 0 ? "is-negative" : "is-neutral");
+      this.tooltipContent = `\u4EC5\u4F9B\u53C2\u8003\uFF0C\u53EF\u80FD\u6709\u8BEF\u5DEE\uFF01
+\u5F53\u524D\u5206: ${this.gamificationScore.toFixed(2)}
+\u57FA\u51C6\u503C: ${this.communityBalance.toFixed(2)}`;
+    }
+    setLoading(message) {
+      if (this.value) this.value.textContent = "\xB7\xB7\xB7";
+      this.button?.classList.remove("is-positive", "is-negative", "is-neutral");
+      this.button?.classList.add("is-loading");
+      this.tooltipContent = message;
+    }
+    showError() {
+      if (this.value) this.value.textContent = "!";
+      this.button?.classList.remove("is-loading", "is-positive", "is-neutral");
+      this.button?.classList.add("is-negative");
+      this.tooltipContent = "\u8BF7\u6C42\u5931\u8D25\uFF0C\u8BF7\u786E\u8BA4\u5DF2\u767B\u5F55";
+    }
+    request(url, signal) {
+      if (this.options.request) return this.options.request(url);
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      const headers = {
+        Accept: "application/json",
+        ...csrfToken ? { "x-csrf-token": csrfToken } : {}
+      };
+      if (url.startsWith(location.origin)) {
+        return fetch(url, { credentials: "include", headers, signal }).then((response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          return response.json();
+        }).catch((error) => signal.aborted ? Promise.reject(error) : this.requestWithUserscript(url, headers, signal));
+      }
+      return this.requestWithUserscript(url, headers, signal);
+    }
+    requestWithUserscript(url, headers, signal) {
+      return new Promise((resolve, reject) => {
+        if (typeof GM_xmlhttpRequest !== "function") {
+          reject(new Error("GM_xmlhttpRequest is unavailable"));
+          return;
+        }
+        let settled = false;
+        let handle = null;
+        const finish = (callback) => {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener("abort", abort);
+          callback();
+        };
+        const abort = () => {
+          try {
+            handle?.abort();
+          } catch {
+          }
+          finish(() => reject(new DOMException("Aborted", "AbortError")));
+        };
+        if (signal.aborted) {
+          abort();
+          return;
+        }
+        signal.addEventListener("abort", abort, { once: true });
+        const request = {
+          method: "GET",
+          url,
+          withCredentials: true,
+          headers: { ...headers, Referer: "https://credit.linux.do/home" },
+          timeout: 1e4,
+          onload: (response) => {
+            if (response.status !== 200) {
+              finish(() => reject(new Error(String(response.status))));
+              return;
+            }
+            try {
+              const value = JSON.parse(response.responseText);
+              finish(() => resolve(value));
+            } catch (error) {
+              finish(() => reject(error));
+            }
+          },
+          onerror: (error) => finish(() => reject(error)),
+          ontimeout: () => finish(() => reject(new Error("timeout")))
+        };
+        handle = GM_xmlhttpRequest(request);
+      });
+    }
+  };
+
+  // src/app.ts
+  var ROUTE_DEBOUNCE_MS = 100;
+  var SESSION_MAINTENANCE_INTERVAL_MS = 30 * 6e4;
+  var LIST_HANDOFF_TIMEOUT_MS = 3e3;
+  function startLinuxDoApp(options = {}) {
+    if (window.self !== window.top) return;
+    const start = () => new LinuxDoApp(options).start();
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", start, { once: true });
+    } else {
+      start();
+    }
+  }
+  var LinuxDoApp = class {
+    constructor(options) {
+      this.options = options;
+    }
+    storage = new UserscriptStorage();
+    settings = normalizeSettings(DEFAULT_SETTINGS);
+    session;
+    tabStore;
+    layout;
+    frames = null;
+    secondaryFrames = null;
+    listFrame = null;
+    preview;
+    settingsPanel;
+    credit;
+    settingsHost = null;
+    routeTimer = null;
+    persistTimer = null;
+    lastRoute = "";
+    restoredTabsTracked = false;
+    trackedTopicKey = "";
+    topicTrackTimers = [];
+    routeRetryTimer = null;
+    routeRetryAttempts = 0;
+    hostMaintenanceTimer = null;
+    hasRestoredSession = false;
+    sessionLease;
+    leaseTimer = null;
+    sessionMaintenanceTimer = null;
+    tabContextMenu;
+    listHandoffTimer = null;
+    start() {
+      this.settings = loadSettings(this.storage);
+      ensureAppStyles();
+      this.preview = new PreviewController({
+        isEnabled: () => this.settings.enabled && this.settings.previewEnabled,
+        clickMode: () => this.settings.previewClickMode,
+        onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode }),
+        loadPreviewer: this.options.loadPreviewer ?? (() => Promise.reject(new Error("Preview runtime is unavailable")))
+      });
+      this.preview.mount();
+      this.tabContextMenu = new TabContextMenu({
+        onMoveToSplit: (tabId) => this.moveTabToSecondary(tabId),
+        onOpenBrowserTab: (tabId) => this.openTabInBrowser(tabId),
+        onReload: (tabId) => this.reloadTab(tabId),
+        onCopyLink: (tabId) => void this.copyTabLink(tabId),
+        onBookmark: (tabId) => this.bookmarkTab(tabId),
+        onCloseOthers: (tabId) => this.closeOtherTabs(tabId)
+      });
+      this.sessionLease = claimSessionId(
+        this.storage,
+        window.sessionStorage,
+        Date.now(),
+        isReloadNavigation(window.performance)
+      );
+      const sessionId = this.sessionLease.sessionId;
+      reconcileSessionClose(this.storage, sessionId);
+      cleanupExpiredSessions(this.storage);
+      if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
+      const initial = createSession(sessionId, location.href, Date.now());
+      initial.paneSizes = { ...this.settings.paneSizes };
+      initial.dualPaneSizes = { ...this.settings.dualPaneSizes };
+      const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
+      const previousSession = !currentSession && classifyRoute(location.href) !== "topic" && this.settings.restoreSession ? loadLatestSession(this.storage, sessionId, location.href, Date.now()) : null;
+      this.session = currentSession ?? previousSession ?? initial;
+      this.hasRestoredSession = Boolean(previousSession?.tabs.length);
+      this.tabStore = new TopicTabStore(this.session, this.settings.maxOpenTabs, (session) => {
+        this.session = session;
+        saveSession(this.storage, session);
+        this.renderTabs();
+      });
+      this.layout = new LayoutController({
+        preference: this.settings.layoutPreference,
+        paneSizes: this.session.paneSizes,
+        dualPaneSizes: this.session.dualPaneSizes,
+        hidePosters: this.settings.hidePosters,
+        onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout)
+      });
+      this.mountSettings();
+      this.credit = new CreditWidget();
+      this.credit.mount(this.settings.enabled && this.settings.creditEnabled);
+      this.lastRoute = location.href;
+      this.bindGlobalEvents();
+      this.leaseTimer = window.setInterval(() => refreshSessionLease(this.storage, this.sessionLease), 3e4);
+      this.sessionMaintenanceTimer = window.setInterval(
+        () => cleanupExpiredSessions(this.storage),
+        SESSION_MAINTENANCE_INTERVAL_MS
+      );
+      this.syncRoute();
+      if (window.__LDU_TEST_MODE__) {
+        window.__LDU_TEST_API__ = {
+          openTopic: (url, title) => {
+            const info = getTopicInfo(url, location.href);
+            if (info) this.openTopic(info.topicId, info.url.href, title, info.postNumber);
+          }
+        };
+      }
+    }
+    bindGlobalEvents() {
+      document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
+      window.addEventListener("message", (event) => {
+        this.frames?.handleMessage(event);
+        this.secondaryFrames?.handleMessage(event);
+        this.listFrame?.handleMessage(event);
+      });
+      window.addEventListener("popstate", () => this.scheduleRouteSync());
+      window.addEventListener("hashchange", () => this.scheduleRouteSync());
+      window.addEventListener("pagehide", (event) => this.handlePageHide(event), { capture: true });
+      new MutationObserver(() => {
+        if (typeof window === "undefined" || typeof document === "undefined") return;
+        if (this.hostMaintenanceTimer === null) {
+          this.hostMaintenanceTimer = window.setTimeout(() => {
+            this.hostMaintenanceTimer = null;
+            this.ensureSettingsHost();
+            this.credit?.ensureHost();
+          }, 100);
+        }
+        if (this.lastRoute !== location.href) this.scheduleRouteSync();
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    }
+    handleTopicLinkClick(event) {
+      if (!(event instanceof MouseEvent) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      if (!this.settings.enabled || !this.settings.tabsEnabled) return;
+      const target = event.target;
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link) return;
+      if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
+      if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
+        this.promoteDirectTopicNavigation(event, link);
+        return;
+      }
+      if (isSupportedTopicTarget(link.href, location.href)) {
+        const info = getTopicInfo(link.href);
+        if (!info) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+        const category = row ? readTopicCategory(row) : null;
+        this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
+        return;
+      }
+      if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
+      let targetUrl;
+      try {
+        targetUrl = new URL(link.href, location.href);
+      } catch {
+        return;
+      }
+      if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.navigateList(targetUrl.href);
+    }
+    openTopic(topicId, url, title, postNumber, category, pane = "primary", deferListFrame = false) {
+      const shouldHandoffList = this.tabStore.getTabs().length === 0 && classifyRoute(location.href) !== "topic" && this.layout.getMode() === "native";
+      const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
+      if (!this.layout.mount()) return;
+      if (shouldHandoffList) {
+        this.tabStore.setSessionFields({
+          listUrl: location.href,
+          listScrollY: nativeListScrollY
+        }, Date.now(), false);
+      }
+      this.ensureFrames();
+      if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
+        this.scheduleListHandoffFallback();
+      }
+      this.layout.setOpen(true);
+      const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
+      if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
+      else this.tabStore.open(input, Date.now());
+      if (!deferListFrame) this.ensureListFrame();
+      const info = getTopicInfo(url);
+      if (info) {
+        const tracker = createBrowserViewTracker();
+        void tracker.track(info, "split-open", location.href).then((result) => {
+          if (result.status === "failed") {
+            window.setTimeout(() => void tracker.track(info, "manual-retry", location.href), 1e4);
+          }
+        });
+      }
+    }
+    syncRoute() {
+      this.routeTimer = null;
+      if (this.lastRoute !== location.href) {
+        this.lastRoute = location.href;
+      }
+      const route = classifyRoute(location.href);
+      const shouldHostSplit = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
+      if (shouldHostSplit) {
+        this.clearTopicTrackSchedule();
+        if (!this.layout.mount()) {
+          this.scheduleRouteMountRetry();
+          return;
+        }
+        this.routeRetryAttempts = 0;
+        const hasTabs = this.tabStore.getTabs().length > 0;
+        this.layout.setOpen(hasTabs);
+        if (hasTabs) {
+          this.ensureFrames();
+          this.ensureListFrame();
+          if (this.tabStore.getSecondaryTabs().length > 0) {
+            this.layout.setSecondaryOpen(true);
+            this.ensureSecondaryFrames();
+          }
+          const active = this.tabStore.getActive();
+          if (active) {
+            this.activateFrame(active, "primary");
+            if (this.hasRestoredSession && !this.restoredTabsTracked) {
+              this.restoredTabsTracked = true;
+              const info = getTopicInfo(active.url);
+              if (info) void createBrowserViewTracker().track(info, "restored-tab", location.href);
+            }
+          }
+          const secondaryActive = this.tabStore.getSecondaryActive();
+          if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
+        }
+        return;
+      }
+      this.disposeSplitRuntime();
+      if (route === "topic") {
+        const info = getTopicInfo(location.href);
+        if (info) this.scheduleTopicTracking(info.topicId, info.url.href);
+      } else {
+        this.clearTopicTrackSchedule();
+      }
+    }
+    promoteDirectTopicNavigation(event, link) {
+      const current = getTopicInfo(location.href);
+      if (!current) return;
+      let targetUrl;
+      try {
+        targetUrl = new URL(link.href, location.href);
+      } catch {
+        return;
+      }
+      if (targetUrl.origin !== location.origin) return;
+      const targetRoute = classifyRoute(targetUrl.href, location.href);
+      if (targetRoute === "topic" && getTopicInfo(targetUrl.href, location.href)?.topicId === current.topicId) return;
+      if (link.target === "_blank" || link.hasAttribute("download")) return;
+      const listUrl = targetRoute === "topic" ? new URL("/", location.href).href : targetUrl.href;
+      if (!this.layout.mount()) return;
+      this.clearTopicTrackSchedule();
+      this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
+      this.ensureFrames();
+      this.layout.setOpen(true);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, void 0, "primary", true);
+      if (targetRoute === "topic") {
+        const target = getTopicInfo(targetUrl.href, location.href);
+        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber, void 0, "primary", true);
+      }
+      this.ensureListFrame(listUrl);
+    }
+    currentTopicTitle(topicId) {
+      return document.querySelector("#topic-title h1, .fancy-title")?.textContent?.trim() || document.title || `\u4E3B\u9898 ${topicId}`;
+    }
+    scheduleRouteMountRetry() {
+      if (this.routeRetryTimer !== null || this.routeRetryAttempts >= 30) return;
+      this.routeRetryAttempts += 1;
+      this.routeRetryTimer = window.setTimeout(() => {
+        this.routeRetryTimer = null;
+        this.syncRoute();
+      }, 100);
+    }
+    scheduleRouteSync() {
+      this.routeRetryAttempts = 0;
+      if (this.routeTimer !== null) window.clearTimeout(this.routeTimer);
+      this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
+    }
+    ensureListFrame(requestedUrl) {
+      const container = this.layout.getListContentElement();
+      if (!container) return;
+      if (!this.listFrame) {
+        this.listFrame = new ListFrameController(
+          container,
+          this.session.sessionId,
+          (message, iframe) => this.handleListFrameMessage(message, iframe)
+        );
+      }
+      this.listFrame.setConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode,
+        hidePosters: this.settings.hidePosters
+      });
+      const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
+      let resolved;
+      try {
+        resolved = new URL(storedListUrl || "/", location.href);
+      } catch {
+        resolved = new URL("/", location.href);
+      }
+      const listUrl = resolved.origin !== location.origin || getTopicInfo(resolved.href, location.href) ? new URL("/", location.href).href : resolved.href;
+      this.listFrame.mount(listUrl);
+    }
+    navigateList(url) {
+      let target;
+      try {
+        target = new URL(url, location.href);
+      } catch {
+        return;
+      }
+      if (target.origin !== location.origin || getTopicInfo(target.href, location.href)) return;
+      if (!this.layout.mount()) return;
+      this.tabStore.setSessionFields({ listUrl: target.href, listScrollY: 0 }, Date.now(), false);
+      saveSession(this.storage, this.tabStore.getSession());
+      this.ensureListFrame(target.href);
+      this.listFrame?.navigate(target.href);
+    }
+    handleListFrameMessage(message, iframe) {
+      if (message.type === "ldu:list-interaction") {
+        document.body.dispatchEvent(new MouseEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0
+        }));
+        return;
+      }
+      if (message.type === "ldu:list-preview-open") {
+        this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
+        return;
+      }
+      if (message.type === "ldu:list-preview-dismiss") {
+        this.preview.close();
+        return;
+      }
+      if (message.type === "ldu:list-topic-open") {
+        const info = message.url ? getTopicInfo(message.url, location.href) : null;
+        if (!info) return;
+        const category = message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : void 0;
+        this.openTopic(info.topicId, info.url.href, message.topicTitle || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category);
+        return;
+      }
+      if (message.type === "ldu:list-navigate" && message.url) {
+        this.navigateList(message.url);
+        return;
+      }
+      if (!message.url || getTopicInfo(message.url, location.href)) return;
+      const previousSession = this.tabStore.getSession();
+      const nextListUrl = new URL(message.url, location.href).href;
+      const sameListUrl = previousSession.listUrl === nextListUrl;
+      const savedScrollY = sameListUrl ? previousSession.listScrollY : 0;
+      this.tabStore.setSessionFields({
+        listUrl: nextListUrl,
+        ...message.type === "ldu:list-state" && typeof message.scrollY === "number" ? { listScrollY: message.scrollY } : !sameListUrl ? { listScrollY: 0 } : {}
+      }, Date.now(), false);
+      if (message.type === "ldu:list-state") this.schedulePersist();
+      if (message.type === "ldu:list-ready") {
+        this.listFrame?.restoreScroll(savedScrollY);
+        this.schedulePersist();
+      }
+      if (message.type === "ldu:list-visual-ready") {
+        const handoffScrollY = this.finishListHandoff();
+        if (handoffScrollY !== null) this.listFrame?.restoreScroll(handoffScrollY);
+        this.schedulePersist();
+      }
+    }
+    ensureFrames() {
+      const content = this.layout.getContentElement();
+      if (!content || this.frames) return;
+      this.frames = new TopicFramePool(
+        content,
+        this.settings.maxLiveFrames,
+        (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
+        (tabId, scrollY) => {
+          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+          this.schedulePersist();
+        }
+      );
+      this.frames.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
+      this.renderTabs();
+    }
+    ensureSecondaryFrames() {
+      const content = this.layout.getSecondaryContentElement();
+      if (!content || this.secondaryFrames) return;
+      this.secondaryFrames = new TopicFramePool(
+        content,
+        this.settings.maxLiveFrames,
+        (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
+        (tabId, scrollY) => {
+          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+          this.schedulePersist();
+        }
+      );
+      this.secondaryFrames.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
+    }
+    mountSettings() {
+      if (this.settingsPanel) return;
+      const host = document.createElement("li");
+      host.className = "ldu-settings-host";
+      this.settingsHost = host;
+      this.ensureSettingsHost();
+      this.settingsPanel = new SettingsPanel(host, this.settings, {
+        onChange: (patch) => this.applySettings(patch)
+      });
+      this.settingsPanel.mount();
+    }
+    ensureSettingsHost() {
+      if (!this.settingsHost) return;
+      const target = document.querySelector(".d-header-icons") ?? document.querySelector(".d-header .contents") ?? document.body;
+      if (this.settingsHost.parentElement !== target) target.append(this.settingsHost);
+    }
+    applySettings(patch) {
+      this.settings = normalizeSettings({ ...this.settings, ...patch });
+      saveSettings(this.storage, this.settings);
+      this.layout.setPreference(this.settings.layoutPreference);
+      this.layout.setHidePosters(this.settings.hidePosters);
+      if (patch.paneSizes || patch.dualPaneSizes) {
+        this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
+        this.tabStore.setSessionFields({
+          paneSizes: this.settings.paneSizes,
+          dualPaneSizes: this.settings.dualPaneSizes
+        }, Date.now(), false);
+        saveSession(this.storage, this.tabStore.getSession());
+      }
+      this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
+      this.secondaryFrames?.setMaxLiveFrames(this.settings.maxLiveFrames);
+      this.frames?.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
+      this.secondaryFrames?.setPreviewConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode
+      });
+      this.listFrame?.setConfig({
+        enabled: this.settings.enabled && this.settings.previewEnabled,
+        clickMode: this.settings.previewClickMode,
+        hidePosters: this.settings.hidePosters
+      });
+      this.settingsPanel?.setSettings(this.settings);
+      this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
+      if (patch.previewClickMode !== void 0) this.preview.syncClickMode();
+      if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
+      if (patch.restoreSession === false) clearRestorableSessions(this.storage);
+      if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
+      if (patch.colorizeTabs !== void 0) this.renderTabs();
+      const canShowTabs = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
+      if (!canShowTabs) {
+        this.disposeSplitRuntime();
+        return;
+      }
+      if (!this.layout.mount()) return;
+      const active = this.tabStore.getActive();
+      const hasTabs = this.tabStore.getTabs().length > 0;
+      this.layout.setOpen(hasTabs);
+      if (hasTabs) {
+        this.ensureFrames();
+        this.ensureListFrame();
+        if (active) this.activateFrame(active, "primary");
+        const secondaryActive = this.tabStore.getSecondaryActive();
+        if (secondaryActive) {
+          this.layout.setSecondaryOpen(true);
+          this.ensureSecondaryFrames();
+          this.activateFrame(secondaryActive, "secondary");
+        }
+      }
+    }
+    persistPaneSizes(paneSizes, layout) {
+      this.settings = normalizeSettings({
+        ...this.settings,
+        ...layout === "dual" ? { dualPaneSizes: paneSizes } : { paneSizes }
+      });
+      saveSettings(this.storage, this.settings);
+      this.tabStore.setSessionFields(layout === "dual" ? { dualPaneSizes: this.settings.dualPaneSizes } : { paneSizes: this.settings.paneSizes }, Date.now(), false);
+      saveSession(this.storage, this.tabStore.getSession());
+      this.settingsPanel?.setSettings(this.settings);
+    }
+    scheduleTopicTracking(topicId, url) {
+      const key = topicId;
+      if (this.trackedTopicKey === key) return;
+      this.clearTopicTrackSchedule();
+      this.trackedTopicKey = key;
+      const info = getTopicInfo(url);
+      if (!info) return;
+      const tracker = createBrowserViewTracker();
+      this.topicTrackTimers = [2500, 1e4].map((delay) => window.setTimeout(() => {
+        void tracker.track(info, "browser-open", document.referrer);
+      }, delay));
+    }
+    clearTopicTrackSchedule() {
+      for (const timer of this.topicTrackTimers) window.clearTimeout(timer);
+      this.topicTrackTimers = [];
+      this.trackedTopicKey = "";
+    }
+    activateFrame(tab, pane) {
+      const pool = pane === "secondary" ? this.secondaryFrames : this.frames;
+      if (!tab || !pool) return;
+      pool.activate(tab, Date.now());
+      const content = pane === "secondary" ? this.layout.getSecondaryContentElement() : this.layout.getContentElement();
+      const empty = content?.querySelector(".ldu-topic-empty");
+      if (empty) empty.hidden = true;
+    }
+    handleFrameMessage(message, iframe, pane) {
+      const tab = this.tabStore.get(message.tabId);
+      if (!tab) return;
+      if (message.type === "ldu:frame-interaction") {
+        document.body.dispatchEvent(new MouseEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0
+        }));
+        return;
+      }
+      if (message.type === "ldu:bookmark-result") {
+        this.showActionToast(message.message || (message.ok ? "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E" : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"), message.ok === false);
+        return;
+      }
+      if (message.type === "ldu:list-navigate" && message.url) {
+        this.navigateList(message.url);
+        return;
+      }
+      if (message.type === "ldu:preview-open") {
+        this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
+        return;
+      }
+      if (message.type === "ldu:preview-dismiss") {
+        this.preview.close();
+        return;
+      }
+      if (message.type === "ldu:topic-open") {
+        const info2 = message.url ? getTopicInfo(message.url, location.href) : null;
+        if (!info2 || !isSupportedTopicTarget(info2.url.href, tab.url)) return;
+        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber, void 0, pane);
+        return;
+      }
+      const info = message.url ? getTopicInfo(message.url) : null;
+      const sameTopic = info?.topicId === tab.topicId;
+      const categoryChanged = Boolean(
+        message.categoryName && message.categoryColor && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor)
+      );
+      const patch = {
+        ...message.url ? { url: message.url } : {},
+        ...message.title ? { title: message.title } : {},
+        ...message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : {},
+        // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
+        ...message.type !== "ldu:frame-ready" && typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
+        ...info?.postNumber ? { postNumber: info.postNumber } : {},
+        suspended: false
+      };
+      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
+      if (message.type === "ldu:frame-state") this.schedulePersist();
+      if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
+        iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
+      }
+    }
+    renderTabs() {
+      const root = this.layout?.getTabStripElement();
+      if (!root || !this.tabStore) return;
+      const primaryTabs = this.tabStore.getPrimaryTabs();
+      const secondaryTabs = this.tabStore.getSecondaryTabs();
+      this.layout.setSecondaryOpen(secondaryTabs.length > 0);
+      if (secondaryTabs.length > 0) this.ensureSecondaryFrames();
+      else if (this.secondaryFrames) {
+        this.secondaryFrames.destroy();
+        this.secondaryFrames = null;
+      }
+      renderTabStrip(root, primaryTabs, this.tabStore.getSession().activeTabId, {
+        onActivate: (tabId) => {
+          const tab = this.tabStore.activate(tabId, Date.now());
+          if (tab) this.activateFrame(tab, "primary");
+        },
+        onClose: (tabId) => this.closeTab(tabId, "primary"),
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+        onReorder: (tabId, targetTabId, position) => {
+          this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+        }
+      }, { colorizeTabs: this.settings.colorizeTabs });
+      const secondaryRoot = this.layout.getSecondaryTabStripElement();
+      if (secondaryRoot) {
+        renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
+          onActivate: (tabId) => {
+            const tab = this.tabStore.activateSecondary(tabId, Date.now());
+            if (tab) this.activateFrame(tab, "secondary");
+          },
+          onClose: (tabId) => this.closeTab(tabId, "secondary"),
+          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+          onReorder: (tabId, targetTabId, position) => {
+            this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
+          }
+        }, { colorizeTabs: this.settings.colorizeTabs });
+      }
+      const actions = this.layout.getActionsElement();
+      if (actions && !actions.querySelector(".ldu-close-all")) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "ldu-icon-button ldu-close-all";
+        setIcon(close, "close", 18);
+        close.title = "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E";
+        close.setAttribute("aria-label", "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E");
+        close.addEventListener("click", () => {
+          for (const tab of this.tabStore.getTabs()) {
+            this.frames?.remove(tab.id);
+            this.secondaryFrames?.remove(tab.id);
+          }
+          this.tabStore.clear(Date.now());
+          this.disposeSplitRuntime();
+        });
+        actions.append(close);
+      }
+      const secondaryActions = this.layout.getSecondaryActionsElement();
+      if (secondaryActions && !secondaryActions.querySelector(".ldu-close-secondary")) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "ldu-icon-button ldu-close-secondary";
+        setIcon(close, "close", 18);
+        close.title = "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A";
+        close.setAttribute("aria-label", "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A\u5E76\u5C06\u6807\u7B7E\u79FB\u56DE\u4E3B\u9605\u8BFB\u533A");
+        close.addEventListener("click", () => this.closeSecondaryPanel());
+        secondaryActions.append(close);
+      }
+      const empty = this.layout.getContentElement()?.querySelector(".ldu-topic-empty");
+      if (empty) empty.hidden = primaryTabs.length > 0;
+      const secondaryEmpty = this.layout.getSecondaryContentElement()?.querySelector(".ldu-topic-empty");
+      if (secondaryEmpty) secondaryEmpty.hidden = secondaryTabs.length > 0;
+      const active = this.tabStore.getActive();
+      if (active) this.activateFrame(active, "primary");
+      const secondaryActive = this.tabStore.getSecondaryActive();
+      if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
+    }
+    closeTab(tabId, pane) {
+      (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
+      this.tabStore.close(tabId, Date.now(), false);
+      if (pane === "primary" && this.tabStore.getPrimaryTabs().length === 0 && this.tabStore.getSecondaryTabs().length > 0) {
+        this.closeSecondaryPanel();
+        return;
+      }
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
+      if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
+    }
+    moveTabToSecondary(tabId) {
+      if (this.tabStore.getSession().secondaryTabIds.includes(tabId)) return;
+      const tab = this.captureLiveFrameState(tabId, this.frames);
+      if (!tab || !this.layout.mount()) return;
+      const transfer = this.frames?.detach(tabId) ?? null;
+      this.layout.setSecondaryOpen(true);
+      this.ensureSecondaryFrames();
+      const moved = this.tabStore.moveToSecondary(tabId, Date.now(), false);
+      if (!moved) return;
+      if (transfer && this.secondaryFrames) this.secondaryFrames.adopt(moved, transfer, Date.now());
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
+    }
+    closeSecondaryPanel() {
+      const secondaryTabs = this.tabStore.getSecondaryTabs();
+      const transfers = secondaryTabs.flatMap((tab) => {
+        const current = this.captureLiveFrameState(tab.id, this.secondaryFrames) ?? tab;
+        const transfer = this.secondaryFrames?.detach(tab.id);
+        return transfer ? [{ tab: current, transfer }] : [];
+      });
+      this.tabStore.mergeSecondaryIntoPrimary(Date.now(), false);
+      for (const { tab, transfer } of transfers) this.frames?.adopt(tab, transfer, Date.now());
+      saveSession(this.storage, this.tabStore.getSession());
+      this.renderTabs();
+    }
+    openTabInBrowser(tabId) {
+      const tab = this.tabStore.get(tabId);
+      if (!tab) return;
+      const anchor = document.createElement("a");
+      anchor.href = tab.url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.click();
+    }
+    reloadTab(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      const pool = secondary ? this.secondaryFrames : this.frames;
+      const tab = this.captureLiveFrameState(tabId, pool);
+      if (!tab) return;
+      if (pool?.getFrame(tabId)) pool.reload(tabId);
+      else pool?.prepare(tab, Date.now());
+    }
+    async copyTabLink(tabId) {
+      const tab = this.tabStore.get(tabId);
+      if (!tab) return;
+      try {
+        await navigator.clipboard.writeText(tab.url);
+        return;
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = tab.url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.append(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+    }
+    bookmarkTab(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      const tab = this.tabStore.get(tabId);
+      if (!tab) return;
+      const pool = secondary ? this.secondaryFrames : this.frames;
+      pool?.prepare(tab, Date.now());
+      pool?.sendCommand(tabId, {
+        type: "ldu:bookmark",
+        topicId: tab.topicId
+      });
+    }
+    closeOtherTabs(tabId) {
+      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
+      const paneTabs = secondary ? this.tabStore.getSecondaryTabs() : this.tabStore.getPrimaryTabs();
+      for (const tab of paneTabs) {
+        if (tab.id !== tabId) (secondary ? this.secondaryFrames : this.frames)?.remove(tab.id);
+      }
+      this.tabStore.closeOthersInPane(tabId, Date.now());
+    }
+    persistSession() {
+      const active = this.tabStore?.getActive();
+      if (active && this.frames) this.captureLiveFrameState(active.id, this.frames);
+      const secondaryActive = this.tabStore?.getSecondaryActive();
+      if (secondaryActive && this.secondaryFrames) this.captureLiveFrameState(secondaryActive.id, this.secondaryFrames);
+      if (this.tabStore) saveSession(this.storage, this.tabStore.getSession());
+    }
+    captureLiveFrameState(tabId, pool) {
+      const tab = this.tabStore.get(tabId);
+      const iframe = pool?.getFrame(tabId);
+      if (!tab || !iframe?.contentWindow) return tab;
+      let url = tab.url;
+      let title = tab.title;
+      let scrollY = tab.scrollY;
+      try {
+        const currentUrl = iframe.contentWindow.location.href;
+        if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
+        const currentTitle = iframe.contentDocument?.title?.trim();
+        if (currentTitle) title = currentTitle;
+        scrollY = iframe.contentWindow.scrollY;
+      } catch {
+        return tab;
+      }
+      const info = getTopicInfo(url, tab.url);
+      this.tabStore.update(tabId, {
+        url,
+        title,
+        scrollY,
+        ...info?.postNumber ? { postNumber: info.postNumber } : {},
+        suspended: false
+      }, Date.now(), false);
+      return this.tabStore.get(tabId) ?? tab;
+    }
+    showActionToast(message, isError) {
+      document.querySelector(".ldu-action-toast")?.remove();
+      const toast = document.createElement("div");
+      toast.className = `ldu-action-toast${isError ? " is-error" : ""}`;
+      toast.setAttribute("role", isError ? "alert" : "status");
+      toast.textContent = message;
+      document.body.append(toast);
+      window.setTimeout(() => toast.remove(), 2800);
+    }
+    disposeSplitRuntime() {
+      this.finishListHandoff();
+      this.preview?.close();
+      this.frames?.destroy();
+      this.frames = null;
+      this.secondaryFrames?.destroy();
+      this.secondaryFrames = null;
+      this.tabContextMenu?.close();
+      this.listFrame?.destroy();
+      this.listFrame = null;
+      this.layout?.destroy();
+    }
+    scheduleListHandoffFallback() {
+      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+      this.listHandoffTimer = window.setTimeout(() => {
+        this.listHandoffTimer = null;
+        const scrollY = this.layout?.finishListHandoff() ?? null;
+        if (scrollY !== null) this.listFrame?.restoreScroll(scrollY);
+      }, LIST_HANDOFF_TIMEOUT_MS);
+    }
+    finishListHandoff() {
+      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
+      this.listHandoffTimer = null;
+      return this.layout?.finishListHandoff() ?? null;
+    }
+    handlePageHide(event) {
+      this.persistSession();
+      if (event.persisted) return;
+      if (this.settings.restoreSession && this.tabStore?.getTabs().length > 0) {
+        stageSessionClose(this.storage, this.tabStore.getSession());
+      }
+      if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
+      if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+      this.leaseTimer = null;
+      this.sessionMaintenanceTimer = null;
+      releaseSessionLease(this.storage, this.sessionLease);
+    }
+    schedulePersist() {
+      if (this.persistTimer !== null) window.clearTimeout(this.persistTimer);
+      this.persistTimer = window.setTimeout(() => {
+        this.persistTimer = null;
+        this.persistSession();
+      }, 500);
+    }
+  };
+
+  // src/frame-bridge.ts
+  var DOUBLE_CLICK_DELAY_MS = 300;
+  function bootFrameBridge() {
+    const frameName = window.name;
+    if (frameName.startsWith("ldu-list:")) {
+      bootListBridge(frameName.slice("ldu-list:".length));
+      return;
+    }
+    if (!frameName.startsWith("ldu-topic:")) return;
+    const tabId = frameName.slice("ldu-topic:".length);
+    document.documentElement.dataset.lduEmbeddedTopic = "true";
+    ensureEmbeddedStyles(document);
+    let timer = null;
+    let pendingSendType = null;
+    let lastUrl = "";
+    let lastObservedUrl = location.href;
+    let lastObservedTitle = document.title;
+    let lastObservedCategoryKey = "";
+    let currentCategory = readTopicDocumentCategory(document, window);
+    let previewEnabled = false;
+    let previewClickMode = "double";
+    let replayingClick = false;
+    let clickTimer = null;
+    let softFrozen = false;
+    const send = (type) => {
+      if (softFrozen && type === "ldu:frame-state") return;
+      if (timer !== null) window.clearTimeout(timer);
+      pendingSendType = type;
+      timer = window.setTimeout(() => {
+        timer = null;
+        pendingSendType = null;
+        if (softFrozen && type === "ldu:frame-state") return;
+        const payload = {
+          type,
+          tabId,
+          scrollY: window.scrollY
+        };
+        if (currentCategory) Object.assign(payload, currentCategory);
+        if (type === "ldu:frame-ready" || lastUrl !== location.href) {
+          lastUrl = location.href;
+          payload.url = location.href;
+          payload.title = document.title;
+        }
+        window.parent.postMessage(payload, location.origin);
+      }, type === "ldu:frame-ready" ? 0 : 120);
+    };
+    window.addEventListener("scroll", () => send("ldu:frame-state"), { passive: true });
+    window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
+    document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
+    window.addEventListener("popstate", () => send("ldu:frame-state"));
+    const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
+    const mutationAffectsTopicMetadata = (mutation) => {
+      const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
+      if (target?.closest("head, .topic-category, #topic-title")) return true;
+      return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        const element = node;
+        return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
+      });
+    };
+    const metadataObserver = new MutationObserver((mutations) => {
+      if (softFrozen) return;
+      const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
+      const urlChanged = lastObservedUrl !== location.href;
+      const titleChanged = lastObservedTitle !== document.title;
+      if (!metadataChanged && !urlChanged && !titleChanged) return;
+      if (urlChanged) currentCategory = null;
+      if (metadataChanged) {
+        const observedCategory = readTopicDocumentCategory(document, window);
+        if (observedCategory) currentCategory = observedCategory;
+      }
+      const categoryKey = currentCategory ? `${currentCategory.categoryName}
+${currentCategory.categoryColor}` : "";
+      if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
+      lastObservedUrl = location.href;
+      lastObservedTitle = document.title;
+      lastObservedCategoryKey = categoryKey;
+      send("ldu:frame-state");
+    });
+    const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
+    observeMetadata();
+    const cancelPendingClick = () => {
+      if (clickTimer !== null) window.clearTimeout(clickTimer);
+      clickTimer = null;
+    };
+    const pausedMedia = /* @__PURE__ */ new Set();
+    const pausedAnimations = /* @__PURE__ */ new Set();
+    const pauseVisualActivity = () => {
+      for (const media of document.querySelectorAll("audio, video")) {
+        if (media.paused || media.ended) continue;
+        pausedMedia.add(media);
+        try {
+          media.pause();
+        } catch {
+        }
+      }
+      const animationDocument = document;
+      for (const animation of animationDocument.getAnimations?.() ?? []) {
+        if (animation.playState !== "running") continue;
+        pausedAnimations.add(animation);
+        try {
+          animation.pause();
+        } catch {
+        }
+      }
+    };
+    const resumeVisualActivity = () => {
+      for (const media of pausedMedia) {
+        if (!media.isConnected) continue;
+        try {
+          void media.play().catch(() => {
+          });
+        } catch {
+        }
+      }
+      pausedMedia.clear();
+      for (const animation of pausedAnimations) {
+        try {
+          animation.play();
+        } catch {
+        }
+      }
+      pausedAnimations.clear();
+    };
+    const setSoftFrozen = (frozen) => {
+      if (softFrozen === frozen) return;
+      softFrozen = frozen;
+      if (frozen) {
+        document.documentElement.dataset.lduSoftFrozen = "true";
+        if (timer !== null && pendingSendType === "ldu:frame-state") {
+          window.clearTimeout(timer);
+          timer = null;
+          pendingSendType = null;
+        }
+        cancelPendingClick();
+        metadataObserver.disconnect();
+        pauseVisualActivity();
+        return;
+      }
+      delete document.documentElement.dataset.lduSoftFrozen;
+      const urlChanged = lastObservedUrl !== location.href;
+      const observedCategory = readTopicDocumentCategory(document, window);
+      if (observedCategory) currentCategory = observedCategory;
+      else if (urlChanged) currentCategory = null;
+      lastObservedUrl = location.href;
+      lastObservedTitle = document.title;
+      lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}
+${currentCategory.categoryColor}` : "";
+      observeMetadata();
+      resumeVisualActivity();
+      send("ldu:frame-state");
+    };
+    const getPreviewableLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
+      if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const getTopicLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const getListNavigationLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !/^https?:/i.test(link.href) || new URL(link.href, location.href).origin !== location.origin || getTopicInfo(link.href)) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const sendTopicOpen = (link) => {
+      const info = getTopicInfo(link.href, location.href);
+      window.parent.postMessage({
+        type: "ldu:topic-open",
+        tabId,
+        url: link.href,
+        title: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
+        ...info?.postNumber ? { postNumber: info.postNumber } : {}
+      }, location.origin);
+    };
+    const sendPreviewOpen = (link) => {
+      const rect = link.getBoundingClientRect();
+      window.parent.postMessage({
+        type: "ldu:preview-open",
+        tabId,
+        url: link.href,
+        anchorRect: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        }
+      }, location.origin);
+    };
+    const isPlainPrimaryClick = (event) => event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.type === "ldu:frame-lifecycle") {
+        setSoftFrozen(data.active !== true);
+        return;
+      }
+      if (data?.type === "ldu:bookmark") {
+        const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        if (!topicId || !csrfToken) {
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: false,
+            message: "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
+          }, location.origin);
+          return;
+        }
+        const body = new URLSearchParams({
+          bookmarkable_type: "Topic",
+          bookmarkable_id: topicId
+        });
+        void fetch("/bookmarks.json", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-CSRF-Token": csrfToken,
+            "X-Requested-With": "XMLHttpRequest"
+          },
+          body
+        }).then(async (response) => {
+          if (!response.ok) {
+            let message = "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25";
+            try {
+              const payload = await response.json();
+              if (Array.isArray(payload.errors) && typeof payload.errors[0] === "string") message = payload.errors[0];
+            } catch {
+            }
+            throw new Error(message);
+          }
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: true,
+            message: "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E"
+          }, location.origin);
+        }).catch((error) => {
+          window.parent.postMessage({
+            type: "ldu:bookmark-result",
+            tabId,
+            ok: false,
+            message: error instanceof Error && error.message ? error.message : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
+          }, location.origin);
+        });
+        return;
+      }
+      if (data?.type !== "ldu:preview-config") return;
+      previewEnabled = data.enabled === true;
+      previewClickMode = data.clickMode === "single" ? "single" : "double";
+      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
+      if (!previewEnabled) cancelPendingClick();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
+      if (previewEnabled && previewClickMode === "double" && event.detail >= 2) cancelPendingClick();
+    }, true);
+    document.addEventListener("click", (event) => {
+      if (replayingClick || !isPlainPrimaryClick(event)) return;
+      const topicLink = getTopicLink(event.target);
+      if (topicLink) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        sendTopicOpen(topicLink);
+        return;
+      }
+      const listLink = getListNavigationLink(event.target);
+      if (listLink) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.parent.postMessage({ type: "ldu:list-navigate", tabId, url: listLink.href }, location.origin);
+        return;
+      }
+      if (!previewEnabled) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (previewClickMode === "single") {
+        sendPreviewOpen(link);
+        return;
+      }
+      cancelPendingClick();
+      if (event.detail >= 2) return;
+      clickTimer = window.setTimeout(() => {
+        clickTimer = null;
+        if (!link.isConnected) return;
+        replayingClick = true;
+        try {
+          link.click();
+        } finally {
+          replayingClick = false;
+        }
+      }, DOUBLE_CLICK_DELAY_MS);
+    }, true);
+    document.addEventListener("dblclick", (event) => {
+      if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      cancelPendingClick();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      sendPreviewOpen(link);
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (!previewEnabled || event.key !== "Escape") return;
+      window.parent.postMessage({ type: "ldu:preview-dismiss", tabId }, location.origin);
+    }, true);
+    send("ldu:frame-ready");
+  }
+  function bootListBridge(frameId) {
+    document.documentElement.dataset.lduEmbeddedList = "true";
+    ensureEmbeddedStyles(document);
+    let timer = null;
+    let clickTimer = null;
+    let visualReadySent = false;
+    let visualReadyTimer = null;
+    let previewEnabled = false;
+    let previewClickMode = "double";
+    let replayingClick = false;
+    let lastUrl = "";
+    let lastTitle = "";
+    const send = (type) => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        const payload = { type, frameId, url: location.href, title: document.title, scrollY: window.scrollY };
+        lastUrl = location.href;
+        lastTitle = document.title;
+        window.parent.postMessage(payload, location.origin);
+      }, type === "ldu:list-ready" ? 0 : 100);
+    };
+    const hasRenderedListContent = () => {
+      if (document.readyState === "loading") return false;
+      const outlet = document.querySelector("#main-outlet");
+      if (!outlet) return false;
+      return [...outlet.children].some((child) => !child.matches(
+        ".loading-container, .spinner, .spinner-container, .loading-indicator"
+      ));
+    };
+    const scheduleVisualReady = () => {
+      if (visualReadySent || visualReadyTimer !== null || !hasRenderedListContent()) return;
+      visualReadyTimer = window.setTimeout(() => {
+        visualReadyTimer = null;
+        if (visualReadySent || !hasRenderedListContent()) return;
+        visualReadySent = true;
+        window.parent.postMessage({
+          type: "ldu:list-visual-ready",
+          frameId,
+          url: location.href,
+          title: document.title,
+          scrollY: window.scrollY
+        }, location.origin);
+      }, 0);
+    };
+    const cancelPendingClick = () => {
+      if (clickTimer !== null) window.clearTimeout(clickTimer);
+      clickTimer = null;
+    };
+    const isPlainPrimaryClick = (event) => event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+    const getTopicLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const getPreviewableLink = (target) => {
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
+      if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
+      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
+      return link;
+    };
+    const sendTopic = (link) => {
+      const info = getTopicInfo(link.href, location.href);
+      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
+      const category = row ? readTopicCategory(row, window) : null;
+      window.parent.postMessage({
+        type: "ldu:list-topic-open",
+        frameId,
+        url: link.href,
+        topicId: info?.topicId,
+        postNumber: info?.postNumber,
+        topicTitle: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
+        ...category ?? {}
+      }, location.origin);
+    };
+    const sendPreview = (link) => {
+      const rect = link.getBoundingClientRect();
+      window.parent.postMessage({ type: "ldu:list-preview-open", frameId, url: link.href, anchorRect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      } }, location.origin);
+    };
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.type !== "ldu:preview-config") return;
+      previewEnabled = data.enabled === true;
+      previewClickMode = data.clickMode === "single" ? "single" : "double";
+      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
+      if (!previewEnabled) cancelPendingClick();
+    });
+    window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });
+    window.addEventListener("load", () => {
+      send("ldu:list-ready");
+      scheduleVisualReady();
+    }, { once: true });
+    document.addEventListener("DOMContentLoaded", () => {
+      send("ldu:list-ready");
+      scheduleVisualReady();
+    }, { once: true });
+    window.addEventListener("popstate", () => send("ldu:list-state"));
+    window.addEventListener("hashchange", () => send("ldu:list-state"));
+    document.addEventListener("pointerdown", () => {
+      window.parent.postMessage({ type: "ldu:list-interaction", frameId }, location.origin);
+    }, true);
+    new MutationObserver(() => {
+      scheduleVisualReady();
+      if (lastUrl === location.href && lastTitle === document.title) return;
+      send("ldu:list-state");
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    document.addEventListener("click", (event) => {
+      if (replayingClick || !isPlainPrimaryClick(event)) return;
+      const topic = getTopicLink(event.target);
+      if (topic) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        sendTopic(topic);
+        return;
+      }
+      if (!previewEnabled) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (previewClickMode === "single") {
+        sendPreview(link);
+        return;
+      }
+      cancelPendingClick();
+      if (event.detail >= 2) return;
+      clickTimer = window.setTimeout(() => {
+        clickTimer = null;
+        if (!link.isConnected) return;
+        replayingClick = true;
+        try {
+          link.click();
+        } finally {
+          replayingClick = false;
+        }
+      }, DOUBLE_CLICK_DELAY_MS);
+    }, true);
+    document.addEventListener("dblclick", (event) => {
+      if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
+      const link = getPreviewableLink(event.target);
+      if (!link) return;
+      cancelPendingClick();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      sendPreview(link);
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      window.parent.postMessage({ type: "ldu:list-preview-dismiss", frameId }, location.origin);
+    }, true);
+    send("ldu:list-ready");
+    scheduleVisualReady();
+  }
+
   // src/preview/link-hover-previewer-upstream.ts
   function installLinkHoverPreviewer(options) {
     "use strict";
@@ -6239,1651 +7918,6 @@ ${tab.url}`;
     };
   }
 
-  // src/preview/upstream-preview-controller.ts
-  var PreviewController = class {
-    constructor(options) {
-      this.options = options;
-    }
-    api = null;
-    mount() {
-      if (this.api || !this.options.isEnabled()) return;
-      this.api = installLinkHoverPreviewer({
-        isEnabled: this.options.isEnabled,
-        clickMode: this.options.clickMode,
-        onClickModeChange: this.options.onClickModeChange,
-        isPreviewableUrl: (url, link) => this.isPreviewable(url, link)
-      });
-    }
-    close() {
-      this.api?.close();
-    }
-    syncClickMode() {
-      this.mount();
-      this.api?.syncClickMode();
-    }
-    openFromFrame(url, iframe, anchorRect) {
-      if (!this.options.isEnabled() || !this.isPreviewable(url, null)) return;
-      this.mount();
-      if (!this.api) return;
-      const frameRect = iframe.getBoundingClientRect();
-      const rect = anchorRect ?? { left: 0, bottom: 0 };
-      this.api.openFromFrame(url, {
-        left: frameRect.left + rect.left,
-        top: frameRect.top + rect.bottom,
-        bottom: frameRect.top + rect.bottom
-      });
-    }
-    isPreviewable(url, link) {
-      if (!/^https?:/i.test(url) || getTopicInfo(url)) return false;
-      if (!link) return true;
-      if (link.closest(".d-header, .sidebar-wrapper, .ldu-topic-toolbar, .ldu-settings-panel")) return false;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return false;
-      if (link.matches(".lightbox") || link.querySelector("img, picture")) return false;
-      return !link.closest("img, picture, .lightbox-wrapper");
-    }
-  };
-
-  // src/credit/credit-widget.ts
-  var REFRESH_INTERVAL_MS = 3e5;
-  var SHARED_CACHE_TTL_MS = 6e4;
-  var SHARED_CACHE_KEY = "linuxdo-ultimate:credit-cache:v1";
-  var SHARED_REQUEST_LOCK = "linuxdo-ultimate:credit-refresh";
-  var CreditWidget = class {
-    constructor(options = {}) {
-      this.options = options;
-    }
-    host = null;
-    button = null;
-    value = null;
-    tooltip = null;
-    communityBalance = null;
-    gamificationScore = null;
-    username = null;
-    tooltipContent = "\u52A0\u8F7D\u4E2D...";
-    timeoutId = null;
-    inFlight = null;
-    requestGeneration = 0;
-    activeRequestController = null;
-    mounted = false;
-    enabled = false;
-    mount(enabled) {
-      if (this.mounted || !(this.options.isTopLevel?.() ?? window.self === window.top)) return;
-      this.mounted = true;
-      this.createWidget();
-      document.addEventListener("visibilitychange", () => this.handleVisibilityChange());
-      this.ensureHost();
-      this.setEnabled(enabled);
-    }
-    ensureHost() {
-      if (!this.host) return;
-      const language = document.querySelector(".d-header-icons > .language-switcher");
-      if (language) {
-        if (language.nextElementSibling !== this.host) language.after(this.host);
-      } else {
-        const icons = document.querySelector(".d-header-icons");
-        if (!icons) return;
-        if (this.host.parentElement !== icons) icons.append(this.host);
-      }
-      if (this.enabled) this.startUpdates();
-    }
-    setEnabled(enabled) {
-      if (!this.mounted) {
-        this.mount(enabled);
-        return;
-      }
-      this.enabled = enabled;
-      if (this.host) this.host.hidden = !enabled;
-      if (this.tooltip) this.tooltip.hidden = true;
-      if (!enabled) {
-        this.requestGeneration += 1;
-        this.activeRequestController?.abort();
-        this.activeRequestController = null;
-        this.inFlight = null;
-        this.clearSchedule();
-        return;
-      }
-      this.ensureHost();
-      if (this.host?.isConnected) this.startUpdates();
-    }
-    startUpdates() {
-      if (!this.enabled || !this.isVisible() || this.inFlight || this.timeoutId !== null) return;
-      void this.fetchData(false);
-    }
-    createWidget() {
-      const host = document.createElement("li");
-      host.className = "header-dropdown-toggle ldu-credit-host";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "btn no-text language-switcher-trigger btn-flat ldu-credit-button is-loading";
-      button.title = "Credit \u79EF\u5206\u6536\u5165\uFF0C\u70B9\u51FB\u5237\u65B0";
-      button.setAttribute("aria-label", "Credit \u79EF\u5206\u6536\u5165\uFF0C\u70B9\u51FB\u5237\u65B0");
-      button.setAttribute("aria-describedby", "ldu-credit-tooltip");
-      const value = document.createElement("span");
-      value.className = "ldu-credit-value";
-      value.setAttribute("aria-live", "polite");
-      value.textContent = "\xB7\xB7\xB7";
-      button.append(value);
-      host.append(button);
-      const tooltip = document.createElement("div");
-      tooltip.id = "ldu-credit-tooltip";
-      tooltip.className = "ldu-credit-tooltip";
-      tooltip.hidden = true;
-      tooltip.setAttribute("role", "tooltip");
-      document.body.append(tooltip);
-      const showTooltip = () => {
-        if (!this.enabled) return;
-        tooltip.textContent = this.tooltipContent;
-        tooltip.hidden = false;
-        const rect = button.getBoundingClientRect();
-        const left = Math.max(8, Math.min(window.innerWidth - tooltip.offsetWidth - 8, rect.right - tooltip.offsetWidth));
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${rect.bottom + 6}px`;
-      };
-      const hideTooltip = () => {
-        tooltip.hidden = true;
-      };
-      button.addEventListener("mouseenter", showTooltip);
-      button.addEventListener("mouseleave", hideTooltip);
-      button.addEventListener("focus", showTooltip);
-      button.addEventListener("blur", hideTooltip);
-      button.addEventListener("click", () => {
-        this.setLoading("\u5237\u65B0\u4E2D...");
-        void this.fetchData(true);
-      });
-      this.host = host;
-      this.button = button;
-      this.value = value;
-      this.tooltip = tooltip;
-    }
-    fetchData(force) {
-      if (!this.enabled || !this.isVisible()) return Promise.resolve();
-      if (this.inFlight) return this.inFlight;
-      const generation = ++this.requestGeneration;
-      const startedAt = this.now();
-      const controller = new AbortController();
-      this.activeRequestController = controller;
-      const task = (async () => {
-        try {
-          const cached = !force ? this.readSharedSnapshot() : null;
-          const snapshot = cached ?? await this.fetchSnapshotCoordinated(force, startedAt, controller.signal);
-          if (!this.enabled || generation !== this.requestGeneration) return;
-          this.communityBalance = snapshot.communityBalance;
-          this.gamificationScore = snapshot.gamificationScore;
-          this.username = snapshot.username;
-          if (!cached) this.writeSharedSnapshot(snapshot);
-          this.updateDisplay();
-        } catch (error) {
-          if (controller.signal.aborted) return;
-          console.error("[Linux.do Ultimate] LDC request failed", error);
-          if (this.enabled && generation === this.requestGeneration) this.showError();
-        }
-      })().finally(() => {
-        if (this.activeRequestController === controller) this.activeRequestController = null;
-        if (this.inFlight === task) this.inFlight = null;
-        if (this.enabled && this.isVisible() && generation === this.requestGeneration) this.scheduleNext();
-      });
-      this.inFlight = task;
-      return task;
-    }
-    async fetchSnapshot(signal) {
-      const credit = await this.request("https://credit.linux.do/api/v1/oauth/user-info", signal);
-      const rawBalance = credit?.data?.["community-balance"] ?? credit?.data?.community_balance;
-      const username = credit?.data?.username ?? credit?.data?.nickname;
-      const communityBalance = Number.parseFloat(String(rawBalance));
-      if (!username || !Number.isFinite(communityBalance)) throw new Error("invalid credit response");
-      const data = await this.request(`https://linux.do/u/${encodeURIComponent(username)}.json`, signal);
-      const gamificationScore = Number.parseFloat(String(data?.user?.gamification_score));
-      if (!Number.isFinite(gamificationScore)) throw new Error("invalid gamification response");
-      return { communityBalance, gamificationScore, username, updatedAt: this.now() };
-    }
-    async fetchSnapshotCoordinated(force, startedAt, signal) {
-      const locks = typeof navigator !== "undefined" ? navigator.locks : void 0;
-      if (!locks) return this.fetchSnapshot(signal);
-      return locks.request(SHARED_REQUEST_LOCK, { signal }, async () => {
-        const shared = this.readSharedSnapshot();
-        if (shared && (!force || shared.updatedAt >= startedAt)) return shared;
-        const snapshot = await this.fetchSnapshot(signal);
-        this.writeSharedSnapshot(snapshot);
-        return snapshot;
-      });
-    }
-    scheduleNext() {
-      this.clearSchedule();
-      this.timeoutId = window.setTimeout(() => {
-        this.timeoutId = null;
-        void this.fetchData(false);
-      }, REFRESH_INTERVAL_MS);
-    }
-    clearSchedule() {
-      if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
-      this.timeoutId = null;
-    }
-    handleVisibilityChange() {
-      if (!this.isVisible()) {
-        this.clearSchedule();
-        return;
-      }
-      if (this.enabled) this.startUpdates();
-    }
-    isVisible() {
-      return this.options.isVisible?.() ?? document.visibilityState !== "hidden";
-    }
-    now() {
-      return this.options.now?.() ?? Date.now();
-    }
-    readSharedSnapshot() {
-      try {
-        const raw = localStorage.getItem(SHARED_CACHE_KEY);
-        if (raw === null) return null;
-        const value = JSON.parse(raw);
-        if (!value || this.now() - Number(value.updatedAt) >= SHARED_CACHE_TTL_MS || !Number.isFinite(value.communityBalance) || !Number.isFinite(value.gamificationScore) || typeof value.username !== "string") {
-          this.clearSharedSnapshot();
-          return null;
-        }
-        return value;
-      } catch {
-        this.clearSharedSnapshot();
-        return null;
-      }
-    }
-    clearSharedSnapshot() {
-      try {
-        localStorage.removeItem(SHARED_CACHE_KEY);
-      } catch {
-      }
-    }
-    writeSharedSnapshot(snapshot) {
-      try {
-        localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(snapshot));
-      } catch {
-      }
-    }
-    updateDisplay() {
-      if (this.communityBalance === null || this.gamificationScore === null || !this.value || !this.button) return;
-      const difference = this.gamificationScore - this.communityBalance;
-      this.value.textContent = `${difference > 0 ? "+" : ""}${difference.toFixed(2)}`;
-      this.button.classList.remove("is-loading", "is-positive", "is-negative", "is-neutral");
-      this.button.classList.add(difference > 0 ? "is-positive" : difference < 0 ? "is-negative" : "is-neutral");
-      this.tooltipContent = `\u4EC5\u4F9B\u53C2\u8003\uFF0C\u53EF\u80FD\u6709\u8BEF\u5DEE\uFF01
-\u5F53\u524D\u5206: ${this.gamificationScore.toFixed(2)}
-\u57FA\u51C6\u503C: ${this.communityBalance.toFixed(2)}`;
-    }
-    setLoading(message) {
-      if (this.value) this.value.textContent = "\xB7\xB7\xB7";
-      this.button?.classList.remove("is-positive", "is-negative", "is-neutral");
-      this.button?.classList.add("is-loading");
-      this.tooltipContent = message;
-    }
-    showError() {
-      if (this.value) this.value.textContent = "!";
-      this.button?.classList.remove("is-loading", "is-positive", "is-neutral");
-      this.button?.classList.add("is-negative");
-      this.tooltipContent = "\u8BF7\u6C42\u5931\u8D25\uFF0C\u8BF7\u786E\u8BA4\u5DF2\u767B\u5F55";
-    }
-    request(url, signal) {
-      if (this.options.request) return this.options.request(url);
-      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-      const headers = {
-        Accept: "application/json",
-        ...csrfToken ? { "x-csrf-token": csrfToken } : {}
-      };
-      if (url.startsWith(location.origin)) {
-        return fetch(url, { credentials: "include", headers, signal }).then((response) => {
-          if (!response.ok) throw new Error(String(response.status));
-          return response.json();
-        }).catch((error) => signal.aborted ? Promise.reject(error) : this.requestWithUserscript(url, headers, signal));
-      }
-      return this.requestWithUserscript(url, headers, signal);
-    }
-    requestWithUserscript(url, headers, signal) {
-      return new Promise((resolve, reject) => {
-        if (typeof GM_xmlhttpRequest !== "function") {
-          reject(new Error("GM_xmlhttpRequest is unavailable"));
-          return;
-        }
-        let settled = false;
-        let handle = null;
-        const finish = (callback) => {
-          if (settled) return;
-          settled = true;
-          signal.removeEventListener("abort", abort);
-          callback();
-        };
-        const abort = () => {
-          try {
-            handle?.abort();
-          } catch {
-          }
-          finish(() => reject(new DOMException("Aborted", "AbortError")));
-        };
-        if (signal.aborted) {
-          abort();
-          return;
-        }
-        signal.addEventListener("abort", abort, { once: true });
-        const request = {
-          method: "GET",
-          url,
-          withCredentials: true,
-          headers: { ...headers, Referer: "https://credit.linux.do/home" },
-          timeout: 1e4,
-          onload: (response) => {
-            if (response.status !== 200) {
-              finish(() => reject(new Error(String(response.status))));
-              return;
-            }
-            try {
-              const value = JSON.parse(response.responseText);
-              finish(() => resolve(value));
-            } catch (error) {
-              finish(() => reject(error));
-            }
-          },
-          onerror: (error) => finish(() => reject(error)),
-          ontimeout: () => finish(() => reject(new Error("timeout")))
-        };
-        handle = GM_xmlhttpRequest(request);
-      });
-    }
-  };
-
-  // src/app.ts
-  var ROUTE_DEBOUNCE_MS = 100;
-  var SESSION_MAINTENANCE_INTERVAL_MS = 30 * 6e4;
-  var LIST_HANDOFF_TIMEOUT_MS = 3e3;
-  function startLinuxDoApp() {
-    if (window.self !== window.top) return;
-    const start = () => new LinuxDoApp().start();
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", start, { once: true });
-    } else {
-      start();
-    }
-  }
-  var LinuxDoApp = class {
-    storage = new UserscriptStorage();
-    settings = normalizeSettings(DEFAULT_SETTINGS);
-    session;
-    tabStore;
-    layout;
-    frames = null;
-    secondaryFrames = null;
-    listFrame = null;
-    preview;
-    settingsPanel;
-    credit;
-    settingsHost = null;
-    routeTimer = null;
-    persistTimer = null;
-    lastRoute = "";
-    restoredTabsTracked = false;
-    trackedTopicKey = "";
-    topicTrackTimers = [];
-    routeRetryTimer = null;
-    routeRetryAttempts = 0;
-    hostMaintenanceTimer = null;
-    hasRestoredSession = false;
-    sessionLease;
-    leaseTimer = null;
-    sessionMaintenanceTimer = null;
-    tabContextMenu;
-    listHandoffTimer = null;
-    start() {
-      this.settings = loadSettings(this.storage);
-      ensureAppStyles();
-      this.preview = new PreviewController({
-        isEnabled: () => this.settings.enabled && this.settings.previewEnabled,
-        clickMode: () => this.settings.previewClickMode,
-        onClickModeChange: (previewClickMode) => this.applySettings({ previewClickMode })
-      });
-      this.preview.mount();
-      this.tabContextMenu = new TabContextMenu({
-        onMoveToSplit: (tabId) => this.moveTabToSecondary(tabId),
-        onOpenBrowserTab: (tabId) => this.openTabInBrowser(tabId),
-        onReload: (tabId) => this.reloadTab(tabId),
-        onCopyLink: (tabId) => void this.copyTabLink(tabId),
-        onBookmark: (tabId) => this.bookmarkTab(tabId),
-        onCloseOthers: (tabId) => this.closeOtherTabs(tabId)
-      });
-      this.sessionLease = claimSessionId(
-        this.storage,
-        window.sessionStorage,
-        Date.now(),
-        isReloadNavigation(window.performance)
-      );
-      const sessionId = this.sessionLease.sessionId;
-      reconcileSessionClose(this.storage, sessionId);
-      cleanupExpiredSessions(this.storage);
-      if (!this.settings.restoreSession) clearRestorableSessions(this.storage);
-      const initial = createSession(sessionId, location.href, Date.now());
-      initial.paneSizes = { ...this.settings.paneSizes };
-      initial.dualPaneSizes = { ...this.settings.dualPaneSizes };
-      const currentSession = loadSessionIfPresent(this.storage, sessionId, location.href, Date.now());
-      const previousSession = !currentSession && classifyRoute(location.href) !== "topic" && this.settings.restoreSession ? loadLatestSession(this.storage, sessionId, location.href, Date.now()) : null;
-      this.session = currentSession ?? previousSession ?? initial;
-      this.hasRestoredSession = Boolean(previousSession?.tabs.length);
-      this.tabStore = new TopicTabStore(this.session, this.settings.maxOpenTabs, (session) => {
-        this.session = session;
-        saveSession(this.storage, session);
-        this.renderTabs();
-      });
-      this.layout = new LayoutController({
-        preference: this.settings.layoutPreference,
-        paneSizes: this.session.paneSizes,
-        dualPaneSizes: this.session.dualPaneSizes,
-        hidePosters: this.settings.hidePosters,
-        onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout)
-      });
-      this.mountSettings();
-      this.credit = new CreditWidget();
-      this.credit.mount(this.settings.enabled && this.settings.creditEnabled);
-      this.lastRoute = location.href;
-      this.bindGlobalEvents();
-      this.leaseTimer = window.setInterval(() => refreshSessionLease(this.storage, this.sessionLease), 3e4);
-      this.sessionMaintenanceTimer = window.setInterval(
-        () => cleanupExpiredSessions(this.storage),
-        SESSION_MAINTENANCE_INTERVAL_MS
-      );
-      this.syncRoute();
-      if (window.__LDU_TEST_MODE__) {
-        window.__LDU_TEST_API__ = {
-          openTopic: (url, title) => {
-            const info = getTopicInfo(url, location.href);
-            if (info) this.openTopic(info.topicId, info.url.href, title, info.postNumber);
-          }
-        };
-      }
-    }
-    bindGlobalEvents() {
-      document.addEventListener("click", (event) => this.handleTopicLinkClick(event), true);
-      window.addEventListener("message", (event) => {
-        this.frames?.handleMessage(event);
-        this.secondaryFrames?.handleMessage(event);
-        this.listFrame?.handleMessage(event);
-      });
-      window.addEventListener("popstate", () => this.scheduleRouteSync());
-      window.addEventListener("hashchange", () => this.scheduleRouteSync());
-      window.addEventListener("pagehide", (event) => this.handlePageHide(event), { capture: true });
-      new MutationObserver(() => {
-        if (typeof window === "undefined" || typeof document === "undefined") return;
-        if (this.hostMaintenanceTimer === null) {
-          this.hostMaintenanceTimer = window.setTimeout(() => {
-            this.hostMaintenanceTimer = null;
-            this.ensureSettingsHost();
-            this.credit?.ensureHost();
-          }, 100);
-        }
-        if (this.lastRoute !== location.href) this.scheduleRouteSync();
-      }).observe(document.documentElement, { childList: true, subtree: true });
-    }
-    handleTopicLinkClick(event) {
-      if (!(event instanceof MouseEvent) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      if (!this.settings.enabled || !this.settings.tabsEnabled) return;
-      const target = event.target;
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link) return;
-      if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
-      if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
-        this.promoteDirectTopicNavigation(event, link);
-        return;
-      }
-      if (isSupportedTopicTarget(link.href, location.href)) {
-        const info = getTopicInfo(link.href);
-        if (!info) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-        const category = row ? readTopicCategory(row) : null;
-        this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
-        return;
-      }
-      if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
-      let targetUrl;
-      try {
-        targetUrl = new URL(link.href, location.href);
-      } catch {
-        return;
-      }
-      if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.navigateList(targetUrl.href);
-    }
-    openTopic(topicId, url, title, postNumber, category, pane = "primary", deferListFrame = false) {
-      const shouldHandoffList = this.tabStore.getTabs().length === 0 && classifyRoute(location.href) !== "topic" && this.layout.getMode() === "native";
-      const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
-      if (!this.layout.mount()) return;
-      if (shouldHandoffList) {
-        this.tabStore.setSessionFields({
-          listUrl: location.href,
-          listScrollY: nativeListScrollY
-        }, Date.now(), false);
-      }
-      this.ensureFrames();
-      if (shouldHandoffList && this.layout.beginListHandoff(nativeListScrollY)) {
-        this.scheduleListHandoffFallback();
-      }
-      this.layout.setOpen(true);
-      const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
-      if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
-      else this.tabStore.open(input, Date.now());
-      if (!deferListFrame) this.ensureListFrame();
-      const info = getTopicInfo(url);
-      if (info) {
-        const tracker = createBrowserViewTracker();
-        void tracker.track(info, "split-open", location.href).then((result) => {
-          if (result.status === "failed") {
-            window.setTimeout(() => void tracker.track(info, "manual-retry", location.href), 1e4);
-          }
-        });
-      }
-    }
-    syncRoute() {
-      this.routeTimer = null;
-      if (this.lastRoute !== location.href) {
-        this.lastRoute = location.href;
-      }
-      const route = classifyRoute(location.href);
-      const shouldHostSplit = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
-      if (shouldHostSplit) {
-        this.clearTopicTrackSchedule();
-        if (!this.layout.mount()) {
-          this.scheduleRouteMountRetry();
-          return;
-        }
-        this.routeRetryAttempts = 0;
-        const hasTabs = this.tabStore.getTabs().length > 0;
-        this.layout.setOpen(hasTabs);
-        if (hasTabs) {
-          this.ensureFrames();
-          this.ensureListFrame();
-          if (this.tabStore.getSecondaryTabs().length > 0) {
-            this.layout.setSecondaryOpen(true);
-            this.ensureSecondaryFrames();
-          }
-          const active = this.tabStore.getActive();
-          if (active) {
-            this.activateFrame(active, "primary");
-            if (this.hasRestoredSession && !this.restoredTabsTracked) {
-              this.restoredTabsTracked = true;
-              const info = getTopicInfo(active.url);
-              if (info) void createBrowserViewTracker().track(info, "restored-tab", location.href);
-            }
-          }
-          const secondaryActive = this.tabStore.getSecondaryActive();
-          if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
-        }
-        return;
-      }
-      this.disposeSplitRuntime();
-      if (route === "topic") {
-        const info = getTopicInfo(location.href);
-        if (info) this.scheduleTopicTracking(info.topicId, info.url.href);
-      } else {
-        this.clearTopicTrackSchedule();
-      }
-    }
-    promoteDirectTopicNavigation(event, link) {
-      const current = getTopicInfo(location.href);
-      if (!current) return;
-      let targetUrl;
-      try {
-        targetUrl = new URL(link.href, location.href);
-      } catch {
-        return;
-      }
-      if (targetUrl.origin !== location.origin) return;
-      const targetRoute = classifyRoute(targetUrl.href, location.href);
-      if (targetRoute === "topic" && getTopicInfo(targetUrl.href, location.href)?.topicId === current.topicId) return;
-      if (link.target === "_blank" || link.hasAttribute("download")) return;
-      const listUrl = targetRoute === "topic" ? new URL("/", location.href).href : targetUrl.href;
-      if (!this.layout.mount()) return;
-      this.clearTopicTrackSchedule();
-      this.tabStore.setSessionFields({ listUrl, listScrollY: 0 }, Date.now(), false);
-      this.ensureFrames();
-      this.layout.setOpen(true);
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, void 0, "primary", true);
-      if (targetRoute === "topic") {
-        const target = getTopicInfo(targetUrl.href, location.href);
-        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber, void 0, "primary", true);
-      }
-      this.ensureListFrame(listUrl);
-    }
-    currentTopicTitle(topicId) {
-      return document.querySelector("#topic-title h1, .fancy-title")?.textContent?.trim() || document.title || `\u4E3B\u9898 ${topicId}`;
-    }
-    scheduleRouteMountRetry() {
-      if (this.routeRetryTimer !== null || this.routeRetryAttempts >= 30) return;
-      this.routeRetryAttempts += 1;
-      this.routeRetryTimer = window.setTimeout(() => {
-        this.routeRetryTimer = null;
-        this.syncRoute();
-      }, 100);
-    }
-    scheduleRouteSync() {
-      this.routeRetryAttempts = 0;
-      if (this.routeTimer !== null) window.clearTimeout(this.routeTimer);
-      this.routeTimer = window.setTimeout(() => this.syncRoute(), ROUTE_DEBOUNCE_MS);
-    }
-    ensureListFrame(requestedUrl) {
-      const container = this.layout.getListContentElement();
-      if (!container) return;
-      if (!this.listFrame) {
-        this.listFrame = new ListFrameController(
-          container,
-          this.session.sessionId,
-          (message, iframe) => this.handleListFrameMessage(message, iframe)
-        );
-      }
-      this.listFrame.setConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode,
-        hidePosters: this.settings.hidePosters
-      });
-      const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
-      let resolved;
-      try {
-        resolved = new URL(storedListUrl || "/", location.href);
-      } catch {
-        resolved = new URL("/", location.href);
-      }
-      const listUrl = resolved.origin !== location.origin || getTopicInfo(resolved.href, location.href) ? new URL("/", location.href).href : resolved.href;
-      this.listFrame.mount(listUrl);
-    }
-    navigateList(url) {
-      let target;
-      try {
-        target = new URL(url, location.href);
-      } catch {
-        return;
-      }
-      if (target.origin !== location.origin || getTopicInfo(target.href, location.href)) return;
-      if (!this.layout.mount()) return;
-      this.tabStore.setSessionFields({ listUrl: target.href, listScrollY: 0 }, Date.now(), false);
-      saveSession(this.storage, this.tabStore.getSession());
-      this.ensureListFrame(target.href);
-      this.listFrame?.navigate(target.href);
-    }
-    handleListFrameMessage(message, iframe) {
-      if (message.type === "ldu:list-interaction") {
-        document.body.dispatchEvent(new MouseEvent("pointerdown", {
-          bubbles: true,
-          cancelable: true,
-          button: 0
-        }));
-        return;
-      }
-      if (message.type === "ldu:list-preview-open") {
-        this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
-        return;
-      }
-      if (message.type === "ldu:list-preview-dismiss") {
-        this.preview.close();
-        return;
-      }
-      if (message.type === "ldu:list-topic-open") {
-        const info = message.url ? getTopicInfo(message.url, location.href) : null;
-        if (!info) return;
-        const category = message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : void 0;
-        this.openTopic(info.topicId, info.url.href, message.topicTitle || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category);
-        return;
-      }
-      if (message.type === "ldu:list-navigate" && message.url) {
-        this.navigateList(message.url);
-        return;
-      }
-      if (!message.url || getTopicInfo(message.url, location.href)) return;
-      const previousSession = this.tabStore.getSession();
-      const nextListUrl = new URL(message.url, location.href).href;
-      const sameListUrl = previousSession.listUrl === nextListUrl;
-      const savedScrollY = sameListUrl ? previousSession.listScrollY : 0;
-      this.tabStore.setSessionFields({
-        listUrl: nextListUrl,
-        ...message.type === "ldu:list-state" && typeof message.scrollY === "number" ? { listScrollY: message.scrollY } : !sameListUrl ? { listScrollY: 0 } : {}
-      }, Date.now(), false);
-      if (message.type === "ldu:list-state") this.schedulePersist();
-      if (message.type === "ldu:list-ready") {
-        this.listFrame?.restoreScroll(savedScrollY);
-        this.schedulePersist();
-      }
-      if (message.type === "ldu:list-visual-ready") {
-        const handoffScrollY = this.finishListHandoff();
-        if (handoffScrollY !== null) this.listFrame?.restoreScroll(handoffScrollY);
-        this.schedulePersist();
-      }
-    }
-    ensureFrames() {
-      const content = this.layout.getContentElement();
-      if (!content || this.frames) return;
-      this.frames = new TopicFramePool(
-        content,
-        this.settings.maxLiveFrames,
-        (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
-        (tabId, scrollY) => {
-          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
-          this.schedulePersist();
-        }
-      );
-      this.frames.setPreviewConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode
-      });
-      this.renderTabs();
-    }
-    ensureSecondaryFrames() {
-      const content = this.layout.getSecondaryContentElement();
-      if (!content || this.secondaryFrames) return;
-      this.secondaryFrames = new TopicFramePool(
-        content,
-        this.settings.maxLiveFrames,
-        (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
-        (tabId, scrollY) => {
-          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
-          this.schedulePersist();
-        }
-      );
-      this.secondaryFrames.setPreviewConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode
-      });
-    }
-    mountSettings() {
-      if (this.settingsPanel) return;
-      const host = document.createElement("li");
-      host.className = "ldu-settings-host";
-      this.settingsHost = host;
-      this.ensureSettingsHost();
-      this.settingsPanel = new SettingsPanel(host, this.settings, {
-        onChange: (patch) => this.applySettings(patch)
-      });
-      this.settingsPanel.mount();
-    }
-    ensureSettingsHost() {
-      if (!this.settingsHost) return;
-      const target = document.querySelector(".d-header-icons") ?? document.querySelector(".d-header .contents") ?? document.body;
-      if (this.settingsHost.parentElement !== target) target.append(this.settingsHost);
-    }
-    applySettings(patch) {
-      this.settings = normalizeSettings({ ...this.settings, ...patch });
-      saveSettings(this.storage, this.settings);
-      this.layout.setPreference(this.settings.layoutPreference);
-      this.layout.setHidePosters(this.settings.hidePosters);
-      if (patch.paneSizes || patch.dualPaneSizes) {
-        this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
-        this.tabStore.setSessionFields({
-          paneSizes: this.settings.paneSizes,
-          dualPaneSizes: this.settings.dualPaneSizes
-        }, Date.now(), false);
-        saveSession(this.storage, this.tabStore.getSession());
-      }
-      this.frames?.setMaxLiveFrames(this.settings.maxLiveFrames);
-      this.secondaryFrames?.setMaxLiveFrames(this.settings.maxLiveFrames);
-      this.frames?.setPreviewConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode
-      });
-      this.secondaryFrames?.setPreviewConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode
-      });
-      this.listFrame?.setConfig({
-        enabled: this.settings.enabled && this.settings.previewEnabled,
-        clickMode: this.settings.previewClickMode,
-        hidePosters: this.settings.hidePosters
-      });
-      this.settingsPanel?.setSettings(this.settings);
-      this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
-      if (patch.previewClickMode !== void 0) this.preview.syncClickMode();
-      if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
-      if (patch.restoreSession === false) clearRestorableSessions(this.storage);
-      if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
-      if (patch.colorizeTabs !== void 0) this.renderTabs();
-      const canShowTabs = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
-      if (!canShowTabs) {
-        this.disposeSplitRuntime();
-        return;
-      }
-      if (!this.layout.mount()) return;
-      const active = this.tabStore.getActive();
-      const hasTabs = this.tabStore.getTabs().length > 0;
-      this.layout.setOpen(hasTabs);
-      if (hasTabs) {
-        this.ensureFrames();
-        this.ensureListFrame();
-        if (active) this.activateFrame(active, "primary");
-        const secondaryActive = this.tabStore.getSecondaryActive();
-        if (secondaryActive) {
-          this.layout.setSecondaryOpen(true);
-          this.ensureSecondaryFrames();
-          this.activateFrame(secondaryActive, "secondary");
-        }
-      }
-    }
-    persistPaneSizes(paneSizes, layout) {
-      this.settings = normalizeSettings({
-        ...this.settings,
-        ...layout === "dual" ? { dualPaneSizes: paneSizes } : { paneSizes }
-      });
-      saveSettings(this.storage, this.settings);
-      this.tabStore.setSessionFields(layout === "dual" ? { dualPaneSizes: this.settings.dualPaneSizes } : { paneSizes: this.settings.paneSizes }, Date.now(), false);
-      saveSession(this.storage, this.tabStore.getSession());
-      this.settingsPanel?.setSettings(this.settings);
-    }
-    scheduleTopicTracking(topicId, url) {
-      const key = topicId;
-      if (this.trackedTopicKey === key) return;
-      this.clearTopicTrackSchedule();
-      this.trackedTopicKey = key;
-      const info = getTopicInfo(url);
-      if (!info) return;
-      const tracker = createBrowserViewTracker();
-      this.topicTrackTimers = [2500, 1e4].map((delay) => window.setTimeout(() => {
-        void tracker.track(info, "browser-open", document.referrer);
-      }, delay));
-    }
-    clearTopicTrackSchedule() {
-      for (const timer of this.topicTrackTimers) window.clearTimeout(timer);
-      this.topicTrackTimers = [];
-      this.trackedTopicKey = "";
-    }
-    activateFrame(tab, pane) {
-      const pool = pane === "secondary" ? this.secondaryFrames : this.frames;
-      if (!tab || !pool) return;
-      pool.activate(tab, Date.now());
-      const content = pane === "secondary" ? this.layout.getSecondaryContentElement() : this.layout.getContentElement();
-      const empty = content?.querySelector(".ldu-topic-empty");
-      if (empty) empty.hidden = true;
-    }
-    handleFrameMessage(message, iframe, pane) {
-      const tab = this.tabStore.get(message.tabId);
-      if (!tab) return;
-      if (message.type === "ldu:frame-interaction") {
-        document.body.dispatchEvent(new MouseEvent("pointerdown", {
-          bubbles: true,
-          cancelable: true,
-          button: 0
-        }));
-        return;
-      }
-      if (message.type === "ldu:bookmark-result") {
-        this.showActionToast(message.message || (message.ok ? "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E" : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"), message.ok === false);
-        return;
-      }
-      if (message.type === "ldu:list-navigate" && message.url) {
-        this.navigateList(message.url);
-        return;
-      }
-      if (message.type === "ldu:preview-open") {
-        this.preview.openFromFrame(message.url ?? "", iframe, message.anchorRect);
-        return;
-      }
-      if (message.type === "ldu:preview-dismiss") {
-        this.preview.close();
-        return;
-      }
-      if (message.type === "ldu:topic-open") {
-        const info2 = message.url ? getTopicInfo(message.url, location.href) : null;
-        if (!info2 || !isSupportedTopicTarget(info2.url.href, tab.url)) return;
-        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber, void 0, pane);
-        return;
-      }
-      const info = message.url ? getTopicInfo(message.url) : null;
-      const sameTopic = info?.topicId === tab.topicId;
-      const categoryChanged = Boolean(
-        message.categoryName && message.categoryColor && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor)
-      );
-      const patch = {
-        ...message.url ? { url: message.url } : {},
-        ...message.title ? { title: message.title } : {},
-        ...message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : {},
-        // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
-        ...message.type !== "ldu:frame-ready" && typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
-        ...info?.postNumber ? { postNumber: info.postNumber } : {},
-        suspended: false
-      };
-      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
-      if (message.type === "ldu:frame-state") this.schedulePersist();
-      if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
-        iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
-      }
-    }
-    renderTabs() {
-      const root = this.layout?.getTabStripElement();
-      if (!root || !this.tabStore) return;
-      const primaryTabs = this.tabStore.getPrimaryTabs();
-      const secondaryTabs = this.tabStore.getSecondaryTabs();
-      this.layout.setSecondaryOpen(secondaryTabs.length > 0);
-      if (secondaryTabs.length > 0) this.ensureSecondaryFrames();
-      else if (this.secondaryFrames) {
-        this.secondaryFrames.destroy();
-        this.secondaryFrames = null;
-      }
-      renderTabStrip(root, primaryTabs, this.tabStore.getSession().activeTabId, {
-        onActivate: (tabId) => {
-          const tab = this.tabStore.activate(tabId, Date.now());
-          if (tab) this.activateFrame(tab, "primary");
-        },
-        onClose: (tabId) => this.closeTab(tabId, "primary"),
-        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
-        onReorder: (tabId, targetTabId, position) => {
-          this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
-        }
-      }, { colorizeTabs: this.settings.colorizeTabs });
-      const secondaryRoot = this.layout.getSecondaryTabStripElement();
-      if (secondaryRoot) {
-        renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
-          onActivate: (tabId) => {
-            const tab = this.tabStore.activateSecondary(tabId, Date.now());
-            if (tab) this.activateFrame(tab, "secondary");
-          },
-          onClose: (tabId) => this.closeTab(tabId, "secondary"),
-          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
-          onReorder: (tabId, targetTabId, position) => {
-            this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
-          }
-        }, { colorizeTabs: this.settings.colorizeTabs });
-      }
-      const actions = this.layout.getActionsElement();
-      if (actions && !actions.querySelector(".ldu-close-all")) {
-        const close = document.createElement("button");
-        close.type = "button";
-        close.className = "ldu-icon-button ldu-close-all";
-        setIcon(close, "close", 18);
-        close.title = "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E";
-        close.setAttribute("aria-label", "\u5173\u95ED\u6240\u6709\u5E16\u5B50\u6807\u7B7E");
-        close.addEventListener("click", () => {
-          for (const tab of this.tabStore.getTabs()) {
-            this.frames?.remove(tab.id);
-            this.secondaryFrames?.remove(tab.id);
-          }
-          this.tabStore.clear(Date.now());
-          this.disposeSplitRuntime();
-        });
-        actions.append(close);
-      }
-      const secondaryActions = this.layout.getSecondaryActionsElement();
-      if (secondaryActions && !secondaryActions.querySelector(".ldu-close-secondary")) {
-        const close = document.createElement("button");
-        close.type = "button";
-        close.className = "ldu-icon-button ldu-close-secondary";
-        setIcon(close, "close", 18);
-        close.title = "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A";
-        close.setAttribute("aria-label", "\u5173\u95ED\u7B2C\u4E8C\u9605\u8BFB\u533A\u5E76\u5C06\u6807\u7B7E\u79FB\u56DE\u4E3B\u9605\u8BFB\u533A");
-        close.addEventListener("click", () => this.closeSecondaryPanel());
-        secondaryActions.append(close);
-      }
-      const empty = this.layout.getContentElement()?.querySelector(".ldu-topic-empty");
-      if (empty) empty.hidden = primaryTabs.length > 0;
-      const secondaryEmpty = this.layout.getSecondaryContentElement()?.querySelector(".ldu-topic-empty");
-      if (secondaryEmpty) secondaryEmpty.hidden = secondaryTabs.length > 0;
-      const active = this.tabStore.getActive();
-      if (active) this.activateFrame(active, "primary");
-      const secondaryActive = this.tabStore.getSecondaryActive();
-      if (secondaryActive) this.activateFrame(secondaryActive, "secondary");
-    }
-    closeTab(tabId, pane) {
-      (pane === "secondary" ? this.secondaryFrames : this.frames)?.remove(tabId);
-      this.tabStore.close(tabId, Date.now(), false);
-      if (pane === "primary" && this.tabStore.getPrimaryTabs().length === 0 && this.tabStore.getSecondaryTabs().length > 0) {
-        this.closeSecondaryPanel();
-        return;
-      }
-      saveSession(this.storage, this.tabStore.getSession());
-      this.renderTabs();
-      if (this.tabStore.getTabs().length === 0) this.disposeSplitRuntime();
-    }
-    moveTabToSecondary(tabId) {
-      if (this.tabStore.getSession().secondaryTabIds.includes(tabId)) return;
-      const tab = this.captureLiveFrameState(tabId, this.frames);
-      if (!tab || !this.layout.mount()) return;
-      const transfer = this.frames?.detach(tabId) ?? null;
-      this.layout.setSecondaryOpen(true);
-      this.ensureSecondaryFrames();
-      const moved = this.tabStore.moveToSecondary(tabId, Date.now(), false);
-      if (!moved) return;
-      if (transfer && this.secondaryFrames) this.secondaryFrames.adopt(moved, transfer, Date.now());
-      saveSession(this.storage, this.tabStore.getSession());
-      this.renderTabs();
-    }
-    closeSecondaryPanel() {
-      const secondaryTabs = this.tabStore.getSecondaryTabs();
-      const transfers = secondaryTabs.flatMap((tab) => {
-        const current = this.captureLiveFrameState(tab.id, this.secondaryFrames) ?? tab;
-        const transfer = this.secondaryFrames?.detach(tab.id);
-        return transfer ? [{ tab: current, transfer }] : [];
-      });
-      this.tabStore.mergeSecondaryIntoPrimary(Date.now(), false);
-      for (const { tab, transfer } of transfers) this.frames?.adopt(tab, transfer, Date.now());
-      saveSession(this.storage, this.tabStore.getSession());
-      this.renderTabs();
-    }
-    openTabInBrowser(tabId) {
-      const tab = this.tabStore.get(tabId);
-      if (!tab) return;
-      const anchor = document.createElement("a");
-      anchor.href = tab.url;
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
-      anchor.click();
-    }
-    reloadTab(tabId) {
-      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      const pool = secondary ? this.secondaryFrames : this.frames;
-      const tab = this.captureLiveFrameState(tabId, pool);
-      if (!tab) return;
-      if (pool?.getFrame(tabId)) pool.reload(tabId);
-      else pool?.prepare(tab, Date.now());
-    }
-    async copyTabLink(tabId) {
-      const tab = this.tabStore.get(tabId);
-      if (!tab) return;
-      try {
-        await navigator.clipboard.writeText(tab.url);
-        return;
-      } catch {
-        const textarea = document.createElement("textarea");
-        textarea.value = tab.url;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.append(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        textarea.remove();
-      }
-    }
-    bookmarkTab(tabId) {
-      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      const tab = this.tabStore.get(tabId);
-      if (!tab) return;
-      const pool = secondary ? this.secondaryFrames : this.frames;
-      pool?.prepare(tab, Date.now());
-      pool?.sendCommand(tabId, {
-        type: "ldu:bookmark",
-        topicId: tab.topicId
-      });
-    }
-    closeOtherTabs(tabId) {
-      const secondary = this.tabStore.getSession().secondaryTabIds.includes(tabId);
-      const paneTabs = secondary ? this.tabStore.getSecondaryTabs() : this.tabStore.getPrimaryTabs();
-      for (const tab of paneTabs) {
-        if (tab.id !== tabId) (secondary ? this.secondaryFrames : this.frames)?.remove(tab.id);
-      }
-      this.tabStore.closeOthersInPane(tabId, Date.now());
-    }
-    persistSession() {
-      const active = this.tabStore?.getActive();
-      if (active && this.frames) this.captureLiveFrameState(active.id, this.frames);
-      const secondaryActive = this.tabStore?.getSecondaryActive();
-      if (secondaryActive && this.secondaryFrames) this.captureLiveFrameState(secondaryActive.id, this.secondaryFrames);
-      if (this.tabStore) saveSession(this.storage, this.tabStore.getSession());
-    }
-    captureLiveFrameState(tabId, pool) {
-      const tab = this.tabStore.get(tabId);
-      const iframe = pool?.getFrame(tabId);
-      if (!tab || !iframe?.contentWindow) return tab;
-      let url = tab.url;
-      let title = tab.title;
-      let scrollY = tab.scrollY;
-      try {
-        const currentUrl = iframe.contentWindow.location.href;
-        if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
-        const currentTitle = iframe.contentDocument?.title?.trim();
-        if (currentTitle) title = currentTitle;
-        scrollY = iframe.contentWindow.scrollY;
-      } catch {
-        return tab;
-      }
-      const info = getTopicInfo(url, tab.url);
-      this.tabStore.update(tabId, {
-        url,
-        title,
-        scrollY,
-        ...info?.postNumber ? { postNumber: info.postNumber } : {},
-        suspended: false
-      }, Date.now(), false);
-      return this.tabStore.get(tabId) ?? tab;
-    }
-    showActionToast(message, isError) {
-      document.querySelector(".ldu-action-toast")?.remove();
-      const toast = document.createElement("div");
-      toast.className = `ldu-action-toast${isError ? " is-error" : ""}`;
-      toast.setAttribute("role", isError ? "alert" : "status");
-      toast.textContent = message;
-      document.body.append(toast);
-      window.setTimeout(() => toast.remove(), 2800);
-    }
-    disposeSplitRuntime() {
-      this.finishListHandoff();
-      this.preview?.close();
-      this.frames?.destroy();
-      this.frames = null;
-      this.secondaryFrames?.destroy();
-      this.secondaryFrames = null;
-      this.tabContextMenu?.close();
-      this.listFrame?.destroy();
-      this.listFrame = null;
-      this.layout?.destroy();
-    }
-    scheduleListHandoffFallback() {
-      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
-      this.listHandoffTimer = window.setTimeout(() => {
-        this.listHandoffTimer = null;
-        const scrollY = this.layout?.finishListHandoff() ?? null;
-        if (scrollY !== null) this.listFrame?.restoreScroll(scrollY);
-      }, LIST_HANDOFF_TIMEOUT_MS);
-    }
-    finishListHandoff() {
-      if (this.listHandoffTimer !== null) window.clearTimeout(this.listHandoffTimer);
-      this.listHandoffTimer = null;
-      return this.layout?.finishListHandoff() ?? null;
-    }
-    handlePageHide(event) {
-      this.persistSession();
-      if (event.persisted) return;
-      if (this.settings.restoreSession && this.tabStore?.getTabs().length > 0) {
-        stageSessionClose(this.storage, this.tabStore.getSession());
-      }
-      if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
-      if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
-      this.leaseTimer = null;
-      this.sessionMaintenanceTimer = null;
-      releaseSessionLease(this.storage, this.sessionLease);
-    }
-    schedulePersist() {
-      if (this.persistTimer !== null) window.clearTimeout(this.persistTimer);
-      this.persistTimer = window.setTimeout(() => {
-        this.persistTimer = null;
-        this.persistSession();
-      }, 500);
-    }
-  };
-
-  // src/frame-bridge.ts
-  var DOUBLE_CLICK_DELAY_MS = 300;
-  function bootFrameBridge() {
-    const frameName = window.name;
-    if (frameName.startsWith("ldu-list:")) {
-      bootListBridge(frameName.slice("ldu-list:".length));
-      return;
-    }
-    if (!frameName.startsWith("ldu-topic:")) return;
-    const tabId = frameName.slice("ldu-topic:".length);
-    document.documentElement.dataset.lduEmbeddedTopic = "true";
-    ensureEmbeddedStyles(document);
-    let timer = null;
-    let pendingSendType = null;
-    let lastUrl = "";
-    let lastObservedUrl = location.href;
-    let lastObservedTitle = document.title;
-    let lastObservedCategoryKey = "";
-    let currentCategory = readTopicDocumentCategory(document, window);
-    let previewEnabled = false;
-    let previewClickMode = "double";
-    let replayingClick = false;
-    let clickTimer = null;
-    let softFrozen = false;
-    const send = (type) => {
-      if (softFrozen && type === "ldu:frame-state") return;
-      if (timer !== null) window.clearTimeout(timer);
-      pendingSendType = type;
-      timer = window.setTimeout(() => {
-        timer = null;
-        pendingSendType = null;
-        if (softFrozen && type === "ldu:frame-state") return;
-        const payload = {
-          type,
-          tabId,
-          scrollY: window.scrollY
-        };
-        if (currentCategory) Object.assign(payload, currentCategory);
-        if (type === "ldu:frame-ready" || lastUrl !== location.href) {
-          lastUrl = location.href;
-          payload.url = location.href;
-          payload.title = document.title;
-        }
-        window.parent.postMessage(payload, location.origin);
-      }, type === "ldu:frame-ready" ? 0 : 120);
-    };
-    window.addEventListener("scroll", () => send("ldu:frame-state"), { passive: true });
-    window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
-    document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
-    window.addEventListener("popstate", () => send("ldu:frame-state"));
-    const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
-    const mutationAffectsTopicMetadata = (mutation) => {
-      const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
-      if (target?.closest("head, .topic-category, #topic-title")) return true;
-      return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
-        if (node.nodeType !== Node.ELEMENT_NODE) return false;
-        const element = node;
-        return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
-      });
-    };
-    const metadataObserver = new MutationObserver((mutations) => {
-      if (softFrozen) return;
-      const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
-      const urlChanged = lastObservedUrl !== location.href;
-      const titleChanged = lastObservedTitle !== document.title;
-      if (!metadataChanged && !urlChanged && !titleChanged) return;
-      if (urlChanged) currentCategory = null;
-      if (metadataChanged) {
-        const observedCategory = readTopicDocumentCategory(document, window);
-        if (observedCategory) currentCategory = observedCategory;
-      }
-      const categoryKey = currentCategory ? `${currentCategory.categoryName}
-${currentCategory.categoryColor}` : "";
-      if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
-      lastObservedUrl = location.href;
-      lastObservedTitle = document.title;
-      lastObservedCategoryKey = categoryKey;
-      send("ldu:frame-state");
-    });
-    const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
-    observeMetadata();
-    const cancelPendingClick = () => {
-      if (clickTimer !== null) window.clearTimeout(clickTimer);
-      clickTimer = null;
-    };
-    const pausedMedia = /* @__PURE__ */ new Set();
-    const pausedAnimations = /* @__PURE__ */ new Set();
-    const pauseVisualActivity = () => {
-      for (const media of document.querySelectorAll("audio, video")) {
-        if (media.paused || media.ended) continue;
-        pausedMedia.add(media);
-        try {
-          media.pause();
-        } catch {
-        }
-      }
-      const animationDocument = document;
-      for (const animation of animationDocument.getAnimations?.() ?? []) {
-        if (animation.playState !== "running") continue;
-        pausedAnimations.add(animation);
-        try {
-          animation.pause();
-        } catch {
-        }
-      }
-    };
-    const resumeVisualActivity = () => {
-      for (const media of pausedMedia) {
-        if (!media.isConnected) continue;
-        try {
-          void media.play().catch(() => {
-          });
-        } catch {
-        }
-      }
-      pausedMedia.clear();
-      for (const animation of pausedAnimations) {
-        try {
-          animation.play();
-        } catch {
-        }
-      }
-      pausedAnimations.clear();
-    };
-    const setSoftFrozen = (frozen) => {
-      if (softFrozen === frozen) return;
-      softFrozen = frozen;
-      if (frozen) {
-        document.documentElement.dataset.lduSoftFrozen = "true";
-        if (timer !== null && pendingSendType === "ldu:frame-state") {
-          window.clearTimeout(timer);
-          timer = null;
-          pendingSendType = null;
-        }
-        cancelPendingClick();
-        metadataObserver.disconnect();
-        pauseVisualActivity();
-        return;
-      }
-      delete document.documentElement.dataset.lduSoftFrozen;
-      const urlChanged = lastObservedUrl !== location.href;
-      const observedCategory = readTopicDocumentCategory(document, window);
-      if (observedCategory) currentCategory = observedCategory;
-      else if (urlChanged) currentCategory = null;
-      lastObservedUrl = location.href;
-      lastObservedTitle = document.title;
-      lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}
-${currentCategory.categoryColor}` : "";
-      observeMetadata();
-      resumeVisualActivity();
-      send("ldu:frame-state");
-    };
-    const getPreviewableLink = (target) => {
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
-      if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
-      return link;
-    };
-    const getTopicLink = (target) => {
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
-      return link;
-    };
-    const getListNavigationLink = (target) => {
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !/^https?:/i.test(link.href) || new URL(link.href, location.href).origin !== location.origin || getTopicInfo(link.href)) return null;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
-      return link;
-    };
-    const sendTopicOpen = (link) => {
-      const info = getTopicInfo(link.href, location.href);
-      window.parent.postMessage({
-        type: "ldu:topic-open",
-        tabId,
-        url: link.href,
-        title: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
-        ...info?.postNumber ? { postNumber: info.postNumber } : {}
-      }, location.origin);
-    };
-    const sendPreviewOpen = (link) => {
-      const rect = link.getBoundingClientRect();
-      window.parent.postMessage({
-        type: "ldu:preview-open",
-        tabId,
-        url: link.href,
-        anchorRect: {
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height
-        }
-      }, location.origin);
-    };
-    const isPlainPrimaryClick = (event) => event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
-    window.addEventListener("message", (event) => {
-      if (event.source !== window.parent || event.origin !== location.origin) return;
-      const data = event.data;
-      if (data?.type === "ldu:frame-lifecycle") {
-        setSoftFrozen(data.active !== true);
-        return;
-      }
-      if (data?.type === "ldu:bookmark") {
-        const topicId = typeof data.topicId === "string" && /^\d+$/.test(data.topicId) ? data.topicId : null;
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-        if (!topicId || !csrfToken) {
-          window.parent.postMessage({
-            type: "ldu:bookmark-result",
-            tabId,
-            ok: false,
-            message: "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
-          }, location.origin);
-          return;
-        }
-        const body = new URLSearchParams({
-          bookmarkable_type: "Topic",
-          bookmarkable_id: topicId
-        });
-        void fetch("/bookmarks.json", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-CSRF-Token": csrfToken,
-            "X-Requested-With": "XMLHttpRequest"
-          },
-          body
-        }).then(async (response) => {
-          if (!response.ok) {
-            let message = "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25";
-            try {
-              const payload = await response.json();
-              if (Array.isArray(payload.errors) && typeof payload.errors[0] === "string") message = payload.errors[0];
-            } catch {
-            }
-            throw new Error(message);
-          }
-          window.parent.postMessage({
-            type: "ldu:bookmark-result",
-            tabId,
-            ok: true,
-            message: "\u5DF2\u6DFB\u52A0\u5230\u4E66\u7B7E"
-          }, location.origin);
-        }).catch((error) => {
-          window.parent.postMessage({
-            type: "ldu:bookmark-result",
-            tabId,
-            ok: false,
-            message: error instanceof Error && error.message ? error.message : "\u6DFB\u52A0\u4E66\u7B7E\u5931\u8D25"
-          }, location.origin);
-        });
-        return;
-      }
-      if (data?.type !== "ldu:preview-config") return;
-      previewEnabled = data.enabled === true;
-      previewClickMode = data.clickMode === "single" ? "single" : "double";
-      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
-      if (!previewEnabled) cancelPendingClick();
-    });
-    document.addEventListener("pointerdown", (event) => {
-      window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
-      if (previewEnabled && previewClickMode === "double" && event.detail >= 2) cancelPendingClick();
-    }, true);
-    document.addEventListener("click", (event) => {
-      if (replayingClick || !isPlainPrimaryClick(event)) return;
-      const topicLink = getTopicLink(event.target);
-      if (topicLink) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        sendTopicOpen(topicLink);
-        return;
-      }
-      const listLink = getListNavigationLink(event.target);
-      if (listLink) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        window.parent.postMessage({ type: "ldu:list-navigate", tabId, url: listLink.href }, location.origin);
-        return;
-      }
-      if (!previewEnabled) return;
-      const link = getPreviewableLink(event.target);
-      if (!link) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (previewClickMode === "single") {
-        sendPreviewOpen(link);
-        return;
-      }
-      cancelPendingClick();
-      if (event.detail >= 2) return;
-      clickTimer = window.setTimeout(() => {
-        clickTimer = null;
-        if (!link.isConnected) return;
-        replayingClick = true;
-        try {
-          link.click();
-        } finally {
-          replayingClick = false;
-        }
-      }, DOUBLE_CLICK_DELAY_MS);
-    }, true);
-    document.addEventListener("dblclick", (event) => {
-      if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
-      const link = getPreviewableLink(event.target);
-      if (!link) return;
-      cancelPendingClick();
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      sendPreviewOpen(link);
-    }, true);
-    document.addEventListener("keydown", (event) => {
-      if (!previewEnabled || event.key !== "Escape") return;
-      window.parent.postMessage({ type: "ldu:preview-dismiss", tabId }, location.origin);
-    }, true);
-    send("ldu:frame-ready");
-  }
-  function bootListBridge(frameId) {
-    document.documentElement.dataset.lduEmbeddedList = "true";
-    ensureEmbeddedStyles(document);
-    let timer = null;
-    let clickTimer = null;
-    let visualReadySent = false;
-    let visualReadyTimer = null;
-    let previewEnabled = false;
-    let previewClickMode = "double";
-    let replayingClick = false;
-    let lastUrl = "";
-    let lastTitle = "";
-    const send = (type) => {
-      if (timer !== null) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        timer = null;
-        const payload = { type, frameId, url: location.href, title: document.title, scrollY: window.scrollY };
-        lastUrl = location.href;
-        lastTitle = document.title;
-        window.parent.postMessage(payload, location.origin);
-      }, type === "ldu:list-ready" ? 0 : 100);
-    };
-    const hasRenderedListContent = () => {
-      if (document.readyState === "loading") return false;
-      const outlet = document.querySelector("#main-outlet");
-      if (!outlet) return false;
-      return [...outlet.children].some((child) => !child.matches(
-        ".loading-container, .spinner, .spinner-container, .loading-indicator"
-      ));
-    };
-    const scheduleVisualReady = () => {
-      if (visualReadySent || visualReadyTimer !== null || !hasRenderedListContent()) return;
-      visualReadyTimer = window.setTimeout(() => {
-        visualReadyTimer = null;
-        if (visualReadySent || !hasRenderedListContent()) return;
-        visualReadySent = true;
-        window.parent.postMessage({
-          type: "ldu:list-visual-ready",
-          frameId,
-          url: location.href,
-          title: document.title,
-          scrollY: window.scrollY
-        }, location.origin);
-      }, 0);
-    };
-    const cancelPendingClick = () => {
-      if (clickTimer !== null) window.clearTimeout(clickTimer);
-      clickTimer = null;
-    };
-    const isPlainPrimaryClick = (event) => event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
-    const getTopicLink = (target) => {
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !isSupportedTopicTarget(link.href, location.href)) return null;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
-      return link;
-    };
-    const getPreviewableLink = (target) => {
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
-      if (target instanceof Element && target.closest("img, picture, .lightbox-wrapper") || link.matches(".lightbox") || link.querySelector("img, picture")) return null;
-      if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
-      return link;
-    };
-    const sendTopic = (link) => {
-      const info = getTopicInfo(link.href, location.href);
-      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-      const category = row ? readTopicCategory(row, window) : null;
-      window.parent.postMessage({
-        type: "ldu:list-topic-open",
-        frameId,
-        url: link.href,
-        topicId: info?.topicId,
-        postNumber: info?.postNumber,
-        topicTitle: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
-        ...category ?? {}
-      }, location.origin);
-    };
-    const sendPreview = (link) => {
-      const rect = link.getBoundingClientRect();
-      window.parent.postMessage({ type: "ldu:list-preview-open", frameId, url: link.href, anchorRect: {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height
-      } }, location.origin);
-    };
-    window.addEventListener("message", (event) => {
-      if (event.source !== window.parent || event.origin !== location.origin) return;
-      const data = event.data;
-      if (data?.type !== "ldu:preview-config") return;
-      previewEnabled = data.enabled === true;
-      previewClickMode = data.clickMode === "single" ? "single" : "double";
-      document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
-      if (!previewEnabled) cancelPendingClick();
-    });
-    window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });
-    window.addEventListener("load", () => {
-      send("ldu:list-ready");
-      scheduleVisualReady();
-    }, { once: true });
-    document.addEventListener("DOMContentLoaded", () => {
-      send("ldu:list-ready");
-      scheduleVisualReady();
-    }, { once: true });
-    window.addEventListener("popstate", () => send("ldu:list-state"));
-    window.addEventListener("hashchange", () => send("ldu:list-state"));
-    document.addEventListener("pointerdown", () => {
-      window.parent.postMessage({ type: "ldu:list-interaction", frameId }, location.origin);
-    }, true);
-    new MutationObserver(() => {
-      scheduleVisualReady();
-      if (lastUrl === location.href && lastTitle === document.title) return;
-      send("ldu:list-state");
-    }).observe(document.documentElement, { childList: true, subtree: true });
-    document.addEventListener("click", (event) => {
-      if (replayingClick || !isPlainPrimaryClick(event)) return;
-      const topic = getTopicLink(event.target);
-      if (topic) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        sendTopic(topic);
-        return;
-      }
-      if (!previewEnabled) return;
-      const link = getPreviewableLink(event.target);
-      if (!link) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (previewClickMode === "single") {
-        sendPreview(link);
-        return;
-      }
-      cancelPendingClick();
-      if (event.detail >= 2) return;
-      clickTimer = window.setTimeout(() => {
-        clickTimer = null;
-        if (!link.isConnected) return;
-        replayingClick = true;
-        try {
-          link.click();
-        } finally {
-          replayingClick = false;
-        }
-      }, DOUBLE_CLICK_DELAY_MS);
-    }, true);
-    document.addEventListener("dblclick", (event) => {
-      if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;
-      const link = getPreviewableLink(event.target);
-      if (!link) return;
-      cancelPendingClick();
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      sendPreview(link);
-    }, true);
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      window.parent.postMessage({ type: "ldu:list-preview-dismiss", frameId }, location.origin);
-    }, true);
-    send("ldu:list-ready");
-    scheduleVisualReady();
-  }
-
   // src/main.ts
   function boot() {
     if (window.__linuxDoUltimateLoaded) return;
@@ -7894,7 +7928,7 @@ ${currentCategory.categoryColor}` : "";
       bootFrameBridge();
     } else {
       boot();
-      startLinuxDoApp();
+      startLinuxDoApp({ loadPreviewer: () => installLinkHoverPreviewer });
     }
   }
 })();

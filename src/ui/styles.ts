@@ -6,7 +6,8 @@ export const APP_STYLES = `
   --ldu-sidebar-width: 216px;
   --ldu-topic-track: 0.65fr;
   --ldu-list-track: 0.35fr;
-  --ldu-header-height: 52px;
+  /* Set by LayoutController from the rendered Discourse header. */
+  --ldu-header-height: var(--header-height, 0px);
   --ldu-border: var(--primary-low, #d9d9d9);
   --ldu-surface: var(--secondary, #fff);
   --ldu-surface-muted: var(--primary-very-low, #f5f5f5);
@@ -709,7 +710,7 @@ export const EMBEDDED_STYLES = `
   --ldu-sidebar-width: 216px;
   --ldu-topic-track: 0.65fr;
   --ldu-list-track: 0.35fr;
-  --ldu-header-height: 52px;
+  --ldu-header-height: var(--header-height, 0px);
   --ldu-border: var(--primary-low, #d9d9d9);
   --ldu-surface: var(--secondary, #fff);
   --ldu-surface-muted: var(--primary-very-low, #f5f5f5);

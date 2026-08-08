@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.17
+// @version      0.2.18
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -1586,7 +1586,8 @@ ${tab.url}`;
   --ldu-sidebar-width: 216px;
   --ldu-topic-track: 0.65fr;
   --ldu-list-track: 0.35fr;
-  --ldu-header-height: 52px;
+  /* Set by LayoutController from the rendered Discourse header. */
+  --ldu-header-height: var(--header-height, 0px);
   --ldu-border: var(--primary-low, #d9d9d9);
   --ldu-surface: var(--secondary, #fff);
   --ldu-surface-muted: var(--primary-very-low, #f5f5f5);
@@ -2288,7 +2289,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   --ldu-sidebar-width: 216px;
   --ldu-topic-track: 0.65fr;
   --ldu-list-track: 0.35fr;
-  --ldu-header-height: 52px;
+  --ldu-header-height: var(--header-height, 0px);
   --ldu-border: var(--primary-low, #d9d9d9);
   --ldu-surface: var(--secondary, #fff);
   --ldu-surface-muted: var(--primary-very-low, #f5f5f5);
@@ -2446,6 +2447,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     open = false;
     secondaryOpen = false;
     listHandoff = null;
+    headerResizeObserver = null;
     resizeListener = () => this.apply();
     mount() {
       ensureAppStyles();
@@ -2461,6 +2463,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         this.secondaryContent = this.secondaryPanel?.querySelector(".ldu-topic-content") ?? null;
         this.listContent = this.shell.querySelector(".ldu-list-content");
         window.addEventListener("resize", this.resizeListener, { passive: true });
+        if (typeof ResizeObserver !== "undefined") {
+          const header = document.querySelector(".d-header");
+          if (header) {
+            this.headerResizeObserver = new ResizeObserver(() => this.apply());
+            this.headerResizeObserver.observe(header);
+          }
+        }
       } else if (this.shell.parentElement !== document.body) {
         document.body.append(this.shell);
       }
@@ -2471,6 +2480,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     destroy() {
       this.finishListHandoff();
       window.removeEventListener("resize", this.resizeListener);
+      this.headerResizeObserver?.disconnect();
+      this.headerResizeObserver = null;
       this.shell?.remove();
       this.shell = null;
       this.panel = null;
@@ -2568,6 +2579,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     apply() {
       if (!this.panel || !this.secondaryPanel || !this.shell) return;
+      this.syncHeaderHeight();
       const mode = this.getMode();
       const active = mode !== "native";
       this.panel.hidden = !active;
@@ -2691,6 +2703,12 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         set(before, Math.round(paneSizes.listRatio * 100), 30, 70);
       }
       set(after, Math.round(paneSizes.listRatio * 100), 30, 70);
+    }
+    syncHeaderHeight() {
+      const header = document.querySelector(".d-header");
+      if (!header) return;
+      const height = Math.ceil(header.getBoundingClientRect().height);
+      if (height > 0) document.documentElement.style.setProperty("--ldu-header-height", `${height}px`);
     }
     getActivePaneSizes() {
       return this.secondaryOpen ? this.dualPaneSizes : this.paneSizes;
@@ -7705,7 +7723,6 @@ ${currentCategory.categoryColor}` : "";
   function bootListBridge(frameId) {
     document.documentElement.dataset.lduEmbeddedList = "true";
     ensureEmbeddedStyles(document);
-    const DOUBLE_CLICK_DELAY_MS2 = 300;
     let timer = null;
     let clickTimer = null;
     let visualReadySent = false;
@@ -7848,7 +7865,7 @@ ${currentCategory.categoryColor}` : "";
         } finally {
           replayingClick = false;
         }
-      }, DOUBLE_CLICK_DELAY_MS2);
+      }, DOUBLE_CLICK_DELAY_MS);
     }, true);
     document.addEventListener("dblclick", (event) => {
       if (!previewEnabled || previewClickMode !== "double" || !isPlainPrimaryClick(event)) return;

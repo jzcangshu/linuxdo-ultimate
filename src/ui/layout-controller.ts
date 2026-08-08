@@ -40,6 +40,7 @@ export class LayoutController {
   private open = false;
   private secondaryOpen = false;
   private listHandoff: ListHandoff | null = null;
+  private headerResizeObserver: ResizeObserver | null = null;
   private readonly resizeListener = () => this.apply();
 
   constructor(private readonly options: LayoutControllerOptions) {
@@ -63,6 +64,13 @@ export class LayoutController {
       this.secondaryContent = this.secondaryPanel?.querySelector<HTMLElement>(".ldu-topic-content") ?? null;
       this.listContent = this.shell.querySelector<HTMLElement>(".ldu-list-content");
       window.addEventListener("resize", this.resizeListener, { passive: true });
+      if (typeof ResizeObserver !== "undefined") {
+        const header = document.querySelector<HTMLElement>(".d-header");
+        if (header) {
+          this.headerResizeObserver = new ResizeObserver(() => this.apply());
+          this.headerResizeObserver.observe(header);
+        }
+      }
     } else if (this.shell.parentElement !== document.body) {
       document.body.append(this.shell);
     }
@@ -74,6 +82,8 @@ export class LayoutController {
   destroy(): void {
     this.finishListHandoff();
     window.removeEventListener("resize", this.resizeListener);
+    this.headerResizeObserver?.disconnect();
+    this.headerResizeObserver = null;
     this.shell?.remove();
     this.shell = null;
     this.panel = null;
@@ -178,6 +188,7 @@ export class LayoutController {
 
   private apply(): void {
     if (!this.panel || !this.secondaryPanel || !this.shell) return;
+    this.syncHeaderHeight();
     const mode = this.getMode();
     const active = mode !== "native";
     this.panel.hidden = !active;
@@ -309,6 +320,13 @@ export class LayoutController {
       set(before, Math.round(paneSizes.listRatio * 100), 30, 70);
     }
     set(after, Math.round(paneSizes.listRatio * 100), 30, 70);
+  }
+
+  private syncHeaderHeight(): void {
+    const header = document.querySelector<HTMLElement>(".d-header");
+    if (!header) return;
+    const height = Math.ceil(header.getBoundingClientRect().height);
+    if (height > 0) document.documentElement.style.setProperty("--ldu-header-height", `${height}px`);
   }
 
   private getActivePaneSizes(): PaneSizes {

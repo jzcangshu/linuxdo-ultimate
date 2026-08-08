@@ -322,7 +322,6 @@ export function bootFrameBridge(): void {
 function bootListBridge(frameId: string): void {
   document.documentElement.dataset.lduEmbeddedList = "true";
   ensureEmbeddedStyles(document);
-  const DOUBLE_CLICK_DELAY_MS = 300;
   let timer: number | null = null;
   let clickTimer: number | null = null;
   let visualReadySent = false;

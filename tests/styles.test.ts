@@ -55,6 +55,8 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/ldu-layout-active[^}]+\.d-header \.wrap[^}]+max-width:\s*none/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-host\s*\{[^}]+position:\s*relative/s);
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-host\s*\{[^}]+bottom:\s*12px/s);
+    expect(APP_STYLES).toContain("--ldu-header-height: var(--header-height, 0px)");
+    expect(APP_STYLES).not.toContain("--ldu-header-height: 52px");
   });
 
   it("does not reserve fixed blank space below embedded content", () => {

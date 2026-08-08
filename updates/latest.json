@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publishedAt": "2026-08-08",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.5.1",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.5.2",
   "changelog": [
-    "垂直标签栏根据阅读区位置自动贴靠外侧，并调整标题对齐。",
-    "鼠标滑到阅读区实际边界即可触发展开。",
-    "修复点击标签后焦点残留导致侧栏无法自动收起。"
+    "修复关闭官方侧栏后最左侧边缘无法触发垂直标签栏。",
+    "右侧标签栏改为从右向左覆盖展开，不再向窗口外溢出。",
+    "隐藏右侧标签列表的原生滚动条，同时保留滚动能力。"
   ]
 }

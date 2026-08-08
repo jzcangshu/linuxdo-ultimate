@@ -53,11 +53,13 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/prefers-reduced-motion:\s*reduce[^}]+ldu-topic-toolbar[^}]+transition-duration:\s*\.01ms/s);
   });
 
-  it("anchors the vertical rail to the outer edge and provides a boundary hit target", () => {
-    expect(APP_STYLES).toMatch(/ldu-vertical-tabs-edge-hit[^}]+width:\s*12px/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+ldu-vertical-tabs-edge-hit[^}]+right:\s*0/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+ldu-topic-toolbar[^}]+grid-column:\s*2/s);
+  it("anchors the vertical rail itself to the viewport edge", () => {
+    expect(APP_STYLES).not.toContain("ldu-vertical-tabs-edge-hit");
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+ldu-topic-toolbar[^}]+grid-column:\s*2[^}]+justify-self:\s*end/s);
     expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+ldu-topic-content[^}]+grid-column:\s*1/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-two[^}]+ldu-tab-strip[^}]+scrollbar-width:\s*none/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-three:not\(\.has-sidebar-page\)[^}]+#ldu-topic-panel[^}]+border-left:\s*0/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-two:not\(\.ldu-secondary-open\)[^}]+#ldu-topic-panel[^}]+border-right:\s*0/s);
     expect(APP_STYLES).toMatch(/is-pointer-focused/);
   });
 

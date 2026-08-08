@@ -224,6 +224,10 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   border-left: 0;
 }
 
+body.ldu-layout-three:not(.has-sidebar-page) #ldu-topic-panel { border-left: 0; }
+body.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel,
+body.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel { border-right: 0; }
+
 .ldu-topic-toolbar {
   display: flex;
   min-height: 38px;
@@ -260,31 +264,6 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   transition-delay: 180ms;
 }
 
-/* Keep the rail on the side nearest the list: three-pane reading is in the
-   middle, while two-pane reading is on the right. The transparent edge hit
-   target makes the collapsed rail discoverable at the actual pane boundary. */
-body.ldu-tabs-vertical .ldu-vertical-tabs-edge-hit {
-  position: absolute;
-  z-index: 5;
-  inset-block: 0;
-  left: 0;
-  display: block;
-  width: 12px;
-  pointer-events: auto;
-}
-
-body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-edge-hit {
-  right: 0;
-  left: auto;
-}
-
-body.ldu-tabs-vertical .ldu-vertical-tabs-edge-hit:hover ~ .ldu-topic-toolbar,
-body.ldu-tabs-vertical .ldu-topic-panel:has(.ldu-vertical-tabs-edge-hit:hover) .ldu-topic-toolbar,
-body.ldu-tabs-vertical #ldu-secondary-topic-panel:has(.ldu-vertical-tabs-edge-hit:hover) .ldu-topic-toolbar {
-  clip-path: inset(0);
-  transition-delay: 0ms;
-}
-
 body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
 body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
 body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
@@ -316,6 +295,7 @@ body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
   grid-column: 2;
+  justify-self: end;
   border-right: 0;
   border-left: 1px solid var(--ldu-border);
   clip-path: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
@@ -323,6 +303,15 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-content {
   grid-column: 1;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
+  grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
+}
+
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static .ldu-topic-toolbar {
+  justify-self: stretch;
 }
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-actions {
@@ -349,6 +338,14 @@ body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip {
+  scrollbar-width: none;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip::-webkit-scrollbar {
+  display: none;
 }
 
 body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-topic-actions {

@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Linux.do Ultimate Optimizer",
+  "version": "0.2.18",
+  "description": "Linux.do 分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。",
+  "minimum_chrome_version": "110",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://linux.do/*"],
+      "js": ["host.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://linux.do/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["preview-runtime.js"],
+      "matches": ["https://linux.do/*"]
+    }
+  ]
+}

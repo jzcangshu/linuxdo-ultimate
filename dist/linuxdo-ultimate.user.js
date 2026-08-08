@@ -2,7 +2,7 @@
 // @name         Linux.do Ultimate Optimizer
 // @name:zh-CN   Linux.do 社区终极优化脚本
 // @namespace    https://linux.do/
-// @version      0.2.16
+// @version      0.2.17
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -741,6 +741,7 @@
   }
 
   // src/tabs/frame-pool.ts
+  var SCROLL_RESTORE_TIMEOUT_MS = 15e3;
   var TopicFramePool = class {
     constructor(container, maxLiveFrames, onMessage, onSuspend) {
       this.container = container;
@@ -762,12 +763,18 @@
       for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
     }
     activate(tab, now) {
+      const switchingToAnotherFrame = this.activeTabId !== tab.id;
       const record = this.ensureRecord(tab, now);
-      if (this.activeTabId !== tab.id) {
+      if (switchingToAnotherFrame) {
         for (const [tabId, current] of this.frames) {
           this.setFrameActive(current, tabId === tab.id);
         }
         this.activeTabId = tab.id;
+        if (record.loaded) {
+          this.cancelScrollRestore(record);
+          record.restoreScrollY = tab.scrollY;
+          if (tab.scrollY > 0) this.restoreScroll(record);
+        }
       }
       this.suspendOverflow(tab.id);
       return record.iframe;
@@ -960,7 +967,7 @@
       const target = record.restoreScrollY;
       if (target <= 0 || !record.iframe.contentWindow) return;
       if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-      if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + 5e3;
+      if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
       record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
       if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
         record.restoreScrollY = 0;

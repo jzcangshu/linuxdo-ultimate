@@ -258,6 +258,21 @@ describe("topic frame pool", () => {
     );
   });
 
+  it("reapplies the saved scroll position when returning to a live frame", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());
+    const first = pool.activate({ ...tab("1"), scrollY: 1800 }, 1);
+    const scrollTo = vi.spyOn(first.contentWindow!, "scrollTo").mockImplementation(() => {});
+    first.dispatchEvent(new Event("load"));
+    scrollTo.mockClear();
+
+    pool.activate(tab("2"), 2);
+    pool.activate({ ...tab("1"), scrollY: 1800 }, 3);
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1800, behavior: "instant" });
+  });
+
   it("resends the desired frozen state when a background frame reports ready", () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -295,6 +310,32 @@ describe("topic frame pool", () => {
     vi.runOnlyPendingTimers();
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 2200, behavior: "instant" });
+    vi.useRealTimers();
+  });
+
+  it("keeps retrying while a large topic is still expanding", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate({ ...tab("1"), scrollY: 2200 }, 1);
+    let currentScroll = 0;
+    let maxScroll = 0;
+    Object.defineProperty(frame.contentWindow!, "scrollY", {
+      configurable: true,
+      get: () => currentScroll,
+    });
+    vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation((options) => {
+      const top = (options as ScrollToOptions).top ?? 0;
+      currentScroll = Math.min(top, maxScroll);
+    });
+
+    frame.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(5_000);
+    maxScroll = 3_000;
+    vi.advanceTimersByTime(100);
+
+    expect(currentScroll).toBe(2_200);
     vi.useRealTimers();
   });
 });

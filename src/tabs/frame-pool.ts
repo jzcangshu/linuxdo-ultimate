@@ -1,5 +1,7 @@
 import type { TopicTabState } from "../core/types";
 
+const SCROLL_RESTORE_TIMEOUT_MS = 15_000;
+
 export interface FrameMessage {
   type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:bookmark-result" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open" | "ldu:list-navigate";
   tabId: string;
@@ -59,12 +61,18 @@ export class TopicFramePool {
   }
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
+    const switchingToAnotherFrame = this.activeTabId !== tab.id;
     const record = this.ensureRecord(tab, now);
-    if (this.activeTabId !== tab.id) {
+    if (switchingToAnotherFrame) {
       for (const [tabId, current] of this.frames) {
         this.setFrameActive(current, tabId === tab.id);
       }
       this.activeTabId = tab.id;
+      if (record.loaded) {
+        this.cancelScrollRestore(record);
+        record.restoreScrollY = tab.scrollY;
+        if (tab.scrollY > 0) this.restoreScroll(record);
+      }
     }
     this.suspendOverflow(tab.id);
     return record.iframe;
@@ -273,7 +281,7 @@ export class TopicFramePool {
     const target = record.restoreScrollY;
     if (target <= 0 || !record.iframe.contentWindow) return;
     if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-    if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + 5_000;
+    if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
     record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
     if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
       record.restoreScrollY = 0;

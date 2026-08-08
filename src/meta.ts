@@ -1,6 +1,6 @@
 export const USERSCRIPT_HEADER = `// ==UserScript==
-// @name         Linux.do Ultimate Optimizer
-// @name:zh-CN   Linux.do 社区终极优化脚本
+// @name         Linux Do Ultimate
+// @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
 // @version      __VERSION__
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.

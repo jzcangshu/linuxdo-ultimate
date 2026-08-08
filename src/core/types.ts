@@ -28,8 +28,6 @@ export interface TopicTabState {
   topicId: string;
   url: string;
   title: string;
-  categoryName?: string;
-  categoryColor?: string;
   postNumber?: number;
   scrollY: number;
   suspended: boolean;

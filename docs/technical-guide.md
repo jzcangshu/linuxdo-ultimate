@@ -1,19 +1,20 @@
-# Linux Do 社区终极优化脚本技术维护文档
+# Linux Do Ultimate 技术维护文档
 
 本文面向后续维护者和二次开发者。普通用户请先阅读项目根目录的 `README.md`。
 
 ## 1. 技术栈与构建产物
 
-源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。V0.4 正式产物位于 `dist/extension`：顶层 `host.js`、轻量 `bridge.js`、按需 `preview-runtime.js`、跨域请求 `background.js` 和 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
+源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。V0.4 的 Chrome 正式产物位于 `dist/extension`，Firefox 正式产物位于 `dist/extension-firefox`；两者都包含顶层 `host.js`、轻量 `bridge.js`、按需 `preview-runtime.js`、跨域请求 `background.js`、官方 Logo 图标和各自的 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
 
 ```powershell
 pnpm install
 pnpm test
 pnpm check
 pnpm build:all
+pnpm package:extension
 ```
 
-`package.json` 中的版本号会同时写入插件 manifest（清单）和兼容用户脚本头。发布前还应运行 `git diff --check` 检查空白和补丁格式。
+`package.json` 中的版本号会同时写入两个插件 manifest（清单）、兼容用户脚本头和两个正式 ZIP（压缩包）文件名。Chrome 使用 Manifest V3（第三版扩展清单）的后台 service worker（服务工作线程）；Firefox 使用后台 scripts（脚本）声明及固定 Gecko（火狐浏览器引擎）扩展 ID。除此之外不维护浏览器专属业务分支。发布前还应运行 `git diff --check` 检查空白和补丁格式。
 
 ## 2. 模块职责
 
@@ -57,7 +58,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 
 - `tabsEnabled`：分屏与页内帖子标签开关。
 - `restoreSession`：是否在新的浏览器标签页中恢复最近一次阅读会话，默认关闭；不影响当前标签页刷新恢复。
-- `colorizeTabs`：是否按帖子分类为标签添加半透明背景色，默认开启；关闭只影响显示，不清除已缓存的分类信息。
+- `colorizeTabs`：是否按帖子分类为标签添加半透明背景色，默认开启；关闭只影响显示。
 - `layoutPreference`：自动、详情页在右或详情页在中间。
 - `paneSizes`：单阅读区的侧栏宽度和列表所占比例。
 - `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
@@ -72,7 +73,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 
 日常打开、关闭和切换帖子只更新当前浏览器标签页的会话，不更新共享恢复记录。同一标签页刷新时会继续加载自己的编号，与恢复开关无关。开启跨访问恢复后，`pagehide`（页面离开）先暂存关闭候选；相同编号随即重新启动会撤销候选，表示这只是刷新。真正关闭的多个页面只恢复最后关闭的一份状态，新访问领取后会删除共享记录，因此不同窗口的标签不会合并或被重复恢复。关闭恢复设置会立即清除共享候选和旧记录，会话索引最多保留 30 天并定期淘汰。首次直接请求帖子始终保持原生页面，也不会加载跨访问旧会话。
 
-标签分类色不保存固定色表，并始终选择主分类。点击话题列表时读取所在行的第一个有效分类徽标；内嵌帖子加载后优先读取第一组 `og:article:section` 与对应颜色元数据，元数据缺失时才回退正文标题区，并覆盖早期子分类缓存。这样新标签无需扫描整页，页面池暂停、重建或刷新后也能立即复用颜色。启用分类上色时，非活动标签使用较低透明度；关闭时仅移除颜色表现。所有标签按可用空间等分收缩并保持一致，只有当前标签显示底部高亮条。
+标签分类色只来自 `discourse/category.ts` 的固定主分类色表。标签根据帖子标题中的主分类名称查询常量颜色，不读取页面徽标样式、Open Graph（开放图谱）颜色元数据、iframe 消息或会话缓存；旧会话中残留的动态分类字段会在规范化时丢弃。启用分类上色时，非活动标签使用较低透明度；关闭时仅移除颜色表现。所有标签按可用空间等分收缩并保持一致，只有当前标签显示底部高亮条。
 
 标签拖拽继续使用浏览器原生拖动图像。拖动开始时只测量一次标签位置，指针跨过相邻标签中心后才更新插入目标；避让动画只修改 `transform`（位移变换）和透明度，不重排 DOM（网页结构），放下时才提交并持久化最终顺序。动态效果减弱设置会把位移动画缩短为近乎即时。
 
@@ -151,6 +152,7 @@ Linux Do 的 CSP（内容安全策略）包含 `base-uri 'none'`，站外源码�
 pnpm test
 pnpm check
 pnpm build:all
+pnpm package:extension
 git diff --check
 ```
 

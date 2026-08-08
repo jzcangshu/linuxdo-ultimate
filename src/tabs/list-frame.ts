@@ -7,8 +7,6 @@ export interface ListFrameMessage {
   topicId?: string;
   postNumber?: number;
   topicTitle?: string;
-  categoryName?: string;
-  categoryColor?: string;
   anchorRect?: { left: number; top: number; right: number; bottom: number; width: number; height: number };
 }
 

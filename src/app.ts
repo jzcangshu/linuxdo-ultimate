@@ -20,7 +20,6 @@ import type { SessionLease } from "./core/storage";
 import type { SessionState, Settings, TopicTabState } from "./core/types";
 import { classifyRoute, getTopicInfo, isSplitRoute, isSupportedTopicTarget } from "./discourse/routes";
 import { createBrowserViewTracker } from "./discourse/view-tracker";
-import { readTopicCategory, type TopicCategoryPresentation } from "./discourse/category";
 import { TopicFramePool, type FrameMessage } from "./tabs/frame-pool";
 import { ListFrameController, type ListFrameMessage } from "./tabs/list-frame";
 import { TopicTabStore } from "./tabs/tab-store";
@@ -193,9 +192,7 @@ class LinuxDoApp {
       if (!info) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-      const category = row ? readTopicCategory(row) : null;
-      this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber, category ?? undefined);
+      this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `主题 ${info.topicId}`, info.postNumber);
       return;
     }
     if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
@@ -212,7 +209,6 @@ class LinuxDoApp {
     url: string,
     title: string,
     postNumber?: number,
-    category?: TopicCategoryPresentation,
     pane: "primary" | "secondary" = "primary",
     deferListFrame = false,
   ): void {
@@ -232,7 +228,7 @@ class LinuxDoApp {
       this.scheduleListHandoffFallback();
     }
     this.layout.setOpen(true);
-    const input = { topicId, url, title, ...(postNumber ? { postNumber } : {}), ...category };
+    const input = { topicId, url, title, ...(postNumber ? { postNumber } : {}) };
     if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
     else this.tabStore.open(input, Date.now());
     if (!deferListFrame) this.ensureListFrame();
@@ -316,10 +312,10 @@ class LinuxDoApp {
     this.layout.setOpen(true);
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, undefined, "primary", true);
+    this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, "primary", true);
     if (targetRoute === "topic") {
       const target = getTopicInfo(targetUrl.href, location.href);
-      if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `主题 ${target.topicId}`, target.postNumber, undefined, "primary", true);
+      if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `主题 ${target.topicId}`, target.postNumber, "primary", true);
     }
     this.ensureListFrame(listUrl);
   }
@@ -401,10 +397,7 @@ class LinuxDoApp {
     if (message.type === "ldu:list-topic-open") {
       const info = message.url ? getTopicInfo(message.url, location.href) : null;
       if (!info) return;
-      const category = message.categoryName && message.categoryColor
-        ? { categoryName: message.categoryName, categoryColor: message.categoryColor }
-        : undefined;
-      this.openTopic(info.topicId, info.url.href, message.topicTitle || `主题 ${info.topicId}`, info.postNumber, category);
+      this.openTopic(info.topicId, info.url.href, message.topicTitle || `主题 ${info.topicId}`, info.postNumber);
       return;
     }
     if (message.type === "ldu:list-navigate" && message.url) {
@@ -621,21 +614,14 @@ class LinuxDoApp {
     if (message.type === "ldu:topic-open") {
       const info = message.url ? getTopicInfo(message.url, location.href) : null;
       if (!info || !isSupportedTopicTarget(info.url.href, tab.url)) return;
-      this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber, undefined, pane);
+      this.openTopic(info.topicId, info.url.href, message.title || `主题 ${info.topicId}`, info.postNumber, pane);
       return;
     }
     const info = message.url ? getTopicInfo(message.url) : null;
     const sameTopic = info?.topicId === tab.topicId;
-    const categoryChanged = Boolean(
-      message.categoryName && message.categoryColor
-      && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor),
-    );
     const patch = {
       ...(message.url ? { url: message.url } : {}),
       ...(message.title ? { title: message.title } : {}),
-      ...(message.categoryName && message.categoryColor
-        ? { categoryName: message.categoryName, categoryColor: message.categoryColor }
-        : {}),
       // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
       ...(message.type !== "ldu:frame-ready" && typeof message.scrollY === "number"
         ? { scrollY: message.scrollY }
@@ -643,7 +629,7 @@ class LinuxDoApp {
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     };
-    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
+    this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
     if (message.type === "ldu:frame-state") this.schedulePersist();
     if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
       iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });

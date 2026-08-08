@@ -55,13 +55,13 @@ export class PreviewController {
       this.loading = loaded
         .then((installer) => this.install(installer))
         .catch((error: unknown) => {
-          console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+          console.error("[Linux Do Ultimate] Preview runtime failed to load", error);
           return null;
         })
         .finally(() => { this.loading = null; });
       return this.loading;
     } catch (error) {
-      console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+      console.error("[Linux Do Ultimate] Preview runtime failed to load", error);
       return null;
     }
   }

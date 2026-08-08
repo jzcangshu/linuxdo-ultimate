@@ -44,7 +44,7 @@ export class SettingsPanel {
     panel.innerHTML = `
       <div class="dc-modal">
         <header class="dc-header">
-          <h2 class="ldu-settings-heading">Ultimate Linux Do 设置</h2>
+          <h2 class="ldu-settings-heading">Linux Do <span class="ldu-brand-ultimate">Ultimate</span></h2>
           <button type="button" class="dc-close-btn ldu-settings-close" title="关闭" aria-label="关闭设置">${iconSvg("close", 16)}</button>
         </header>
         <div class="dc-body">

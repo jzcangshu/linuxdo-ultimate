@@ -1,64 +1,27 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { readTopicCategory, readTopicDocumentCategory } from "../src/discourse/category";
+import { PRIMARY_CATEGORY_COLORS, resolveFixedCategoryColor } from "../src/discourse/category";
 
-describe("topic category metadata", () => {
-  it("uses the primary Open Graph category before its subcategory", () => {
-    document.head.innerHTML = `
-      <meta property="og:article:section" content="福利羊毛">
-      <meta property="og:article:section:color" content="E45735">
-      <meta property="og:article:section" content="福利羊毛, Lv1">
-      <meta property="og:article:section:color" content="0088CC">
-    `;
-
-    expect(readTopicDocumentCategory(document)).toEqual({
-      categoryName: "福利羊毛",
-      categoryColor: "#E45735",
-    });
+describe("fixed topic category colors", () => {
+  it("uses only the fixed primary-category table", () => {
+    expect(PRIMARY_CATEGORY_COLORS).toContainEqual(["福利羊毛", "rgb(228, 87, 53)"]);
+    expect(resolveFixedCategoryColor("帖子标题 - 福利羊毛 - LINUX DO")).toBe("rgb(228, 87, 53)");
   });
 
-  it("falls back only to the topic title category area", () => {
-    document.head.replaceChildren();
+  it("prefers the fixed parent color for nested categories", () => {
+    expect(resolveFixedCategoryColor("帖子标题 - 福利羊毛 / 福利羊毛, Lv1 - LINUX DO"))
+      .toBe("rgb(228, 87, 53)");
+    expect(resolveFixedCategoryColor("帖子标题 - 搞七捻三, Lv1 - LINUX DO"))
+      .toBe("rgb(58, 181, 74)");
+  });
+
+  it("never reads colors from page metadata or category badges", () => {
     document.body.innerHTML = `
-      <a class="badge-category__wrapper" style="--category-badge-color:#808281">
-        <span class="badge-category__name">运营反馈</span>
+      <meta property="og:article:section:color" content="ff0000">
+      <a class="badge-category__wrapper" style="--category-badge-color:#00ff00">
+        <span class="badge-category__name">自定义分类</span>
       </a>
-      <div class="topic-category">
-        <a class="badge-category__wrapper" style="--category-badge-color:#E45735">
-          <span class="badge-category__name">福利羊毛</span>
-        </a>
-        <a class="badge-category__wrapper" style="--category-badge-color:#0088CC">
-          <span class="badge-category__name">福利羊毛, Lv1</span>
-        </a>
-      </div>
     `;
-
-    expect(readTopicDocumentCategory(document)).toEqual({
-      categoryName: "福利羊毛",
-      categoryColor: "#E45735",
-    });
-  });
-
-  it("reads only the supplied topic row and prefers its primary category", () => {
-    document.body.innerHTML = `
-      <div class="topic-list-item" id="wrong">
-        <a class="badge-category__wrapper" style="--category-badge-color:#808281">
-          <span class="badge-category__name">运营反馈</span>
-        </a>
-      </div>
-      <div class="topic-list-item" id="target">
-        <a class="badge-category__wrapper" style="--category-badge-color:#E45735">
-          <span class="badge-category__name">福利羊毛</span>
-        </a>
-        <a class="badge-category__wrapper" style="--category-badge-color:#0088CC">
-          <span class="badge-category__name">福利羊毛, Lv1</span>
-        </a>
-      </div>
-    `;
-
-    expect(readTopicCategory(document.querySelector("#target")!)).toEqual({
-      categoryName: "福利羊毛",
-      categoryColor: "#E45735",
-    });
+    expect(resolveFixedCategoryColor("帖子标题 - 自定义分类 - LINUX DO")).toBeNull();
   });
 });

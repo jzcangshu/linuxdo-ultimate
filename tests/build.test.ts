@@ -10,6 +10,7 @@ describe("userscript build", () => {
     const packageVersion = (JSON.parse(packageSource) as { version: string }).version;
 
     expect(output).toContain("// ==UserScript==");
+    expect(output).toContain("// @name         Linux Do Ultimate");
     expect(output).toContain("// @match        https://linux.do/*");
     expect(output).toContain(`// @version      ${packageVersion}`);
     expect(output).toContain("__linuxDoUltimateLoaded");

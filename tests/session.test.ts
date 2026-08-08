@@ -65,17 +65,19 @@ describe("session state", () => {
     expect(second.activeTabId).toBe(second.tabs[0]?.id);
   });
 
-  it("persists a validated category presentation when the frame is released", () => {
+  it("drops legacy dynamically acquired category colors", () => {
     const initial = createSession("session-a", "https://linux.do/latest", 100);
-    const colored = upsertTopicTab(initial, {
-      topicId: "46",
-      url: "https://linux.do/t/topic/46",
-      title: "新帖子",
-      categoryName: "扬帆起航",
-      categoryColor: "#ff9838",
-    }, 101);
-    const restored = normalizeSession(structuredClone(colored), initial);
-    expect(restored.tabs[0]).toMatchObject({ categoryName: "扬帆起航", categoryColor: "#ff9838" });
+    const legacy = {
+      ...initial,
+      tabs: [{
+        id: "topic-46", topicId: "46", url: "https://linux.do/t/topic/46", title: "新帖子",
+        categoryName: "扬帆起航", categoryColor: "#ff9838", scrollY: 0, suspended: false, lastActiveAt: 101,
+      }],
+      activeTabId: "topic-46",
+    };
+    const restored = normalizeSession(legacy, initial);
+    expect(restored.tabs[0]).not.toHaveProperty("categoryName");
+    expect(restored.tabs[0]).not.toHaveProperty("categoryColor");
   });
 
   it("bounds restored tabs and keeps the active tab valid", () => {

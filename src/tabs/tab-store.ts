@@ -1,8 +1,8 @@
 import { closeTopicTab, upsertTopicTab } from "../core/session";
 import type { SessionState, TopicTabState } from "../core/types";
 
-type TopicInput = Pick<TopicTabState, "topicId" | "url" | "title"> & Partial<Pick<TopicTabState, "postNumber" | "categoryName" | "categoryColor">>;
-type TabPatch = Partial<Pick<TopicTabState, "url" | "title" | "postNumber" | "categoryName" | "categoryColor" | "scrollY" | "suspended">>;
+type TopicInput = Pick<TopicTabState, "topicId" | "url" | "title"> & Partial<Pick<TopicTabState, "postNumber">>;
+type TabPatch = Partial<Pick<TopicTabState, "url" | "title" | "postNumber" | "scrollY" | "suspended">>;
 
 export class TopicTabStore {
   constructor(

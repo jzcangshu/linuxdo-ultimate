@@ -1,12 +1,13 @@
 {
   "name": "linuxdo-ultimate-browser-extension",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsx scripts/build.ts",
     "build:extension": "tsx scripts/build-extension.ts",
     "build:all": "pnpm build && pnpm build:extension",
+    "package:extension": "pnpm build:extension && tsx scripts/package-extension.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -17,6 +18,7 @@
     "@types/node": "^24.0.0",
     "@types/tampermonkey": "^5.0.4",
     "esbuild": "^0.25.8",
+    "fflate": "^0.8.3",
     "jsdom": "^26.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",

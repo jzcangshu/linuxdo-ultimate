@@ -533,6 +533,11 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   line-height: 1.3;
 }
 
+.ldu-settings-panel .ldu-brand-ultimate {
+  color: #ffd43b;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
 .ldu-settings-panel .dc-close-btn {
   padding: 2px 6px;
   border: 0;

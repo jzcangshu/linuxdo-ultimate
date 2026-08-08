@@ -222,7 +222,7 @@ describe("embedded topic preview bridge", () => {
     expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:preview-open" }), expect.anything());
   });
 
-  it("reports the category as soon as its topic badge appears", async () => {
+  it("does not inspect or report dynamic category colors", async () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
@@ -243,13 +243,10 @@ describe("embedded topic preview bridge", () => {
     await Promise.resolve();
     vi.runAllTimers();
 
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      categoryName: "扬帆起航",
-      categoryColor: "#ff9838",
-    }), location.origin);
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ categoryColor: expect.anything() }), location.origin);
   });
 
-  it("ignores category badges outside the topic title area", async () => {
+  it("still reports document title changes without category parsing", async () => {
     vi.useFakeTimers();
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
@@ -258,16 +255,14 @@ describe("embedded topic preview bridge", () => {
     expect(document.getElementById(APP_STYLE_ID)).toBeNull();
     postMessage.mockClear();
 
-    const wrapper = document.createElement("a");
-    wrapper.className = "badge-category__wrapper";
-    wrapper.style.setProperty("--category-badge-color", "#808281");
-    wrapper.innerHTML = '<span class="badge-category__name">运营反馈</span>';
-    document.body.append(wrapper);
+    document.title = "更新后的帖子标题 - 运营反馈 - LINUX DO";
+    document.head.append(document.createElement("meta"));
     await Promise.resolve();
     vi.runAllTimers();
 
-    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
-      categoryName: "运营反馈",
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:frame-state",
+      title: "更新后的帖子标题 - 运营反馈 - LINUX DO",
     }), location.origin);
   });
 
@@ -288,10 +283,7 @@ describe("embedded topic preview bridge", () => {
       origin: location.origin,
       source: window.parent,
     }));
-    const category = document.createElement("div");
-    category.className = "topic-category";
-    category.innerHTML = '<a class="badge-category__wrapper" style="--category-badge-color:#3ab54a"><span class="badge-category__name">搞七捻三</span></a>';
-    document.body.append(category);
+    document.body.append(document.createElement("div"));
     vi.runOnlyPendingTimers();
 
     expect(document.documentElement.dataset.lduSoftFrozen).toBe("true");
@@ -313,7 +305,6 @@ describe("embedded topic preview bridge", () => {
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: "ldu:frame-state",
       tabId: "topic-freeze",
-      categoryName: "搞七捻三",
     }), location.origin);
   });
 });

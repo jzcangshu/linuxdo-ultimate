@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Linux.do Ultimate Optimizer
-// @name:zh-CN   Linux.do 社区终极优化脚本
+// @name         Linux Do Ultimate
+// @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.4.0
+// @version      0.4.1
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -79,49 +79,6 @@
     return typeof value === "number" && Number.isFinite(value) ? Math.min(0.7, Math.max(0.3, value)) : fallback;
   }
 
-  // src/discourse/category.ts
-  function normalizeCategoryColor(value) {
-    if (typeof value !== "string") return null;
-    const color = value.trim();
-    return /^(?:#[\da-f]{3,8}|rgba?\([\d\s.,%+-]+\)|hsla?\([\d\s.,%+-]+\))$/i.test(color) ? color : null;
-  }
-  function readWrapperCategory(wrapper, view) {
-    const htmlWrapper = wrapper;
-    const categoryName = wrapper.querySelector(".badge-category__name")?.textContent?.trim() ?? "";
-    const categoryColor = normalizeCategoryColor(
-      htmlWrapper.style?.getPropertyValue("--category-badge-color") || view?.getComputedStyle(htmlWrapper).getPropertyValue("--category-badge-color")
-    );
-    return categoryName && categoryColor ? { categoryName, categoryColor } : null;
-  }
-  function readTopicCategory(root, view = typeof window === "undefined" ? null : window) {
-    const realm = view;
-    const rootElement = realm?.Element && root instanceof realm.Element ? root : null;
-    const wrappers = rootElement?.matches(".badge-category__wrapper") ? [rootElement] : [...root.querySelectorAll(".badge-category__wrapper")];
-    for (const wrapper of wrappers) {
-      const category = readWrapperCategory(wrapper, view);
-      if (category) return category;
-    }
-    return null;
-  }
-  function readTopicDocumentCategory(document2, view = document2.defaultView) {
-    let pendingName = "";
-    const metadata = document2.querySelectorAll(
-      'meta[property="og:article:section"], meta[property="og:article:section:color"]'
-    );
-    for (const meta of metadata) {
-      if (meta.getAttribute("property") === "og:article:section") {
-        pendingName = meta.content.trim();
-        continue;
-      }
-      const rawColor = meta.content.trim();
-      const categoryColor = normalizeCategoryColor(/^[\da-f]{3,8}$/i.test(rawColor) ? `#${rawColor}` : rawColor);
-      if (pendingName && categoryColor) return { categoryName: pendingName, categoryColor };
-      pendingName = "";
-    }
-    const topicCategory = document2.querySelector(".topic-category");
-    return topicCategory ? readTopicCategory(topicCategory, view) : null;
-  }
-
   // src/core/session.ts
   var MAX_TABS = 50;
   function normalizePaneSizes(value, fallback) {
@@ -147,7 +104,6 @@
       topicId: tab.topicId,
       url: tab.url,
       title: typeof tab.title === "string" && tab.title.trim() ? tab.title : `\u4E3B\u9898 ${tab.topicId}`,
-      ...typeof tab.categoryName === "string" && tab.categoryName.trim() && normalizeCategoryColor(tab.categoryColor) ? { categoryName: tab.categoryName.trim(), categoryColor: normalizeCategoryColor(tab.categoryColor) } : {},
       ...typeof tab.postNumber === "number" && Number.isFinite(tab.postNumber) ? { postNumber: Math.max(1, Math.floor(tab.postNumber)) } : {},
       scrollY: clampNumber(tab.scrollY, 0, 1e7, 0),
       suspended: tab.suspended === true,
@@ -215,7 +171,6 @@
       url: input.url,
       title: input.title || `\u4E3B\u9898 ${input.topicId}`,
       ...input.postNumber ? { postNumber: input.postNumber } : {},
-      ...input.categoryName && input.categoryColor ? { categoryName: input.categoryName, categoryColor: input.categoryColor } : {},
       scrollY: 0,
       suspended: false,
       lastActiveAt: now
@@ -1307,6 +1262,34 @@
     }
   };
 
+  // src/discourse/category.ts
+  var PRIMARY_CATEGORY_COLORS = [
+    ["\u5F00\u53D1\u8C03\u4F18", "rgb(50, 195, 195)"],
+    ["\u56FD\u4EA7\u66FF\u4EE3", "rgb(209, 44, 37)"],
+    ["\u8D44\u6E90\u835F\u8403", "rgb(18, 168, 157)"],
+    ["\u6587\u6863\u5171\u5EFA", "rgb(156, 182, 196)"],
+    ["\u8DF3\u86A4\u5E02\u573A", "rgb(237, 32, 123)"],
+    ["\u79EF\u5206\u4E50\u56ED", "rgb(252, 202, 68)"],
+    ["\u975E\u6211\u83AB\u5C5E", "rgb(168, 198, 254)"],
+    ["\u8BFB\u4E66\u6210\u8BD7", "rgb(224, 217, 0)"],
+    ["\u626C\u5E06\u8D77\u822A", "rgb(255, 152, 56)"],
+    ["\u524D\u6CBF\u5FEB\u8BAF", "rgb(187, 143, 206)"],
+    ["\u7F51\u7EDC\u8BB0\u5FC6", "rgb(247, 148, 29)"],
+    ["\u798F\u5229\u7F8A\u6BDB", "rgb(228, 87, 53)"],
+    ["\u641E\u4E03\u637B\u4E09", "rgb(58, 181, 74)"],
+    ["\u793E\u533A\u5B75\u5316", "rgb(255, 187, 0)"],
+    ["\u866B\u6D1E\u5E7F\u573A", "rgb(255, 0, 247)"],
+    ["\u8FD0\u8425\u53CD\u9988", "rgb(128, 130, 129)"],
+    ["\u6DF1\u6D77\u5E7D\u57DF", "rgb(69, 183, 209)"]
+  ];
+  function resolveFixedCategoryColor(title) {
+    const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
+    const separatorIndex = titleWithoutSite.lastIndexOf(" - ");
+    const category = titleWithoutSite.slice(separatorIndex < 0 ? 0 : separatorIndex + 3).trim();
+    const match = PRIMARY_CATEGORY_COLORS.find(([name]) => category === name || category.startsWith(`${name} /`) || category.startsWith(`${name},`));
+    return match?.[1] ?? null;
+  }
+
   // src/ui/icons.ts
   var ICON_CONTENT = {
     settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.95 4.6 1.7 1.7 0 0 0 9.98 3.04V3h4v.08A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
@@ -1342,32 +1325,7 @@
   }
 
   // src/tabs/tab-strip.ts
-  var PRIMARY_CATEGORY_COLORS = [
-    ["\u5F00\u53D1\u8C03\u4F18", "rgb(50, 195, 195)"],
-    ["\u56FD\u4EA7\u66FF\u4EE3", "rgb(209, 44, 37)"],
-    ["\u8D44\u6E90\u835F\u8403", "rgb(18, 168, 157)"],
-    ["\u6587\u6863\u5171\u5EFA", "rgb(156, 182, 196)"],
-    ["\u8DF3\u86A4\u5E02\u573A", "rgb(237, 32, 123)"],
-    ["\u79EF\u5206\u4E50\u56ED", "rgb(252, 202, 68)"],
-    ["\u975E\u6211\u83AB\u5C5E", "rgb(168, 198, 254)"],
-    ["\u8BFB\u4E66\u6210\u8BD7", "rgb(224, 217, 0)"],
-    ["\u626C\u5E06\u8D77\u822A", "rgb(255, 152, 56)"],
-    ["\u524D\u6CBF\u5FEB\u8BAF", "rgb(187, 143, 206)"],
-    ["\u7F51\u7EDC\u8BB0\u5FC6", "rgb(247, 148, 29)"],
-    ["\u798F\u5229\u7F8A\u6BDB", "rgb(228, 87, 53)"],
-    ["\u641E\u4E03\u637B\u4E09", "rgb(58, 181, 74)"],
-    ["\u793E\u533A\u5B75\u5316", "rgb(255, 187, 0)"],
-    ["\u866B\u6D1E\u5E7F\u573A", "rgb(255, 0, 247)"],
-    ["\u8FD0\u8425\u53CD\u9988", "rgb(128, 130, 129)"],
-    ["\u6DF1\u6D77\u5E7D\u57DF", "rgb(69, 183, 209)"]
-  ];
-  function resolveTabCategoryColor(title, _root = document) {
-    const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
-    const separatorIndex = titleWithoutSite.lastIndexOf(" - ");
-    const category = titleWithoutSite.slice(separatorIndex < 0 ? 0 : separatorIndex + 3).trim();
-    const match = PRIMARY_CATEGORY_COLORS.find(([name]) => category === name || category.startsWith(`${name} /`) || category.startsWith(`${name},`));
-    return match?.[1] ?? null;
-  }
+  var resolveTabCategoryColor = resolveFixedCategoryColor;
   var tabStripStates = /* @__PURE__ */ new WeakMap();
   function resetTabDragVisuals(root) {
     root.querySelectorAll(":scope > .ldu-tab-item[data-tab-id]").forEach((item) => {
@@ -1445,7 +1403,7 @@
     item.classList.toggle("is-active", active);
     item.title = `${tab.title}
 ${tab.url}`;
-    const categoryColor = tab.categoryColor || resolveTabCategoryColor(tab.title, root.ownerDocument);
+    const categoryColor = resolveTabCategoryColor(tab.title);
     if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
     else item.style.removeProperty("--ldu-tab-category-color");
     const button = item.querySelector(".ldu-tab-button");
@@ -2113,6 +2071,11 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   line-height: 1.3;
 }
 
+.ldu-settings-panel .ldu-brand-ultimate {
+  color: #ffd43b;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
 .ldu-settings-panel .dc-close-btn {
   padding: 2px 6px;
   border: 0;
@@ -2752,7 +2715,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       panel.innerHTML = `
       <div class="dc-modal">
         <header class="dc-header">
-          <h2 class="ldu-settings-heading">Ultimate Linux Do \u8BBE\u7F6E</h2>
+          <h2 class="ldu-settings-heading">Linux Do <span class="ldu-brand-ultimate">Ultimate</span></h2>
           <button type="button" class="dc-close-btn ldu-settings-close" title="\u5173\u95ED" aria-label="\u5173\u95ED\u8BBE\u7F6E">${iconSvg("close", 16)}</button>
         </header>
         <div class="dc-body">
@@ -3079,14 +3042,14 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         const loaded = this.options.loadPreviewer();
         if (!(loaded instanceof Promise)) return this.install(loaded);
         this.loading = loaded.then((installer) => this.install(installer)).catch((error) => {
-          console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+          console.error("[Linux Do Ultimate] Preview runtime failed to load", error);
           return null;
         }).finally(() => {
           this.loading = null;
         });
         return this.loading;
       } catch (error) {
-        console.error("[Linux.do Ultimate] Preview runtime failed to load", error);
+        console.error("[Linux Do Ultimate] Preview runtime failed to load", error);
         return null;
       }
     }
@@ -3255,7 +3218,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           this.updateDisplay();
         } catch (error) {
           if (controller.signal.aborted) return;
-          console.error("[Linux.do Ultimate] LDC request failed", error);
+          console.error("[Linux Do Ultimate] LDC request failed", error);
           if (this.enabled && generation === this.requestGeneration) this.showError();
         }
       })().finally(() => {
@@ -3577,9 +3540,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         if (!info) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-        const category = row ? readTopicCategory(row) : null;
-        this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category ?? void 0);
+        this.openTopic(info.topicId, info.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${info.topicId}`, info.postNumber);
         return;
       }
       if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
@@ -3594,7 +3555,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       event.stopImmediatePropagation();
       this.navigateList(targetUrl.href);
     }
-    openTopic(topicId, url, title, postNumber, category, pane = "primary", deferListFrame = false) {
+    openTopic(topicId, url, title, postNumber, pane = "primary", deferListFrame = false) {
       const shouldHandoffList = this.tabStore.getTabs().length === 0 && classifyRoute(location.href) !== "topic" && this.layout.getMode() === "native";
       const nativeListScrollY = shouldHandoffList ? window.scrollY : 0;
       if (!this.layout.mount()) return;
@@ -3609,7 +3570,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         this.scheduleListHandoffFallback();
       }
       this.layout.setOpen(true);
-      const input = { topicId, url, title, ...postNumber ? { postNumber } : {}, ...category };
+      const input = { topicId, url, title, ...postNumber ? { postNumber } : {} };
       if (pane === "secondary") this.tabStore.openSecondary(input, Date.now());
       else this.tabStore.open(input, Date.now());
       if (!deferListFrame) this.ensureListFrame();
@@ -3689,10 +3650,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.layout.setOpen(true);
       event.preventDefault();
       event.stopImmediatePropagation();
-      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, void 0, "primary", true);
+      this.openTopic(current.topicId, current.url.href, this.currentTopicTitle(current.topicId), current.postNumber, "primary", true);
       if (targetRoute === "topic") {
         const target = getTopicInfo(targetUrl.href, location.href);
-        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber, void 0, "primary", true);
+        if (target) this.openTopic(target.topicId, target.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${target.topicId}`, target.postNumber, "primary", true);
       }
       this.ensureListFrame(listUrl);
     }
@@ -3771,8 +3732,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (message.type === "ldu:list-topic-open") {
         const info = message.url ? getTopicInfo(message.url, location.href) : null;
         if (!info) return;
-        const category = message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : void 0;
-        this.openTopic(info.topicId, info.url.href, message.topicTitle || `\u4E3B\u9898 ${info.topicId}`, info.postNumber, category);
+        this.openTopic(info.topicId, info.url.href, message.topicTitle || `\u4E3B\u9898 ${info.topicId}`, info.postNumber);
         return;
       }
       if (message.type === "ldu:list-navigate" && message.url) {
@@ -3971,24 +3931,20 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (message.type === "ldu:topic-open") {
         const info2 = message.url ? getTopicInfo(message.url, location.href) : null;
         if (!info2 || !isSupportedTopicTarget(info2.url.href, tab.url)) return;
-        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber, void 0, pane);
+        this.openTopic(info2.topicId, info2.url.href, message.title || `\u4E3B\u9898 ${info2.topicId}`, info2.postNumber, pane);
         return;
       }
       const info = message.url ? getTopicInfo(message.url) : null;
       const sameTopic = info?.topicId === tab.topicId;
-      const categoryChanged = Boolean(
-        message.categoryName && message.categoryColor && (message.categoryName !== tab.categoryName || message.categoryColor !== tab.categoryColor)
-      );
       const patch = {
         ...message.url ? { url: message.url } : {},
         ...message.title ? { title: message.title } : {},
-        ...message.categoryName && message.categoryColor ? { categoryName: message.categoryName, categoryColor: message.categoryColor } : {},
         // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
         ...message.type !== "ldu:frame-ready" && typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       };
-      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic) || categoryChanged);
+      this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
       if (message.type === "ldu:frame-state") this.schedulePersist();
       if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
         iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
@@ -4262,8 +4218,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     let lastUrl = "";
     let lastObservedUrl = location.href;
     let lastObservedTitle = document.title;
-    let lastObservedCategoryKey = "";
-    let currentCategory = readTopicDocumentCategory(document, window);
     let previewEnabled = false;
     let previewClickMode = "double";
     let replayingClick = false;
@@ -4282,7 +4236,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           tabId,
           scrollY: window.scrollY
         };
-        if (currentCategory) Object.assign(payload, currentCategory);
         if (type === "ldu:frame-ready" || lastUrl !== location.href) {
           lastUrl = location.href;
           payload.url = location.href;
@@ -4295,33 +4248,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
     document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
     window.addEventListener("popstate", () => send("ldu:frame-state"));
-    const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
-    const mutationAffectsTopicMetadata = (mutation) => {
-      const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
-      if (target?.closest("head, .topic-category, #topic-title")) return true;
-      return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
-        if (node.nodeType !== Node.ELEMENT_NODE) return false;
-        const element = node;
-        return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
-      });
-    };
-    const metadataObserver = new MutationObserver((mutations) => {
+    const metadataObserver = new MutationObserver(() => {
       if (softFrozen) return;
-      const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
       const urlChanged = lastObservedUrl !== location.href;
       const titleChanged = lastObservedTitle !== document.title;
-      if (!metadataChanged && !urlChanged && !titleChanged) return;
-      if (urlChanged) currentCategory = null;
-      if (metadataChanged) {
-        const observedCategory = readTopicDocumentCategory(document, window);
-        if (observedCategory) currentCategory = observedCategory;
-      }
-      const categoryKey = currentCategory ? `${currentCategory.categoryName}
-${currentCategory.categoryColor}` : "";
-      if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
+      if (!urlChanged && !titleChanged) return;
       lastObservedUrl = location.href;
       lastObservedTitle = document.title;
-      lastObservedCategoryKey = categoryKey;
       send("ldu:frame-state");
     });
     const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
@@ -4385,14 +4318,8 @@ ${currentCategory.categoryColor}` : "";
         return;
       }
       delete document.documentElement.dataset.lduSoftFrozen;
-      const urlChanged = lastObservedUrl !== location.href;
-      const observedCategory = readTopicDocumentCategory(document, window);
-      if (observedCategory) currentCategory = observedCategory;
-      else if (urlChanged) currentCategory = null;
       lastObservedUrl = location.href;
       lastObservedTitle = document.title;
-      lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}
-${currentCategory.categoryColor}` : "";
       observeMetadata();
       resumeVisualActivity();
       send("ldu:frame-state");
@@ -4630,16 +4557,13 @@ ${currentCategory.categoryColor}` : "";
     };
     const sendTopic = (link) => {
       const info = getTopicInfo(link.href, location.href);
-      const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-      const category = row ? readTopicCategory(row, window) : null;
       window.parent.postMessage({
         type: "ldu:list-topic-open",
         frameId,
         url: link.href,
         topicId: info?.topicId,
         postNumber: info?.postNumber,
-        topicTitle: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : ""),
-        ...category ?? {}
+        topicTitle: link.textContent?.trim() || (info ? `\u4E3B\u9898 ${info.topicId}` : "")
       }, location.origin);
     };
     const sendPreview = (link) => {

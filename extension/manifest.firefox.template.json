@@ -3,7 +3,6 @@
   "name": "Linux Do Ultimate",
   "version": "__VERSION__",
   "description": "Linux.do 分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。",
-  "minimum_chrome_version": "110",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -14,7 +13,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["background.js"]
   },
   "content_scripts": [
     {
@@ -35,5 +34,17 @@
       "resources": ["preview-runtime.js"],
       "matches": ["https://linux.do/*"]
     }
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "linuxdo-ultimate@jzcangshu",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  }
 }

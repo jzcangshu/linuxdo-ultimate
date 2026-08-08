@@ -47,23 +47,24 @@ describe("topic tab category colors", () => {
     expect(root.querySelector<HTMLElement>(".ldu-tab-item")?.style.getPropertyValue("--ldu-tab-category-color")).toBe("rgb(50, 195, 195)");
   });
 
-  it("can disable category color presentation without discarding cached category data", () => {
+  it("can disable fixed category color presentation", () => {
     const root = document.createElement("div");
-    renderTabStrip(root, [{ ...tab("刚打开的帖子"), categoryName: "扬帆起航", categoryColor: "#ff9838" }], "topic-1", {
+    renderTabStrip(root, [tab("刚打开的帖子 - 扬帆起航 - LINUX DO")], "topic-1", {
       onActivate: vi.fn(), onClose: vi.fn(),
     }, { colorizeTabs: false });
     expect(root.classList.contains("is-category-colors-enabled")).toBe(false);
     expect(root.querySelector<HTMLElement>(".ldu-tab-item")?.style.getPropertyValue("--ldu-tab-category-color"))
-      .toBe("#ff9838");
+      .toBe("rgb(255, 152, 56)");
   });
 
-  it("uses the color persisted with the topic before consulting the sidebar", () => {
+  it("does not accept a dynamic color from tab state", () => {
     const root = document.createElement("div");
-    renderTabStrip(root, [{ ...tab("刚打开的帖子"), categoryName: "扬帆起航", categoryColor: "#ff9838" }], "topic-1", {
+    const legacyTab = { ...tab("刚打开的帖子"), categoryColor: "#ff9838" } as TopicTabState;
+    renderTabStrip(root, [legacyTab], "topic-1", {
       onActivate: vi.fn(), onClose: vi.fn(),
     });
     expect(root.querySelector<HTMLElement>(".ldu-tab-item")?.style.getPropertyValue("--ldu-tab-category-color"))
-      .toBe("#ff9838");
+      .toBe("");
   });
 
   it("marks only the current tab as active regardless of title length", () => {
@@ -90,15 +91,15 @@ describe("topic tab category colors", () => {
 
     renderTabStrip(root, [
       { ...tab("第二帖更新"), id: "topic-2", topicId: "2" },
-      { ...tab("新标题"), categoryColor: "#123456" },
+      { ...tab("新标题 - 开发调优 - LINUX DO") },
     ], "topic-2", { onActivate: latestActivate, onClose: vi.fn() });
 
     expect(root.children[0]).toBe(secondItem);
     expect(root.children[1]).toBe(firstItem);
     expect(firstItem.querySelector(".ldu-tab-button")).toBe(firstButton);
-    expect(firstButton.textContent).toBe("新标题");
+    expect(firstButton.textContent).toBe("新标题 - 开发调优 - LINUX DO");
     expect(firstItem.classList.contains("is-active")).toBe(false);
-    expect(firstItem.style.getPropertyValue("--ldu-tab-category-color")).toBe("#123456");
+    expect(firstItem.style.getPropertyValue("--ldu-tab-category-color")).toBe("rgb(50, 195, 195)");
     firstButton.click();
     expect(firstActivate).not.toHaveBeenCalled();
     expect(latestActivate).toHaveBeenCalledWith("topic-1");

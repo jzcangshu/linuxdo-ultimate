@@ -1,6 +1,5 @@
 import { DEFAULT_SETTINGS, SESSION_SCHEMA_VERSION } from "./defaults";
 import type { PaneSizes, SessionState, TopicTabState } from "./types";
-import { normalizeCategoryColor } from "../discourse/category";
 
 const MAX_TABS = 50;
 
@@ -34,9 +33,6 @@ function normalizeTab(value: unknown): TopicTabState | null {
     topicId: tab.topicId,
     url: tab.url,
     title: typeof tab.title === "string" && tab.title.trim() ? tab.title : `主题 ${tab.topicId}`,
-    ...(typeof tab.categoryName === "string" && tab.categoryName.trim() && normalizeCategoryColor(tab.categoryColor)
-      ? { categoryName: tab.categoryName.trim(), categoryColor: normalizeCategoryColor(tab.categoryColor)! }
-      : {}),
     ...(typeof tab.postNumber === "number" && Number.isFinite(tab.postNumber)
       ? { postNumber: Math.max(1, Math.floor(tab.postNumber)) }
       : {}),
@@ -118,7 +114,7 @@ export function normalizeSession(value: unknown, fallback: SessionState): Sessio
 
 export function upsertTopicTab(
   session: SessionState,
-  input: Pick<TopicTabState, "topicId" | "url" | "title"> & Partial<Pick<TopicTabState, "postNumber" | "categoryName" | "categoryColor">>,
+  input: Pick<TopicTabState, "topicId" | "url" | "title"> & Partial<Pick<TopicTabState, "postNumber">>,
   now: number,
 ): SessionState {
   const existing = session.tabs.find((tab) => tab.topicId === input.topicId);
@@ -130,9 +126,6 @@ export function upsertTopicTab(
         url: input.url,
         title: input.title || `主题 ${input.topicId}`,
         ...(input.postNumber ? { postNumber: input.postNumber } : {}),
-        ...(input.categoryName && input.categoryColor
-          ? { categoryName: input.categoryName, categoryColor: input.categoryColor }
-          : {}),
         scrollY: 0,
         suspended: false,
         lastActiveAt: now,

@@ -9,8 +9,6 @@ export interface FrameMessage {
   title?: string;
   scrollY?: number;
   postNumber?: number;
-  categoryName?: string;
-  categoryColor?: string;
   ok?: boolean;
   message?: string;
   anchorRect?: { left: number; top: number; right: number; bottom: number; width: number; height: number };

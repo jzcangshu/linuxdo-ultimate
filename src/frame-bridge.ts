@@ -1,6 +1,5 @@
 import { ensureEmbeddedStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
-import { readTopicCategory, readTopicDocumentCategory } from "./discourse/category";
 
 const DOUBLE_CLICK_DELAY_MS = 300;
 
@@ -20,8 +19,6 @@ export function bootFrameBridge(): void {
   let lastUrl = "";
   let lastObservedUrl = location.href;
   let lastObservedTitle = document.title;
-  let lastObservedCategoryKey = "";
-  let currentCategory = readTopicDocumentCategory(document, window);
   let previewEnabled = false;
   let previewClickMode: "double" | "single" = "double";
   let replayingClick = false;
@@ -40,7 +37,6 @@ export function bootFrameBridge(): void {
         tabId,
         scrollY: window.scrollY,
       };
-      if (currentCategory) Object.assign(payload, currentCategory);
       if (type === "ldu:frame-ready" || lastUrl !== location.href) {
         lastUrl = location.href;
         payload.url = location.href;
@@ -54,36 +50,13 @@ export function bootFrameBridge(): void {
   window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
   document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
   window.addEventListener("popstate", () => send("ldu:frame-state"));
-  const topicMetadataSelector = 'meta[property="og:article:section"], meta[property="og:article:section:color"], title, .topic-category, #topic-title';
-  const mutationAffectsTopicMetadata = (mutation: MutationRecord): boolean => {
-    const target = mutation.target instanceof Element
-      ? mutation.target
-      : mutation.target.parentNode instanceof Element ? mutation.target.parentNode : null;
-    if (target?.closest("head, .topic-category, #topic-title")) return true;
-    return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
-      if (node.nodeType !== Node.ELEMENT_NODE) return false;
-      const element = node as Element;
-      return element.matches(topicMetadataSelector) || Boolean(element.querySelector(topicMetadataSelector));
-    });
-  };
-  const metadataObserver = new MutationObserver((mutations) => {
+  const metadataObserver = new MutationObserver(() => {
     if (softFrozen) return;
-    // Post stream mutations are frequent and cannot change topic metadata.
-    // Only inspect the document when title/category metadata may have changed.
-    const metadataChanged = mutations.some(mutationAffectsTopicMetadata);
     const urlChanged = lastObservedUrl !== location.href;
     const titleChanged = lastObservedTitle !== document.title;
-    if (!metadataChanged && !urlChanged && !titleChanged) return;
-    if (urlChanged) currentCategory = null;
-    if (metadataChanged) {
-      const observedCategory = readTopicDocumentCategory(document, window);
-      if (observedCategory) currentCategory = observedCategory;
-    }
-    const categoryKey = currentCategory ? `${currentCategory.categoryName}\n${currentCategory.categoryColor}` : "";
-    if (lastObservedUrl === location.href && lastObservedTitle === document.title && lastObservedCategoryKey === categoryKey) return;
+    if (!urlChanged && !titleChanged) return;
     lastObservedUrl = location.href;
     lastObservedTitle = document.title;
-    lastObservedCategoryKey = categoryKey;
     send("ldu:frame-state");
   });
   const observeMetadata = () => metadataObserver.observe(document.documentElement, { childList: true, subtree: true });
@@ -135,13 +108,8 @@ export function bootFrameBridge(): void {
       return;
     }
     delete document.documentElement.dataset.lduSoftFrozen;
-    const urlChanged = lastObservedUrl !== location.href;
-    const observedCategory = readTopicDocumentCategory(document, window);
-    if (observedCategory) currentCategory = observedCategory;
-    else if (urlChanged) currentCategory = null;
     lastObservedUrl = location.href;
     lastObservedTitle = document.title;
-    lastObservedCategoryKey = currentCategory ? `${currentCategory.categoryName}\n${currentCategory.categoryColor}` : "";
     observeMetadata();
     resumeVisualActivity();
     send("ldu:frame-state");
@@ -385,13 +353,10 @@ function bootListBridge(frameId: string): void {
   };
   const sendTopic = (link: HTMLAnchorElement) => {
     const info = getTopicInfo(link.href, location.href);
-    const row = link.closest(".topic-list-item, .latest-topic-list-item, .search-result");
-    const category = row ? readTopicCategory(row, window) : null;
     window.parent.postMessage({
       type: "ldu:list-topic-open", frameId, url: link.href,
       topicId: info?.topicId, postNumber: info?.postNumber,
       topicTitle: link.textContent?.trim() || (info ? `主题 ${info.topicId}` : ""),
-      ...(category ?? {}),
     }, location.origin);
   };
   const sendPreview = (link: HTMLAnchorElement) => {

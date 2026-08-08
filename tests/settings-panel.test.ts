@@ -10,7 +10,8 @@ describe("settings panel", () => {
     const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange: vi.fn() });
     panel.mount();
 
-    expect(host.querySelector(".ldu-settings-heading")?.textContent).toBe("Ultimate Linux Do 设置");
+    expect(host.querySelector(".ldu-settings-heading")?.textContent).toBe("Linux Do Ultimate");
+    expect(host.querySelector(".ldu-brand-ultimate")?.textContent).toBe("Ultimate");
     expect([...host.querySelectorAll(".ldu-settings-group-title")].map((node) => node.textContent)).toEqual([
       "布局",
       "阅读与标签",

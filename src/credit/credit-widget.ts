@@ -163,7 +163,7 @@ export class CreditWidget {
         this.updateDisplay();
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error("[Linux.do Ultimate] LDC request failed", error);
+        console.error("[Linux Do Ultimate] LDC request failed", error);
         if (this.enabled && generation === this.requestGeneration) this.showError();
       }
     })().finally(() => {

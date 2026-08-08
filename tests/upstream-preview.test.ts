@@ -100,6 +100,27 @@ describe("vendored upstream previewer", () => {
     expect(document.head.querySelectorAll("style")).toHaveLength(styleCount);
   });
 
+  it("queues the first frame preview while the extension runtime loads", async () => {
+    const openFromFrame = vi.fn();
+    const api = { openFromFrame, close: vi.fn(), syncClickMode: vi.fn() };
+    const deferred: { resolve?: (installer: () => typeof api) => void } = {};
+    const loadPreviewer = vi.fn(() => new Promise<() => typeof api>((resolve) => { deferred.resolve = resolve; }));
+    const controller = new PreviewController({ isEnabled: () => true, clickMode: () => "double", loadPreviewer });
+    const owner = document.createElement("iframe");
+    owner.getBoundingClientRect = () => ({ left: 40, top: 60 } as DOMRect);
+
+    controller.openFromFrame("https://example.com/app", owner, { left: 10, bottom: 20 });
+    expect(openFromFrame).not.toHaveBeenCalled();
+    deferred.resolve?.(() => api);
+
+    await vi.waitFor(() => expect(openFromFrame).toHaveBeenCalledWith("https://example.com/app", {
+      left: 50,
+      top: 80,
+      bottom: 80,
+    }));
+    expect(loadPreviewer).toHaveBeenCalledOnce();
+  });
+
   it("keeps the upstream 4.13.1 loading core byte-equivalent", () => {
     const expected: Record<string, string> = {
       setCache: "e85ff1451484f6e42f113cb4c6d3bbcb6eb1953f86249344842dc8a5fc4fe5f7",

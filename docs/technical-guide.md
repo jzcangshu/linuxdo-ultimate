@@ -4,16 +4,16 @@
 
 ## 1. 技术栈与构建产物
 
-源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。入口为 `src/main.ts`，构建脚本将全部模块打包为单个 `dist/linuxdo-ultimate.user.js` 用户脚本。
+源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。V0.4 正式产物位于 `dist/extension`：顶层 `host.js`、轻量 `bridge.js`、按需 `preview-runtime.js`、跨域请求 `background.js` 和 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
 
 ```powershell
 pnpm install
 pnpm test
 pnpm check
-pnpm build
+pnpm build:all
 ```
 
-`package.json` 中的版本号会写入用户脚本头。发布前还应运行 `git diff --check` 检查空白和补丁格式。
+`package.json` 中的版本号会同时写入插件 manifest（清单）和兼容用户脚本头。发布前还应运行 `git diff --check` 检查空白和补丁格式。
 
 ## 2. 模块职责
 
@@ -27,6 +27,9 @@ pnpm build
 | `src/preview` | 悬浮预览、跨域获取、缓存和内容清理 |
 | `src/frame-bridge.ts` | 内嵌帖子页与顶层页面之间的事件桥 |
 | `src/credit` | 顶部 LDC 收入组件和数据请求 |
+| `src/extension` | Manifest V3 插件入口、跨域请求协议和用户脚本接口兼容层 |
+
+插件运行时保持现有业务模块不变。`host.ts` 只在顶层调用 `startLinuxDoApp`；`bridge.ts` 只调用 `bootFrameBridge`；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心重新静态导入 host 或 bridge。
 
 模块原则是让 Discourse（论坛系统）继续负责帖子正文、回复、投票、反应和时间线，脚本只负责页面编排与状态协调，不复制论坛业务逻辑。
 
@@ -50,7 +53,7 @@ pnpm build
 
 ## 5. 设置与会话存储
 
-长期设置优先通过用户脚本存储接口保存；接口在启动时不可用才使用 `localStorage`（本地存储）。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 2，主要字段包括：
+V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存设置和会话，以直接复用现有同步状态模型；兼容用户脚本仍优先使用用户脚本存储接口。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 2，主要字段包括：
 
 - `tabsEnabled`：分屏与页内帖子标签开关。
 - `restoreSession`：是否在新的浏览器标签页中恢复最近一次阅读会话，默认关闭；不影响当前标签页刷新恢复。
@@ -126,7 +129,7 @@ Linux Do 的 CSP（内容安全策略）包含 `base-uri 'none'`，站外源码�
 
 组件只在顶层页面创建，并放在语言切换按钮旁，避免每个帖子内嵌页重复显示。它先请求 Credit（积分）用户信息中的社区余额，再请求当前 Linux Do 用户的积分分数，两者差值作为收入参考值。默认每五分钟更新，用户点击可立即刷新。
 
-跨域请求使用用户脚本请求能力并携带登录态；同时刷新会合并，多页面优先复用一分钟内的共享快照，页面隐藏或功能关闭时停止后续调度。数据仅用于当前页面显示，不写入项目仓库或上传到其他服务。捐赠链接只由用户明确点击，脚本不会自动访问支付地址。
+插件跨域请求由 background service worker（后台服务工作线程）在 manifest（清单）权限范围内执行并携带登录态；同时刷新会合并，多页面优先复用一分钟内的共享快照，页面隐藏或功能关闭时停止后续调度。数据仅用于当前页面显示，不写入项目仓库或上传到其他服务。捐赠链接只由用户明确点击，插件不会自动访问支付地址。
 
 ## 10. 列表滚动与增量加载
 
@@ -147,7 +150,7 @@ Linux Do 的 CSP（内容安全策略）包含 `base-uri 'none'`，站外源码�
 ```powershell
 pnpm test
 pnpm check
-pnpm build
+pnpm build:all
 git diff --check
 ```
 

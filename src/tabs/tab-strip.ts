@@ -80,12 +80,16 @@ function createTabItem(root: HTMLElement): HTMLElement {
   const label = document.createElement("span");
   label.className = "ldu-tab-title";
   button.append(glyph, label);
+  button.addEventListener("pointerdown", () => {
+    button.closest<HTMLElement>(".ldu-topic-toolbar")?.classList.add("is-pointer-focused");
+  });
   button.addEventListener("click", () => {
     const tabId = item.dataset.tabId;
     const state = tabStripStates.get(root);
     if (tabId && state) state.callbacks.onActivate(tabId);
   });
   button.addEventListener("keydown", (event) => {
+    button.closest<HTMLElement>(".ldu-topic-toolbar")?.classList.remove("is-pointer-focused");
     const tabId = item.dataset.tabId;
     const state = tabStripStates.get(root);
     if (!tabId || !state) return;

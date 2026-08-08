@@ -239,6 +239,7 @@ export class LayoutController {
         <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "第二阅读区" : "主阅读区"}已打开的帖子"></div>
         <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("list", 16)}<span class="ldu-vertical-tabs-heading-label">帖子标签</span></span></div>
       </div>
+      <span class="ldu-vertical-tabs-edge-hit" aria-hidden="true"></span>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">从列表中选择帖子</div>
       </div>

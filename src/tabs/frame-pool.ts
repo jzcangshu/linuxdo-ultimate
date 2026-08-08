@@ -278,6 +278,13 @@ export class TopicFramePool {
   private restoreScroll(record: FrameRecord): void {
     const target = record.restoreScrollY;
     if (target <= 0 || !record.iframe.contentWindow) return;
+    // A delayed retry can outlive a jsdom/document teardown. In a real page
+    // this also protects navigation cleanup from touching a dead window.
+    if (typeof window === "undefined") {
+      record.restoreTimer = null;
+      record.restoreDeadline = 0;
+      return;
+    }
     if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
     if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
     record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });

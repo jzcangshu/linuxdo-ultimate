@@ -24,7 +24,7 @@
 3. 选择项目中的 `dist/extension` 目录。
 4. 刷新 Linux Do，点击顶部导航栏中的齿轮按钮进行设置。
 
-正式发布包为 `dist/linuxdo-ultimate-v0.5.0-chrome.zip`，解压后按同样方式加载其目录。
+正式发布包为 `dist/linuxdo-ultimate-v0.5.1-chrome.zip`，解压后按同样方式加载其目录。
 
 ### Firefox（火狐浏览器）
 
@@ -32,7 +32,7 @@
 2. 点击“临时载入附加组件”，选择项目中 `dist/extension-firefox/manifest.json`。
 3. 刷新 Linux Do，点击顶部导航栏中的齿轮按钮进行设置。
 
-正式发布包为 `dist/linuxdo-ultimate-v0.5.0-firefox.zip`，要求 Firefox 140 或更高版本。Chrome 与 Firefox 共用同一套业务源码，只在浏览器清单和构建目标上保留必要差异。
+正式发布包为 `dist/linuxdo-ultimate-v0.5.1-firefox.zip`，要求 Firefox 140 或更高版本。Chrome 与 Firefox 共用同一套业务源码，只在浏览器清单和构建目标上保留必要差异。
 
 扩展在浏览器管理页中统一显示为 `Linux Do Ultimate`，并使用 Linux Do 官方圆形 Logo。安装插件前必须关闭旧版 Linux Do Ultimate 用户脚本，二者同时运行会重复创建界面和拦截链接。若已安装其他链接预览或页面布局脚本，也建议关闭它们在 `linux.do` 上的运行权限。
 

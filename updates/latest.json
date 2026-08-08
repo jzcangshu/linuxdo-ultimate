@@ -1,12 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publishedAt": "2026-08-08",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.5.0",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.5.1",
   "changelog": [
-    "新增可自动收起和覆盖展开的垂直帖子标签栏。",
-    "垂直标签可按内置主分类自动分组，并完整适配单双阅读区与两种详情页位置。",
-    "横向和垂直标签统一支持鼠标中键关闭。",
-    "侧栏展开只使用局部合成动画，不改变正文页面尺寸和滚动位置。"
+    "垂直标签栏根据阅读区位置自动贴靠外侧，并调整标题对齐。",
+    "鼠标滑到阅读区实际边界即可触发展开。",
+    "修复点击标签后焦点残留导致侧栏无法自动收起。"
   ]
 }

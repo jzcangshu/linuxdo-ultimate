@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.5.0
+// @version      0.5.1
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -928,6 +928,11 @@
     restoreScroll(record) {
       const target = record.restoreScrollY;
       if (target <= 0 || !record.iframe.contentWindow) return;
+      if (typeof window === "undefined") {
+        record.restoreTimer = null;
+        record.restoreDeadline = 0;
+        return;
+      }
       if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
       if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
       record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
@@ -1373,12 +1378,16 @@
     const label = document.createElement("span");
     label.className = "ldu-tab-title";
     button.append(glyph, label);
+    button.addEventListener("pointerdown", () => {
+      button.closest(".ldu-topic-toolbar")?.classList.add("is-pointer-focused");
+    });
     button.addEventListener("click", () => {
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
       if (tabId && state) state.callbacks.onActivate(tabId);
     });
     button.addEventListener("keydown", (event) => {
+      button.closest(".ldu-topic-toolbar")?.classList.remove("is-pointer-focused");
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
       if (!tabId || !state) return;
@@ -1880,6 +1889,31 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   transition-delay: 180ms;
 }
 
+/* Keep the rail on the side nearest the list: three-pane reading is in the
+   middle, while two-pane reading is on the right. The transparent edge hit
+   target makes the collapsed rail discoverable at the actual pane boundary. */
+body.ldu-tabs-vertical .ldu-vertical-tabs-edge-hit {
+  position: absolute;
+  z-index: 5;
+  inset-block: 0;
+  left: 0;
+  display: block;
+  width: 12px;
+  pointer-events: auto;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-edge-hit {
+  right: 0;
+  left: auto;
+}
+
+body.ldu-tabs-vertical .ldu-vertical-tabs-edge-hit:hover ~ .ldu-topic-toolbar,
+body.ldu-tabs-vertical .ldu-topic-panel:has(.ldu-vertical-tabs-edge-hit:hover) .ldu-topic-toolbar,
+body.ldu-tabs-vertical #ldu-secondary-topic-panel:has(.ldu-vertical-tabs-edge-hit:hover) .ldu-topic-toolbar {
+  clip-path: inset(0);
+  transition-delay: 0ms;
+}
+
 body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
 body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
 body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
@@ -1902,6 +1936,37 @@ body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
 body.ldu-tabs-vertical .ldu-topic-content {
   grid-column: 2;
   grid-row: 1;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
+  grid-template-columns: minmax(0, 1fr) var(--ldu-vertical-tabs-collapsed);
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
+  grid-column: 2;
+  border-right: 0;
+  border-left: 1px solid var(--ldu-border);
+  clip-path: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-content {
+  grid-column: 1;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-actions {
+  justify-content: flex-end;
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading {
+  justify-content: flex-end;
+  padding-right: 7px;
+  padding-left: 0;
+}
+
+body.ldu-tabs-vertical .ldu-tab-title,
+body.ldu-tabs-vertical .ldu-tab-group-label {
+  text-align: start;
 }
 
 body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
@@ -1988,10 +2053,10 @@ body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
   }
 }
 
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
   visibility: hidden;
 }
 
@@ -2896,6 +2961,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "\u7B2C\u4E8C\u9605\u8BFB\u533A" : "\u4E3B\u9605\u8BFB\u533A"}\u5DF2\u6253\u5F00\u7684\u5E16\u5B50"></div>
         <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("list", 16)}<span class="ldu-vertical-tabs-heading-label">\u5E16\u5B50\u6807\u7B7E</span></span></div>
       </div>
+      <span class="ldu-vertical-tabs-edge-hit" aria-hidden="true"></span>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">\u4ECE\u5217\u8868\u4E2D\u9009\u62E9\u5E16\u5B50</div>
       </div>

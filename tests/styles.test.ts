@@ -87,6 +87,8 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-row\s*\{[^}]+padding:\s*10px 0/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-dependent-row\[hidden\]\s*\{\s*display:\s*none/s);
     expect(APP_STYLES).toMatch(/\.ldu-brand-ultimate\s*\{[^}]+color:\s*#ffd43b/s);
+    expect(APP_STYLES).toMatch(/\.ldu-update-available[^}]+border-color:\s*#ffd43b/s);
+    expect(APP_STYLES).toContain("@keyframes ldu-update-pulse");
     expect(APP_STYLES).not.toContain("width: min(600px");
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel\s*\{[^}]+max-height:/s);
     expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel \.dc-body\s*\{[^}]+overflow(?:-y)?:/s);

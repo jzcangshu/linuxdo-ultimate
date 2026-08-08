@@ -1,16 +1,19 @@
 import type { Settings } from "../core/types";
 import { DEFAULT_SETTINGS } from "../core/defaults";
 import { iconSvg, setIcon } from "./icons";
+import type { UpdateResult } from "../core/update-checker";
 
 type SettingsPatch = Partial<Omit<Settings, "schemaVersion">>;
 
 interface SettingsPanelCallbacks {
   onChange: (patch: SettingsPatch) => void;
+  onCheckUpdates?: () => void | Promise<void>;
 }
 
 export class SettingsPanel {
   private panel: HTMLElement | null = null;
   private toggleButton: HTMLButtonElement | null = null;
+  private updateStatusTimer: number | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -131,6 +134,13 @@ export class SettingsPanel {
         <footer class="dc-footer ldu-settings-footer">
           <button type="button" class="dc-btn dc-btn-ghost ldu-settings-reset">恢复默认设置</button>
           <div class="dc-footer-right ldu-settings-actions">
+            <div class="ldu-update-wrap">
+              <button type="button" class="dc-btn ldu-settings-action ldu-settings-update" aria-expanded="false" aria-controls="ldu-update-menu">${iconSvg("refresh", 14)}检查更新</button>
+              <div class="dc-dropdown-menu ldu-update-menu" id="ldu-update-menu" role="status" aria-live="polite" hidden>
+                <div class="ldu-update-summary"></div>
+                <a class="dc-dropdown-item ldu-update-link" href="#" target="_blank" rel="noopener noreferrer">前往下载</a>
+              </div>
+            </div>
             <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer">${iconSvg("github", 14)}Github</a>
             <div class="ldu-donate-wrap">
               <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">${iconSvg("gift", 14)}LDC 捐赠</button>
@@ -165,8 +175,14 @@ export class SettingsPanel {
       const menu = panel.querySelector<HTMLElement>(".ldu-donate-menu");
       this.setDonationMenuOpen(Boolean(menu?.hidden));
     });
+    panel.querySelector<HTMLButtonElement>(".ldu-settings-update")?.addEventListener("click", () => {
+      void this.callbacks.onCheckUpdates?.();
+    });
     panel.querySelectorAll<HTMLAnchorElement>(".ldu-donate-menu a").forEach((link) => {
       link.addEventListener("click", () => this.setDonationMenuOpen(false));
+    });
+    panel.querySelector<HTMLAnchorElement>(".ldu-update-link")?.addEventListener("click", () => {
+      this.setUpdateMenuOpen(false);
     });
     document.addEventListener("pointerdown", (event) => {
       if (!this.panel?.hidden && !this.host.contains(event.target as Node)) this.setPanelOpen(false);
@@ -176,6 +192,8 @@ export class SettingsPanel {
       const menu = this.panel?.querySelector<HTMLElement>(".ldu-donate-menu");
       if (menu && !menu.hidden) {
         this.setDonationMenuOpen(false);
+      } else if (this.panel?.querySelector<HTMLElement>(".ldu-update-menu")?.hidden === false) {
+        this.setUpdateMenuOpen(false);
       } else if (this.panel && !this.panel.hidden) {
         this.setPanelOpen(false);
         this.toggleButton?.focus({ preventScroll: true });
@@ -186,6 +204,51 @@ export class SettingsPanel {
   setSettings(settings: Settings): void {
     this.settings = settings;
     this.sync();
+  }
+
+  setUpdateState(result: UpdateResult, showDetails = false): void {
+    const button = this.panel?.querySelector<HTMLButtonElement>(".ldu-settings-update");
+    const menu = this.panel?.querySelector<HTMLElement>(".ldu-update-menu");
+    const summary = this.panel?.querySelector<HTMLElement>(".ldu-update-summary");
+    const link = this.panel?.querySelector<HTMLAnchorElement>(".ldu-update-link");
+    if (!button || !menu || !summary || !link) return;
+    if (this.updateStatusTimer !== null) window.clearTimeout(this.updateStatusTimer);
+    button.disabled = result.status === "checking";
+    const hasUpdate = result.status === "available";
+    button.classList.toggle("ldu-update-available", hasUpdate);
+    this.toggleButton?.classList.toggle("ldu-update-available", hasUpdate);
+    if (result.status === "checking") {
+      this.setUpdateButton(button, "检查中...");
+      button.title = "正在检查更新";
+      this.setUpdateMenuOpen(false);
+      return;
+    }
+    if (result.status === "available") {
+      this.setUpdateButton(button, `发现 v${result.manifest.version}`);
+      button.title = `发现新版本 v${result.manifest.version}`;
+      summary.textContent = `发现新版本 v${result.manifest.version}`;
+      const list = document.createElement("ul");
+      result.manifest.changelog.forEach((item) => {
+        const entry = document.createElement("li");
+        entry.textContent = item;
+        list.append(entry);
+      });
+      summary.append(list);
+      link.href = result.manifest.releaseUrl;
+      this.setUpdateMenuOpen(showDetails);
+      return;
+    }
+    this.setUpdateButton(button, result.status === "current" ? "已是最新版" : "检查失败");
+    button.title = result.status === "error" ? result.message : "当前已是最新版本";
+    this.setUpdateMenuOpen(false);
+    this.updateStatusTimer = window.setTimeout(() => {
+      this.setUpdateButton(button, "检查更新");
+      button.title = "检查更新";
+    }, 2_500);
+  }
+
+  private setUpdateButton(button: HTMLButtonElement, label: string): void {
+    button.innerHTML = `${iconSvg("refresh", 14)}${label}`;
   }
 
   private sync(): void {
@@ -256,7 +319,10 @@ export class SettingsPanel {
     if (!this.panel) return;
     this.panel.hidden = !open;
     this.toggleButton?.setAttribute("aria-expanded", String(open));
-    if (!open) this.setDonationMenuOpen(false);
+    if (!open) {
+      this.setDonationMenuOpen(false);
+      this.setUpdateMenuOpen(false);
+    }
   }
 
   private setDonationMenuOpen(open: boolean): void {
@@ -264,5 +330,19 @@ export class SettingsPanel {
     const button = this.panel?.querySelector<HTMLButtonElement>(".ldu-settings-donate");
     if (menu) menu.hidden = !open;
     button?.setAttribute("aria-expanded", String(open));
+    if (open) this.setUpdateMenuOpen(false);
+  }
+
+  private setUpdateMenuOpen(open: boolean): void {
+    const menu = this.panel?.querySelector<HTMLElement>(".ldu-update-menu");
+    const button = this.panel?.querySelector<HTMLButtonElement>(".ldu-settings-update");
+    if (menu) menu.hidden = !open;
+    button?.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const donationMenu = this.panel?.querySelector<HTMLElement>(".ldu-donate-menu");
+      const donationButton = this.panel?.querySelector<HTMLButtonElement>(".ldu-settings-donate");
+      if (donationMenu) donationMenu.hidden = true;
+      donationButton?.setAttribute("aria-expanded", "false");
+    }
   }
 }

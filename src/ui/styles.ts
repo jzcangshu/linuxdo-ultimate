@@ -603,10 +603,25 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
 .ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
+.ldu-settings-panel .ldu-update-available,
+.ldu-settings-host .ldu-update-available { border-color: #ffd43b; animation: ldu-update-pulse 1.6s ease-in-out infinite; }
+@keyframes ldu-update-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 212 59 / 0%); }
+  50% { box-shadow: 0 0 0 4px rgb(255 212 59 / 36%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ldu-settings-panel .ldu-update-available,
+  .ldu-settings-host .ldu-update-available { animation: none; box-shadow: 0 0 0 3px rgb(255 212 59 / 32%); }
+}
 .ldu-settings-panel .dc-btn:hover { border-color: var(--primary-medium, #777); background: var(--primary-low, #2a2d32); }
 .ldu-settings-panel .dc-btn-ghost { border-color: transparent; background: transparent; color: var(--primary-medium, #8b949e); }
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
+.ldu-settings-panel .ldu-update-wrap { position: relative; }
+.ldu-settings-panel .ldu-update-menu { right: 0; min-width: 250px; max-width: min(360px, 80vw); padding: 10px; }
+.ldu-settings-panel .ldu-update-summary { color: var(--ldu-text); font-size: var(--font-down-2, .75rem); line-height: 1.45; }
+.ldu-settings-panel .ldu-update-summary ul { margin: 6px 0 8px; padding-left: 18px; text-align: left; }
+.ldu-settings-panel .ldu-update-link { background: var(--ldu-accent); color: #fff; text-align: center; }
 .ldu-settings-panel .ldu-donate-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; display: flex; min-width: 100px; flex-direction: column; padding: 4px; border: 1px solid var(--ldu-border); border-radius: 4px; background: var(--ldu-surface-muted); box-shadow: 0 6px 18px rgb(0 0 0 / 50%); }
 .ldu-settings-panel .dc-dropdown-menu[hidden] { display: none; }

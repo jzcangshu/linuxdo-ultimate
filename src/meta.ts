@@ -12,6 +12,7 @@ export const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
+// @grant        GM_info
 // @connect      *
 // @run-at       document-start
 // ==/UserScript==`;

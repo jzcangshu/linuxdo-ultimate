@@ -29,8 +29,12 @@ pnpm package:extension
 | `src/frame-bridge.ts` | 内嵌帖子页与顶层页面之间的事件桥 |
 | `src/credit` | 顶部 LDC 收入组件和数据请求 |
 | `src/extension` | Manifest V3 插件入口、跨域请求协议和用户脚本接口兼容层 |
+| `src/core/update-checker.ts` | 版本比较、更新清单校验、低频缓存与手动检查 |
+| `updates/latest.json` | 当前正式版本、发布时间、发行页和结构化更新摘要 |
 
 插件运行时保持现有业务模块不变。`host.ts` 只在顶层调用 `startLinuxDoApp`；`bridge.ts` 只调用 `bootFrameBridge`；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心重新静态导入 host 或 bridge。
+
+更新检查复用同一个后台请求兼容层，但不调用 GitHub API。顶层应用启动 20 秒后，仅在页面可见时读取仓库 `main` 分支中的 `updates/latest.json`；成功结果按当前插件版本缓存 24 小时，失败尝试在 1 小时内不自动重复。手动检查添加时间参数绕过缓存。发布时必须同步更新 `package.json`、`updates/latest.json`、更新日志和正式 Release；清单只允许指向本仓库对应版本的 GitHub Release 地址。
 
 模块原则是让 Discourse（论坛系统）继续负责帖子正文、回复、投票、反应和时间线，脚本只负责页面编排与状态协调，不复制论坛业务逻辑。
 

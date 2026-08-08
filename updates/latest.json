@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "version": "0.4.2",
+  "publishedAt": "2026-08-08",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.4.2",
+  "changelog": [
+    "设置页新增检查更新入口。",
+    "检测到新版本时，设置入口与检查更新按钮显示亮黄色呼吸提醒。",
+    "更新检查采用低频缓存策略，不影响分屏阅读和预览功能。"
+  ]
+}

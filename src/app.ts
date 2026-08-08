@@ -31,6 +31,7 @@ import { TabContextMenu } from "./ui/tab-context-menu";
 import { setIcon } from "./ui/icons";
 import { PreviewController, type PreviewLoader } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
+import { UpdateChecker } from "./core/update-checker";
 
 const ROUTE_DEBOUNCE_MS = 100;
 const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
@@ -78,6 +79,8 @@ class LinuxDoApp {
   private sessionMaintenanceTimer: number | null = null;
   private tabContextMenu!: TabContextMenu;
   private listHandoffTimer: number | null = null;
+  private readonly updateChecker = new UpdateChecker(this.storage);
+  private updateCheckTimer: number | null = null;
 
   constructor(private readonly options: LinuxDoAppOptions) {}
 
@@ -472,8 +475,27 @@ class LinuxDoApp {
     this.ensureSettingsHost();
     this.settingsPanel = new SettingsPanel(host, this.settings, {
       onChange: (patch) => this.applySettings(patch),
+      onCheckUpdates: () => this.checkForUpdates(true),
     });
     this.settingsPanel.mount();
+    this.updateCheckTimer = window.setTimeout(() => {
+      this.updateCheckTimer = null;
+      if (document.visibilityState === "visible") {
+        void this.checkForUpdates(false);
+        return;
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") void this.checkForUpdates(false);
+      }, { once: true });
+    }, 20_000);
+  }
+
+  private async checkForUpdates(force: boolean): Promise<void> {
+    if (force) this.settingsPanel?.setUpdateState({ status: "checking" });
+    const result = await this.updateChecker.check(force);
+    if (force || result.status === "available") {
+      this.settingsPanel?.setUpdateState(result, force && result.status === "available");
+    }
   }
 
   private ensureSettingsHost(): void {
@@ -889,8 +911,10 @@ class LinuxDoApp {
     }
     if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
     if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+    if (this.updateCheckTimer !== null) window.clearTimeout(this.updateCheckTimer);
     this.leaseTimer = null;
     this.sessionMaintenanceTimer = null;
+    this.updateCheckTimer = null;
     releaseSessionLease(this.storage, this.sessionLease);
   }
 

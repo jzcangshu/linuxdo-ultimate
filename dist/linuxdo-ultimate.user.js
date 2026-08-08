@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.4.1
+// @version      0.4.2
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
 // @author       Linux.do Community
@@ -12,6 +12,7 @@
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
+// @grant        GM_info
 // @connect      *
 // @run-at       document-start
 // ==/UserScript==
@@ -2141,10 +2142,25 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
 .ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
+.ldu-settings-panel .ldu-update-available,
+.ldu-settings-host .ldu-update-available { border-color: #ffd43b; animation: ldu-update-pulse 1.6s ease-in-out infinite; }
+@keyframes ldu-update-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 212 59 / 0%); }
+  50% { box-shadow: 0 0 0 4px rgb(255 212 59 / 36%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ldu-settings-panel .ldu-update-available,
+  .ldu-settings-host .ldu-update-available { animation: none; box-shadow: 0 0 0 3px rgb(255 212 59 / 32%); }
+}
 .ldu-settings-panel .dc-btn:hover { border-color: var(--primary-medium, #777); background: var(--primary-low, #2a2d32); }
 .ldu-settings-panel .dc-btn-ghost { border-color: transparent; background: transparent; color: var(--primary-medium, #8b949e); }
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
+.ldu-settings-panel .ldu-update-wrap { position: relative; }
+.ldu-settings-panel .ldu-update-menu { right: 0; min-width: 250px; max-width: min(360px, 80vw); padding: 10px; }
+.ldu-settings-panel .ldu-update-summary { color: var(--ldu-text); font-size: var(--font-down-2, .75rem); line-height: 1.45; }
+.ldu-settings-panel .ldu-update-summary ul { margin: 6px 0 8px; padding-left: 18px; text-align: left; }
+.ldu-settings-panel .ldu-update-link { background: var(--ldu-accent); color: #fff; text-align: center; }
 .ldu-settings-panel .ldu-donate-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; display: flex; min-width: 100px; flex-direction: column; padding: 4px; border: 1px solid var(--ldu-border); border-radius: 4px; background: var(--ldu-surface-muted); box-shadow: 0 6px 18px rgb(0 0 0 / 50%); }
 .ldu-settings-panel .dc-dropdown-menu[hidden] { display: none; }
@@ -2690,6 +2706,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     panel = null;
     toggleButton = null;
+    updateStatusTimer = null;
     mount() {
       if (this.panel) return;
       const button = document.createElement("button");
@@ -2802,6 +2819,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         <footer class="dc-footer ldu-settings-footer">
           <button type="button" class="dc-btn dc-btn-ghost ldu-settings-reset">\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E</button>
           <div class="dc-footer-right ldu-settings-actions">
+            <div class="ldu-update-wrap">
+              <button type="button" class="dc-btn ldu-settings-action ldu-settings-update" aria-expanded="false" aria-controls="ldu-update-menu">${iconSvg("refresh", 14)}\u68C0\u67E5\u66F4\u65B0</button>
+              <div class="dc-dropdown-menu ldu-update-menu" id="ldu-update-menu" role="status" aria-live="polite" hidden>
+                <div class="ldu-update-summary"></div>
+                <a class="dc-dropdown-item ldu-update-link" href="#" target="_blank" rel="noopener noreferrer">\u524D\u5F80\u4E0B\u8F7D</a>
+              </div>
+            </div>
             <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer">${iconSvg("github", 14)}Github</a>
             <div class="ldu-donate-wrap">
               <button type="button" class="dc-btn ldu-settings-action ldu-settings-donate" aria-expanded="false" aria-controls="ldu-donate-menu">${iconSvg("gift", 14)}LDC \u6350\u8D60</button>
@@ -2836,8 +2860,14 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         const menu = panel.querySelector(".ldu-donate-menu");
         this.setDonationMenuOpen(Boolean(menu?.hidden));
       });
+      panel.querySelector(".ldu-settings-update")?.addEventListener("click", () => {
+        void this.callbacks.onCheckUpdates?.();
+      });
       panel.querySelectorAll(".ldu-donate-menu a").forEach((link) => {
         link.addEventListener("click", () => this.setDonationMenuOpen(false));
+      });
+      panel.querySelector(".ldu-update-link")?.addEventListener("click", () => {
+        this.setUpdateMenuOpen(false);
       });
       document.addEventListener("pointerdown", (event) => {
         if (!this.panel?.hidden && !this.host.contains(event.target)) this.setPanelOpen(false);
@@ -2847,6 +2877,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         const menu = this.panel?.querySelector(".ldu-donate-menu");
         if (menu && !menu.hidden) {
           this.setDonationMenuOpen(false);
+        } else if (this.panel?.querySelector(".ldu-update-menu")?.hidden === false) {
+          this.setUpdateMenuOpen(false);
         } else if (this.panel && !this.panel.hidden) {
           this.setPanelOpen(false);
           this.toggleButton?.focus({ preventScroll: true });
@@ -2856,6 +2888,49 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     setSettings(settings) {
       this.settings = settings;
       this.sync();
+    }
+    setUpdateState(result, showDetails = false) {
+      const button = this.panel?.querySelector(".ldu-settings-update");
+      const menu = this.panel?.querySelector(".ldu-update-menu");
+      const summary = this.panel?.querySelector(".ldu-update-summary");
+      const link = this.panel?.querySelector(".ldu-update-link");
+      if (!button || !menu || !summary || !link) return;
+      if (this.updateStatusTimer !== null) window.clearTimeout(this.updateStatusTimer);
+      button.disabled = result.status === "checking";
+      const hasUpdate = result.status === "available";
+      button.classList.toggle("ldu-update-available", hasUpdate);
+      this.toggleButton?.classList.toggle("ldu-update-available", hasUpdate);
+      if (result.status === "checking") {
+        this.setUpdateButton(button, "\u68C0\u67E5\u4E2D...");
+        button.title = "\u6B63\u5728\u68C0\u67E5\u66F4\u65B0";
+        this.setUpdateMenuOpen(false);
+        return;
+      }
+      if (result.status === "available") {
+        this.setUpdateButton(button, `\u53D1\u73B0 v${result.manifest.version}`);
+        button.title = `\u53D1\u73B0\u65B0\u7248\u672C v${result.manifest.version}`;
+        summary.textContent = `\u53D1\u73B0\u65B0\u7248\u672C v${result.manifest.version}`;
+        const list = document.createElement("ul");
+        result.manifest.changelog.forEach((item) => {
+          const entry = document.createElement("li");
+          entry.textContent = item;
+          list.append(entry);
+        });
+        summary.append(list);
+        link.href = result.manifest.releaseUrl;
+        this.setUpdateMenuOpen(showDetails);
+        return;
+      }
+      this.setUpdateButton(button, result.status === "current" ? "\u5DF2\u662F\u6700\u65B0\u7248" : "\u68C0\u67E5\u5931\u8D25");
+      button.title = result.status === "error" ? result.message : "\u5F53\u524D\u5DF2\u662F\u6700\u65B0\u7248\u672C";
+      this.setUpdateMenuOpen(false);
+      this.updateStatusTimer = window.setTimeout(() => {
+        this.setUpdateButton(button, "\u68C0\u67E5\u66F4\u65B0");
+        button.title = "\u68C0\u67E5\u66F4\u65B0";
+      }, 2500);
+    }
+    setUpdateButton(button, label) {
+      button.innerHTML = `${iconSvg("refresh", 14)}${label}`;
     }
     sync() {
       if (!this.panel) return;
@@ -2920,13 +2995,29 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (!this.panel) return;
       this.panel.hidden = !open;
       this.toggleButton?.setAttribute("aria-expanded", String(open));
-      if (!open) this.setDonationMenuOpen(false);
+      if (!open) {
+        this.setDonationMenuOpen(false);
+        this.setUpdateMenuOpen(false);
+      }
     }
     setDonationMenuOpen(open) {
       const menu = this.panel?.querySelector(".ldu-donate-menu");
       const button = this.panel?.querySelector(".ldu-settings-donate");
       if (menu) menu.hidden = !open;
       button?.setAttribute("aria-expanded", String(open));
+      if (open) this.setUpdateMenuOpen(false);
+    }
+    setUpdateMenuOpen(open) {
+      const menu = this.panel?.querySelector(".ldu-update-menu");
+      const button = this.panel?.querySelector(".ldu-settings-update");
+      if (menu) menu.hidden = !open;
+      button?.setAttribute("aria-expanded", String(open));
+      if (open) {
+        const donationMenu = this.panel?.querySelector(".ldu-donate-menu");
+        const donationButton = this.panel?.querySelector(".ldu-settings-donate");
+        if (donationMenu) donationMenu.hidden = true;
+        donationButton?.setAttribute("aria-expanded", "false");
+      }
     }
   };
 
@@ -3391,6 +3482,121 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
   };
 
+  // src/core/update-checker.ts
+  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/jzcangshu/linuxdo-ultimate/main/updates/latest.json";
+  var UPDATE_CACHE_KEY = "linuxdo-ultimate:update-cache";
+  var UPDATE_ATTEMPT_KEY = "linuxdo-ultimate:update-attempt";
+  var UPDATE_CACHE_TTL_MS = 24 * 60 * 6e4;
+  var UPDATE_FAILURE_COOLDOWN_MS = 60 * 6e4;
+  function compareVersions(left, right) {
+    const parse = (value) => {
+      const match = value.trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+      if (!match) return null;
+      return [Number(match[1]), Number(match[2]), Number(match[3])];
+    };
+    const a = parse(left);
+    const b = parse(right);
+    if (!a || !b) return 0;
+    for (let index = 0; index < a.length; index += 1) {
+      const leftPart = a[index] ?? 0;
+      const rightPart = b[index] ?? 0;
+      if (leftPart !== rightPart) return leftPart > rightPart ? 1 : -1;
+    }
+    return 0;
+  }
+  function validateUpdateManifest(value) {
+    if (!value || typeof value !== "object") throw new Error("\u66F4\u65B0\u6E05\u5355\u683C\u5F0F\u65E0\u6548");
+    const source = value;
+    const version = typeof source.version === "string" ? source.version : "";
+    const publishedAt = typeof source.publishedAt === "string" ? source.publishedAt : "";
+    const releaseUrl = typeof source.releaseUrl === "string" ? source.releaseUrl : "";
+    const changelog = Array.isArray(source.changelog) ? source.changelog.filter((item) => typeof item === "string").slice(0, 8) : [];
+    if (source.schemaVersion !== 1 || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version) || !publishedAt || changelog.length === 0) {
+      throw new Error("\u66F4\u65B0\u6E05\u5355\u5185\u5BB9\u4E0D\u5B8C\u6574");
+    }
+    const parsedUrl = new URL(releaseUrl);
+    if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "github.com" || parsedUrl.pathname !== "/jzcangshu/linuxdo-ultimate/releases/tag/v" + version.replace(/^v/i, "")) {
+      throw new Error("\u66F4\u65B0\u6E05\u5355\u53D1\u5E03\u5730\u5740\u65E0\u6548");
+    }
+    return { schemaVersion: 1, version, publishedAt, releaseUrl, changelog };
+  }
+  function defaultRequest(options) {
+    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest(options);
+    let aborted = false;
+    void fetch(options.url, { headers: options.headers, signal: AbortSignal.timeout(options.timeout) }).then(async (response) => {
+      if (!aborted) options.onload({ status: response.status, responseText: await response.text() });
+    }).catch((error) => {
+      if (!aborted) options.onerror(error);
+    });
+    return { abort: () => {
+      aborted = true;
+    } };
+  }
+  function getCurrentVersion() {
+    try {
+      if (typeof chrome !== "undefined") {
+        const version = chrome.runtime?.getManifest?.().version;
+        if (version) return version;
+      }
+    } catch {
+    }
+    try {
+      if (typeof GM_info !== "undefined" && GM_info.script.version) return GM_info.script.version;
+    } catch {
+    }
+    return "0.0.0";
+  }
+  var UpdateChecker = class {
+    constructor(storage, request = defaultRequest, currentVersion = getCurrentVersion()) {
+      this.storage = storage;
+      this.request = request;
+      this.currentVersion = currentVersion;
+    }
+    async check(force = false) {
+      const now = Date.now();
+      const cached = await Promise.resolve(this.storage.get(UPDATE_CACHE_KEY, null));
+      if (!force && cached?.checkedByVersion === this.currentVersion && now - cached.checkedAt < UPDATE_CACHE_TTL_MS) {
+        return this.compare(cached.manifest);
+      }
+      const lastAttempt = await Promise.resolve(this.storage.get(UPDATE_ATTEMPT_KEY, 0));
+      if (!force && lastAttempt > 0 && now - lastAttempt < UPDATE_FAILURE_COOLDOWN_MS) {
+        return cached ? this.compare(cached.manifest) : { status: "current", version: this.currentVersion };
+      }
+      this.storage.set(UPDATE_ATTEMPT_KEY, now);
+      return new Promise((resolve) => {
+        const finishError = (message) => resolve({ status: "error", message });
+        this.request({
+          method: "GET",
+          url: force ? `${UPDATE_MANIFEST_URL}?t=${now}` : UPDATE_MANIFEST_URL,
+          headers: { Accept: "application/json" },
+          timeout: 1e4,
+          onload: (response) => {
+            if (response.status < 200 || response.status >= 300) {
+              finishError(`HTTP ${response.status}`);
+              return;
+            }
+            try {
+              const manifest = validateUpdateManifest(JSON.parse(response.responseText));
+              this.storage.set(UPDATE_CACHE_KEY, {
+                checkedAt: now,
+                checkedByVersion: this.currentVersion,
+                manifest
+              });
+              resolve(this.compare(manifest));
+            } catch (error) {
+              finishError(error instanceof Error ? error.message : "\u66F4\u65B0\u6E05\u5355\u89E3\u6790\u5931\u8D25");
+            }
+          },
+          onerror: () => finishError("\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25"),
+          ontimeout: () => finishError("\u8BF7\u6C42\u8D85\u65F6")
+        });
+      });
+    }
+    compare(manifest) {
+      return compareVersions(manifest.version, this.currentVersion) > 0 ? { status: "available", manifest } : { status: "current", version: this.currentVersion };
+    }
+  };
+
   // src/app.ts
   var ROUTE_DEBOUNCE_MS = 100;
   var SESSION_MAINTENANCE_INTERVAL_MS = 30 * 6e4;
@@ -3435,6 +3641,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     sessionMaintenanceTimer = null;
     tabContextMenu;
     listHandoffTimer = null;
+    updateChecker = new UpdateChecker(this.storage);
+    updateCheckTimer = null;
     start() {
       this.settings = loadSettings(this.storage);
       ensureAppStyles();
@@ -3801,9 +4009,27 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.settingsHost = host;
       this.ensureSettingsHost();
       this.settingsPanel = new SettingsPanel(host, this.settings, {
-        onChange: (patch) => this.applySettings(patch)
+        onChange: (patch) => this.applySettings(patch),
+        onCheckUpdates: () => this.checkForUpdates(true)
       });
       this.settingsPanel.mount();
+      this.updateCheckTimer = window.setTimeout(() => {
+        this.updateCheckTimer = null;
+        if (document.visibilityState === "visible") {
+          void this.checkForUpdates(false);
+          return;
+        }
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") void this.checkForUpdates(false);
+        }, { once: true });
+      }, 2e4);
+    }
+    async checkForUpdates(force) {
+      if (force) this.settingsPanel?.setUpdateState({ status: "checking" });
+      const result = await this.updateChecker.check(force);
+      if (force || result.status === "available") {
+        this.settingsPanel?.setUpdateState(result, force && result.status === "available");
+      }
     }
     ensureSettingsHost() {
       if (!this.settingsHost) return;
@@ -4188,8 +4414,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       }
       if (this.leaseTimer !== null) window.clearInterval(this.leaseTimer);
       if (this.sessionMaintenanceTimer !== null) window.clearInterval(this.sessionMaintenanceTimer);
+      if (this.updateCheckTimer !== null) window.clearTimeout(this.updateCheckTimer);
       this.leaseTimer = null;
       this.sessionMaintenanceTimer = null;
+      this.updateCheckTimer = null;
       releaseSessionLease(this.storage, this.sessionLease);
     }
     schedulePersist() {

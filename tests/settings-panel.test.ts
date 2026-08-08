@@ -100,4 +100,37 @@ describe("settings panel", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(menu.hidden).toBe(true);
   });
+
+  it("checks for updates before the existing footer actions and highlights both entry points", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const onCheckUpdates = vi.fn();
+    const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange: vi.fn(), onCheckUpdates });
+    panel.mount();
+
+    const update = host.querySelector<HTMLButtonElement>(".ldu-settings-update")!;
+    const github = host.querySelector<HTMLElement>(".ldu-settings-github")!;
+    expect(update.compareDocumentPosition(github) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    update.click();
+    expect(onCheckUpdates).toHaveBeenCalledOnce();
+
+    panel.setUpdateState({
+      status: "available",
+      manifest: {
+        schemaVersion: 1,
+        version: "0.4.2",
+        publishedAt: "2026-08-08",
+        releaseUrl: "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.4.2",
+        changelog: ["新增检查更新。"],
+      },
+    }, true);
+    expect(update.classList).toContain("ldu-update-available");
+    expect(host.querySelector(".ldu-icon-button")?.classList).toContain("ldu-update-available");
+    expect(host.querySelector<HTMLElement>(".ldu-update-menu")?.hidden).toBe(false);
+    expect(host.querySelector(".ldu-update-summary")?.textContent).toContain("新增检查更新");
+
+    panel.setUpdateState({ status: "current", version: "0.4.2" });
+    expect(update.classList).not.toContain("ldu-update-available");
+    expect(host.querySelector(".ldu-icon-button")?.classList).not.toContain("ldu-update-available");
+  });
 });

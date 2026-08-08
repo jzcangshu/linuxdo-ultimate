@@ -31,6 +31,22 @@ describe("storage", () => {
     expect(settings.creditEnabled).toBe(true);
     expect(settings.restoreSession).toBe(false);
     expect(settings.colorizeTabs).toBe(true);
+    expect(settings.tabPresentation).toBe("horizontal");
+    expect(settings.verticalTabsAutoCollapse).toBe(true);
+    expect(settings.groupVerticalTabs).toBe(false);
+  });
+
+  it("normalizes vertical tab presentation without changing the settings schema", () => {
+    const settings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      tabPresentation: "vertical",
+      verticalTabsAutoCollapse: false,
+      groupVerticalTabs: true,
+    });
+    expect(settings.schemaVersion).toBe(2);
+    expect(settings.tabPresentation).toBe("vertical");
+    expect(settings.verticalTabsAutoCollapse).toBe(false);
+    expect(settings.groupVerticalTabs).toBe(true);
   });
 
   it("migrates legacy settings to opt-in restoration and an active internal runtime", () => {

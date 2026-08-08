@@ -59,4 +59,16 @@ describe("tab context menu", () => {
     expect(root.style.left).toBe("32px");
     expect(root.style.top).toBe("12px");
   });
+
+  it("reports which reading pane must stay expanded while the menu is open", () => {
+    const onOpenChange = vi.fn();
+    const menu = new TabContextMenu({
+      onMoveToSplit: vi.fn(), onOpenBrowserTab: vi.fn(), onReload: vi.fn(),
+      onCopyLink: vi.fn(), onBookmark: vi.fn(), onCloseOthers: vi.fn(), onOpenChange,
+    });
+    menu.open("topic-2", 20, 20, true, "secondary");
+    expect(onOpenChange).toHaveBeenCalledWith(true, "secondary");
+    menu.close();
+    expect(onOpenChange).toHaveBeenLastCalledWith(false, "secondary");
+  });
 });

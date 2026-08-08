@@ -48,6 +48,33 @@ describe("stable split shell", () => {
     expect(controller.getSecondaryPanelElement()?.hidden).toBe(true);
   });
 
+  it("switches both reading panels between horizontal and vertical tab presentation", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
+    document.body.innerHTML = '<div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"></main></div>';
+    const controller = new LayoutController({
+      preference: "two",
+      paneSizes: { sidebar: 216, listRatio: 0.35 },
+      hidePosters: true,
+      tabPresentation: "vertical",
+      verticalTabsAutoCollapse: true,
+    });
+    controller.setOpen(true);
+    controller.mount();
+    controller.setSecondaryOpen(true);
+    expect(document.body.classList).toContain("ldu-tabs-vertical");
+    expect(document.body.classList).not.toContain("ldu-vertical-tabs-static");
+
+    controller.setTabPresentation("vertical", false);
+    expect(document.body.classList).toContain("ldu-vertical-tabs-static");
+    controller.setTabInteractionLocked(true, "secondary");
+    expect(controller.getSecondaryPanelElement()?.querySelector(".ldu-topic-toolbar")?.classList).toContain("is-interaction-locked");
+
+    controller.setTabPresentation("horizontal", true);
+    expect(document.body.classList).not.toContain("ldu-tabs-vertical");
+    controller.destroy();
+    expect(document.body.classList).not.toContain("ldu-vertical-tabs-static");
+  });
+
   it("remembers independent pane ratios for single and dual reading layouts", () => {
     vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
     document.body.innerHTML = '<div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"></main></div>';

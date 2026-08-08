@@ -18,7 +18,12 @@ export const PRIMARY_CATEGORY_COLORS = [
   ["深海幽域", "rgb(69, 183, 209)"],
 ] as const;
 
-export function resolveFixedCategoryColor(title: string): string | null {
+export interface FixedPrimaryCategory {
+  name: typeof PRIMARY_CATEGORY_COLORS[number][0];
+  color: typeof PRIMARY_CATEGORY_COLORS[number][1];
+}
+
+export function resolveFixedPrimaryCategory(title: string): FixedPrimaryCategory | null {
   const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
   const separatorIndex = titleWithoutSite.lastIndexOf(" - ");
   const category = titleWithoutSite.slice(separatorIndex < 0 ? 0 : separatorIndex + 3).trim();
@@ -27,5 +32,9 @@ export function resolveFixedCategoryColor(title: string): string | null {
     || category.startsWith(`${name} /`)
     || category.startsWith(`${name},`)
   ));
-  return match?.[1] ?? null;
+  return match ? { name: match[0], color: match[1] } : null;
+}
+
+export function resolveFixedCategoryColor(title: string): string | null {
+  return resolveFixedPrimaryCategory(title)?.color ?? null;
 }

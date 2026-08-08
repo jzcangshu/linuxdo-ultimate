@@ -45,6 +45,14 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-tab-strip\.is-category-colors-enabled \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset 0 -3px/s);
   });
 
+  it("expands vertical tabs as an overlay without resizing the active iframe on hover", () => {
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical[^}]+#ldu-topic-panel[^{]*\{[^}]+grid-template-columns:\s*var\(--ldu-vertical-tabs-collapsed\)\s+minmax\(0,\s*1fr\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical \.ldu-topic-toolbar\s*\{[^}]+clip-path:\s*inset\(0 calc\(100% - var\(--ldu-vertical-tabs-collapsed\)\) 0 0\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical \.ldu-topic-content\s*\{[^}]+grid-column:\s*2/s);
+    expect(APP_STYLES).not.toMatch(/ldu-tabs-vertical \.ldu-topic-toolbar\s*\{[^}]+transition:[^;}]*width/s);
+    expect(APP_STYLES).toMatch(/prefers-reduced-motion:\s*reduce[^}]+ldu-topic-toolbar[^}]+transition-duration:\s*\.01ms/s);
+  });
+
   it("removes the sidebar grid track when Discourse collapses the sidebar", () => {
     expect(APP_STYLES).toMatch(/ldu-layout-three:not\(\.has-sidebar-page\)[^}]+grid-template-areas:\s*"topic list"/s);
     expect(APP_STYLES).toMatch(/ldu-layout-two:not\(\.has-sidebar-page\)[^}]+grid-template-areas:\s*"list topic"/s);

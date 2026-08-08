@@ -25,6 +25,7 @@ describe("settings panel", () => {
     expect(host.querySelector('[data-setting="restoreSession"]')?.closest("label")?.textContent).toContain("下次访问时恢复上次打开的帖子");
     expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.textContent).toContain("隐藏话题列表中的用户头像列");
     expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.textContent).toContain("按分类为帖子标签上色");
+    expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.textContent).toContain("帖子标签栏样式");
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.textContent).toContain("LDC 收入");
 
     const layoutRow = host.querySelector<HTMLElement>('[data-depends-on="tabsEnabled"]')!;
@@ -37,11 +38,16 @@ describe("settings panel", () => {
 
     const split = host.querySelector<HTMLInputElement>('[data-setting="tabsEnabled"]')!;
     const colorizeTabsRow = host.querySelector<HTMLElement>('[data-setting="colorizeTabs"]')!.closest("label")!;
+    const autoCollapseRow = host.querySelector<HTMLElement>('[data-setting="verticalTabsAutoCollapse"]')!.closest("label")!;
     expect(colorizeTabsRow.hidden).toBe(false);
+    expect(autoCollapseRow.hidden).toBe(true);
+    host.querySelector<HTMLButtonElement>('[data-pills-setting="tabPresentation"] [data-val="vertical"]')!.click();
+    expect(autoCollapseRow.hidden).toBe(false);
     split.checked = false;
     split.dispatchEvent(new Event("change", { bubbles: true }));
     expect(layoutRow.hidden).toBe(true);
     expect(colorizeTabsRow.hidden).toBe(true);
+    expect(autoCollapseRow.hidden).toBe(true);
 
     const preview = host.querySelector<HTMLInputElement>('[data-setting="previewEnabled"]')!;
     preview.checked = true;
@@ -73,7 +79,7 @@ describe("settings panel", () => {
     expect(host.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]')?.checked).toBe(true);
     expect(host.querySelector(".dc-modal")).not.toBeNull();
     expect(host.querySelector(".dc-item-desc.alert")?.textContent).toContain("运行目标网站脚本");
-    expect(host.querySelectorAll(".dc-label-box").length).toBe(9);
+    expect(host.querySelectorAll(".dc-label-box").length).toBe(12);
   });
 
   it("provides repository and three explicit LDC donation destinations", () => {

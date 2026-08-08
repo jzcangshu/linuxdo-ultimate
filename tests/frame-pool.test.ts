@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TopicTabState } from "../src/core/types";
 import { TopicFramePool } from "../src/tabs/frame-pool";
 
@@ -16,6 +16,14 @@ function tab(topicId: string, url = `/t/topic/${topicId}`): TopicTabState {
 }
 
 describe("topic frame pool", () => {
+  afterEach(() => {
+    // The scroll restoration retry intentionally schedules another attempt
+    // while a large topic is still expanding. Clear that pending attempt
+    // before Vitest tears down the jsdom window.
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   it("reuses a frame and navigates it for an explicit target change", () => {
     const host = document.createElement("div");
     const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());

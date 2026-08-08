@@ -130,6 +130,61 @@ describe("topic tab category colors", () => {
     expect(onActivate).not.toHaveBeenCalled();
   });
 
+  it("closes a tab with the middle mouse button in either presentation", () => {
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      const root = document.createElement("div");
+      const onClose = vi.fn();
+      renderTabStrip(root, [tab("帖子")], "topic-1", {
+        onActivate: vi.fn(), onClose,
+      }, { orientation });
+      const event = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+      root.querySelector(".ldu-tab-item")!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(onClose).toHaveBeenCalledWith("topic-1");
+    }
+  });
+
+  it("groups vertical tabs by fixed primary category without scanning the page", () => {
+    const root = document.createElement("div");
+    renderTabStrip(root, [
+      tab("开发帖 - 开发调优 - LINUX DO"),
+      { ...tab("闲聊帖 - 搞七捻三, Lv1 - LINUX DO"), id: "topic-2", topicId: "2" },
+      { ...tab("另一开发帖 - 开发调优 - LINUX DO"), id: "topic-3", topicId: "3" },
+      { ...tab("未知帖子"), id: "topic-4", topicId: "4" },
+    ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn() }, {
+      orientation: "vertical",
+      groupByCategory: true,
+    });
+    expect(root.classList).toContain("is-vertical");
+    expect([...root.querySelectorAll(".ldu-tab-group-label")].map((node) => node.textContent)).toEqual([
+      "开发调优 2", "搞七捻三 1", "其他 1",
+    ]);
+    expect([...root.children].map((node) => node instanceof HTMLElement ? node.dataset.tabId ?? node.dataset.groupKey : "")).toEqual([
+      "开发调优", "topic-1", "topic-3", "搞七捻三", "topic-2", "other", "topic-4",
+    ]);
+  });
+
+  it("uses vertical geometry and Y transforms while reordering vertical tabs", () => {
+    const root = document.createElement("div");
+    const onReorder = vi.fn();
+    renderTabStrip(root, [
+      tab("One"),
+      { ...tab("Two"), id: "topic-2", topicId: "2" },
+      { ...tab("Three"), id: "topic-3", topicId: "3" },
+    ], "topic-1", { onActivate: vi.fn(), onClose: vi.fn(), onReorder }, { orientation: "vertical" });
+    const items = [...root.querySelectorAll<HTMLElement>(".ldu-tab-item")];
+    items.forEach((item, index) => vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: index * 42, left: 0, top: index * 42, right: 220,
+      bottom: index * 42 + 38, width: 220, height: 38, toJSON: () => ({}),
+    }));
+    items[0]!.dispatchEvent(new MouseEvent("dragstart", { bubbles: true, cancelable: true, clientY: 20 }));
+    root.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientY: 120 }));
+    expect(items[1]!.style.transform).toBe("translate3d(0, -42px, 0)");
+    expect(items[2]!.style.transform).toBe("translate3d(0, -42px, 0)");
+    root.dispatchEvent(new MouseEvent("drop", { bubbles: true, cancelable: true, clientY: 120 }));
+    expect(onReorder).toHaveBeenCalledWith("topic-1", "topic-3", "after");
+  });
+
   it("commits one reorder only when a dragged tab is dropped", () => {
     const root = document.createElement("div");
     const onReorder = vi.fn();

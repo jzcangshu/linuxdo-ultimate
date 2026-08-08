@@ -101,6 +101,7 @@ class LinuxDoApp {
       onCopyLink: (tabId) => void this.copyTabLink(tabId),
       onBookmark: (tabId) => this.bookmarkTab(tabId),
       onCloseOthers: (tabId) => this.closeOtherTabs(tabId),
+      onOpenChange: (open, pane) => this.layout.setTabInteractionLocked(open, pane),
     });
     this.sessionLease = claimSessionId(
       this.storage,
@@ -133,6 +134,8 @@ class LinuxDoApp {
       paneSizes: this.session.paneSizes,
       dualPaneSizes: this.session.dualPaneSizes,
       hidePosters: this.settings.hidePosters,
+      tabPresentation: this.settings.tabPresentation,
+      verticalTabsAutoCollapse: this.settings.verticalTabsAutoCollapse,
       onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout),
     });
     this.mountSettings();
@@ -510,6 +513,7 @@ class LinuxDoApp {
     this.settings = normalizeSettings({ ...this.settings, ...patch });
     saveSettings(this.storage, this.settings);
     this.layout.setPreference(this.settings.layoutPreference);
+    this.layout.setTabPresentation(this.settings.tabPresentation, this.settings.verticalTabsAutoCollapse);
     this.layout.setHidePosters(this.settings.hidePosters);
     if (patch.paneSizes || patch.dualPaneSizes) {
       this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
@@ -540,7 +544,9 @@ class LinuxDoApp {
     if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
     if (patch.restoreSession === false) clearRestorableSessions(this.storage);
     if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
-    if (patch.colorizeTabs !== undefined) this.renderTabs();
+    if (patch.colorizeTabs !== undefined
+      || patch.tabPresentation !== undefined
+      || patch.groupVerticalTabs !== undefined) this.renderTabs();
     const canShowTabs = this.settings.enabled
       && this.settings.tabsEnabled
       && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
@@ -675,11 +681,15 @@ class LinuxDoApp {
         if (tab) this.activateFrame(tab, "primary");
       },
       onClose: (tabId) => this.closeTab(tabId, "primary"),
-      onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+      onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, false, "primary"),
       onReorder: (tabId, targetTabId, position) => {
         this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
       },
-    }, { colorizeTabs: this.settings.colorizeTabs });
+    }, {
+      colorizeTabs: this.settings.colorizeTabs,
+      orientation: this.settings.tabPresentation,
+      groupByCategory: this.settings.groupVerticalTabs,
+    });
     const secondaryRoot = this.layout.getSecondaryTabStripElement();
     if (secondaryRoot) {
       renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
@@ -688,11 +698,15 @@ class LinuxDoApp {
           if (tab) this.activateFrame(tab, "secondary");
         },
         onClose: (tabId) => this.closeTab(tabId, "secondary"),
-        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true, "secondary"),
         onReorder: (tabId, targetTabId, position) => {
           this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
         },
-      }, { colorizeTabs: this.settings.colorizeTabs });
+      }, {
+        colorizeTabs: this.settings.colorizeTabs,
+        orientation: this.settings.tabPresentation,
+        groupByCategory: this.settings.groupVerticalTabs,
+      });
     }
     const actions = this.layout.getActionsElement();
     if (actions && !actions.querySelector(".ldu-close-all")) {

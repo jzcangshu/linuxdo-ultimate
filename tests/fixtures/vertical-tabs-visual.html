@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linux Do Ultimate visual fixture</title>
+  <style>
+    :root {
+      --header-height: 52px;
+      --secondary: #ffffff;
+      --primary: #25272b;
+      --primary-low: #e7e9ed;
+      --primary-very-low: #f5f6f8;
+      --primary-medium: #70757d;
+      --tertiary: #0f82c5;
+      --danger: #d04437;
+      --font-family: Inter, "Segoe UI", sans-serif;
+      --font-0: 1rem;
+      --font-down-1: .875rem;
+      --font-down-2: .75rem;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; color: var(--primary); font-family: var(--font-family); }
+    .d-header { position: fixed; z-index: 20; inset: 0 0 auto; height: var(--header-height); border-bottom: 1px solid var(--primary-low); background: #202225; color: #fff; }
+    .d-header .wrap, .d-header .contents { display: flex; height: 100%; align-items: center; justify-content: space-between; }
+    .d-header .wrap { padding: 0 14px; }
+    .d-header-icons { display: flex; align-items: center; }
+    .fixture-logo { font-weight: 750; letter-spacing: 0; }
+    #main-outlet-wrapper { display: grid; min-height: calc(100vh - var(--header-height)); margin-top: var(--header-height); grid-template-columns: 216px 1fr; }
+    .sidebar-wrapper { padding: 14px 10px; border-right: 1px solid var(--primary-low); background: var(--primary-very-low); }
+    .sidebar-wrapper a { display: block; padding: 9px 10px; border-radius: 4px; color: inherit; text-decoration: none; }
+    #main-outlet { padding: 20px; }
+    .fixture-list { display: grid; gap: 8px; }
+    .fixture-topic { padding: 14px; border: 1px solid var(--primary-low); border-radius: 5px; background: var(--secondary); }
+    .fixture-topic strong { display: block; margin-bottom: 4px; }
+    .fixture-topic span { color: var(--primary-medium); font-size: var(--font-down-1); }
+    .topic-post { max-width: 760px; margin: 26px auto; padding: 24px; font-size: 16px; line-height: 1.75; }
+  </style>
+  <script>
+    window.__LDU_TEST_MODE__ = true;
+    const topicTitles = {
+      101: "高性能分屏阅读实践 - 开发调优 - LINUX DO",
+      102: "一个很长很长用于检查省略和关闭按钮对齐的帖子标题 - 搞七捻三, Lv1 - LINUX DO",
+      103: "社区资源整理索引 - 资源荟萃 - LINUX DO",
+      104: "暂时无法识别分类的普通主题 - LINUX DO"
+    };
+    const topicId = location.pathname.match(/^\/t\/topic\/(\d+)/)?.[1];
+    if (topicId) document.title = topicTitles[topicId] || `主题 ${topicId} - LINUX DO`;
+    localStorage.setItem("linuxdo-ultimate:settings", JSON.stringify({
+      schemaVersion: 2,
+      enabled: true,
+      layoutPreference: "three",
+      tabsEnabled: true,
+      tabPresentation: "vertical",
+      verticalTabsAutoCollapse: true,
+      groupVerticalTabs: true,
+      restoreSession: false,
+      hidePosters: true,
+      colorizeTabs: true,
+      previewEnabled: false,
+      creditEnabled: false,
+      previewClickMode: "double",
+      maxLiveFrames: 3,
+      maxOpenTabs: 50,
+      paneSizes: { sidebar: 216, listRatio: .35 },
+      dualPaneSizes: { sidebar: 216, listRatio: .35 }
+    }));
+  </script>
+</head>
+<body>
+  <header class="d-header"><div class="wrap"><div class="contents"><span class="fixture-logo">LINUX DO</span><ul class="d-header-icons"></ul></div></div></header>
+  <div id="main-container">
+    <div id="main-outlet-wrapper" class="has-sidebar-page">
+      <aside class="sidebar-wrapper">
+        <a href="/latest">最新</a><a href="/c/develop/4">开发调优</a><a href="/c/gossip/11">搞七捻三</a><a href="/c/resource/14">资源荟萃</a>
+      </aside>
+      <main id="main-outlet">
+        <article class="topic-post" hidden></article>
+        <div class="fixture-list">
+          <div class="fixture-topic"><strong>高性能分屏阅读实践</strong><span>开发调优</span></div>
+          <div class="fixture-topic"><strong>一个很长很长用于检查省略和关闭按钮对齐的帖子标题</strong><span>搞七捻三</span></div>
+          <div class="fixture-topic"><strong>社区资源整理索引</strong><span>资源荟萃</span></div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="/dist/linuxdo-ultimate.user.js"></script>
+  <script>
+    if (topicId) {
+      document.querySelector(".fixture-list").hidden = true;
+      const post = document.querySelector(".topic-post");
+      post.hidden = false;
+      post.innerHTML = `<h1>${topicTitles[topicId] || `主题 ${topicId}`}</h1><p>这里是用于验证阅读区尺寸、标签侧栏覆盖关系和双阅读区布局的正文内容。</p><p>${"正文段落。".repeat(80)}</p>`;
+    } else {
+      window.addEventListener("load", () => setTimeout(() => {
+        for (const id of [101, 102, 103, 104]) {
+          window.__LDU_TEST_API__?.openTopic(`/t/topic/${id}`, topicTitles[id]);
+        }
+      }, 80));
+    }
+  </script>
+</body>
+</html>

@@ -6,6 +6,9 @@
     enabled: true,
     layoutPreference: "auto",
     tabsEnabled: true,
+    tabPresentation: "horizontal",
+    verticalTabsAutoCollapse: true,
+    groupVerticalTabs: false,
     restoreSession: false,
     hidePosters: true,
     colorizeTabs: true,
@@ -36,6 +39,9 @@
       enabled: true,
       layoutPreference: source.layoutPreference === "two" || source.layoutPreference === "three" ? source.layoutPreference : "auto",
       tabsEnabled: source.tabsEnabled !== false,
+      tabPresentation: source.tabPresentation === "vertical" ? "vertical" : "horizontal",
+      verticalTabsAutoCollapse: source.verticalTabsAutoCollapse !== false,
+      groupVerticalTabs: source.groupVerticalTabs === true,
       restoreSession: isCurrentSchema && source.restoreSession === true,
       hidePosters: source.hidePosters !== false,
       colorizeTabs: source.colorizeTabs !== false,
@@ -1264,12 +1270,12 @@
     ["\u8FD0\u8425\u53CD\u9988", "rgb(128, 130, 129)"],
     ["\u6DF1\u6D77\u5E7D\u57DF", "rgb(69, 183, 209)"]
   ];
-  function resolveFixedCategoryColor(title) {
+  function resolveFixedPrimaryCategory(title) {
     const titleWithoutSite = title.replace(/\s+-\s+LINUX DO(?:\s.*)?$/i, "");
     const separatorIndex = titleWithoutSite.lastIndexOf(" - ");
     const category = titleWithoutSite.slice(separatorIndex < 0 ? 0 : separatorIndex + 3).trim();
     const match = PRIMARY_CATEGORY_COLORS.find(([name]) => category === name || category.startsWith(`${name} /`) || category.startsWith(`${name},`));
-    return match?.[1] ?? null;
+    return match ? { name: match[0], color: match[1] } : null;
   }
 
   // src/ui/icons.ts
@@ -1307,7 +1313,6 @@
   }
 
   // src/tabs/tab-strip.ts
-  var resolveTabCategoryColor = resolveFixedCategoryColor;
   var tabStripStates = /* @__PURE__ */ new WeakMap();
   function resetTabDragVisuals(root) {
     root.querySelectorAll(":scope > .ldu-tab-item[data-tab-id]").forEach((item) => {
@@ -1330,10 +1335,25 @@
       event.stopPropagation();
       state.callbacks.onContextMenu?.(tabId, event.clientX, event.clientY);
     });
+    item.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) return;
+      const tabId = item.dataset.tabId;
+      const state = tabStripStates.get(root);
+      if (!tabId || !state) return;
+      event.preventDefault();
+      event.stopPropagation();
+      state.callbacks.onClose(tabId);
+    });
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ldu-tab-button";
     button.setAttribute("role", "tab");
+    const glyph = document.createElement("span");
+    glyph.className = "ldu-tab-glyph";
+    setIcon(glyph, "list", 15);
+    const label = document.createElement("span");
+    label.className = "ldu-tab-title";
+    button.append(glyph, label);
     button.addEventListener("click", () => {
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
@@ -1343,15 +1363,19 @@
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
       if (!tabId || !state) return;
-      const index = state.tabs.findIndex((tab) => tab.id === tabId);
+      const visibleItems = [...root.querySelectorAll(":scope > .ldu-tab-item[data-tab-id]")];
+      const index = visibleItems.findIndex((candidate) => candidate.dataset.tabId === tabId);
       if (index < 0) return;
+      const vertical = root.classList.contains("is-vertical");
+      const previousKey = vertical ? "ArrowUp" : "ArrowLeft";
+      const nextKey = vertical ? "ArrowDown" : "ArrowRight";
       let next = index;
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      if (event.key === previousKey || event.key === nextKey) {
         event.preventDefault();
-        next = (index + (event.key === "ArrowRight" ? 1 : -1) + state.tabs.length) % state.tabs.length;
+        next = (index + (event.key === nextKey ? 1 : -1) + visibleItems.length) % visibleItems.length;
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
-        next = event.key === "Home" ? 0 : state.tabs.length - 1;
+        next = event.key === "Home" ? 0 : visibleItems.length - 1;
       } else if (event.key === "Delete") {
         event.preventDefault();
         state.callbacks.onClose(tabId);
@@ -1359,8 +1383,10 @@
       } else {
         return;
       }
-      state.callbacks.onActivate(state.tabs[next].id);
-      root.querySelectorAll(".ldu-tab-button")[next]?.focus();
+      const nextItem = visibleItems[next];
+      if (!nextItem?.dataset.tabId) return;
+      state.callbacks.onActivate(nextItem.dataset.tabId);
+      nextItem.querySelector(".ldu-tab-button")?.focus();
     });
     const close = document.createElement("button");
     close.type = "button";
@@ -1377,7 +1403,7 @@
     item.append(button, close);
     return item;
   }
-  function updateTabItem(item, tab, activeTabId, callbacks, root) {
+  function updateTabItem(item, tab, activeTabId, callbacks) {
     const active = tab.id === activeTabId;
     const title = tab.title || `\u4E3B\u9898 ${tab.topicId}`;
     item.dataset.tabId = tab.id;
@@ -1385,20 +1411,38 @@
     item.classList.toggle("is-active", active);
     item.title = `${tab.title}
 ${tab.url}`;
-    const categoryColor = resolveTabCategoryColor(tab.title);
-    if (categoryColor) item.style.setProperty("--ldu-tab-category-color", categoryColor);
+    const category = resolveFixedPrimaryCategory(tab.title);
+    item.dataset.categoryGroup = category?.name ?? "other";
+    if (category) item.style.setProperty("--ldu-tab-category-color", category.color);
     else item.style.removeProperty("--ldu-tab-category-color");
     const button = item.querySelector(".ldu-tab-button");
-    button.textContent = title;
+    button.querySelector(".ldu-tab-title").textContent = title;
     button.id = `ldu-tab-${tab.id}`;
     button.setAttribute("aria-selected", String(active));
     button.tabIndex = active ? 0 : -1;
     button.setAttribute("aria-label", `\u6253\u5F00 ${title}`);
     item.querySelector(".ldu-tab-close")?.setAttribute("aria-label", `\u5173\u95ED ${title}`);
   }
+  function createGroupHeader(key) {
+    const header = document.createElement("div");
+    header.className = "ldu-tab-group-header";
+    header.dataset.groupKey = key;
+    header.setAttribute("role", "presentation");
+    const marker = document.createElement("span");
+    marker.className = "ldu-tab-group-marker";
+    const label = document.createElement("span");
+    label.className = "ldu-tab-group-label";
+    header.append(marker, label);
+    return header;
+  }
   function renderTabStrip(root, tabs, activeTabId, callbacks, options = {}) {
     tabStripStates.set(root, { tabs, callbacks });
     resetTabDragVisuals(root);
+    const orientation = options.orientation === "vertical" ? "vertical" : "horizontal";
+    const grouped = orientation === "vertical" && options.groupByCategory === true;
+    root.classList.toggle("is-vertical", orientation === "vertical");
+    root.classList.toggle("is-grouped", grouped);
+    root.setAttribute("aria-orientation", orientation);
     root.classList.toggle("is-category-colors-enabled", options.colorizeTabs !== false);
     let draggedTabId = null;
     let dropTarget = null;
@@ -1411,12 +1455,12 @@ ${tab.url}`;
       dragMetrics = null;
       insertionIndex = null;
     };
-    const updateDragPosition = (clientX) => {
+    const updateDragPosition = (pointerPosition) => {
       if (!draggedTabId || !dragMetrics) return;
       const source = dragMetrics.find((metric) => metric.tabId === draggedTabId);
       if (!source) return;
       const available = dragMetrics.filter((metric) => metric.tabId !== draggedTabId);
-      const nextInsertionIndex = available.filter((metric) => clientX >= metric.center).length;
+      const nextInsertionIndex = available.filter((metric) => pointerPosition >= metric.center).length;
       if (nextInsertionIndex === insertionIndex) return;
       insertionIndex = nextInsertionIndex;
       const destinationIndex = nextInsertionIndex;
@@ -1427,7 +1471,7 @@ ${tab.url}`;
         } else if (destinationIndex < source.index && metric.index >= destinationIndex && metric.index < source.index) {
           offset = source.shift;
         }
-        metric.item.style.transform = offset ? `translate3d(${offset}px, 0, 0)` : "";
+        metric.item.style.transform = offset ? orientation === "vertical" ? `translate3d(0, ${offset}px, 0)` : `translate3d(${offset}px, 0, 0)` : "";
         metric.item.classList.remove("is-drop-before", "is-drop-after");
       }
       const target = destinationIndex === 0 ? available[0] : available[destinationIndex - 1];
@@ -1447,19 +1491,25 @@ ${tab.url}`;
       const item = event.target.closest(".ldu-tab-item[data-tab-id]");
       if (!item?.dataset.tabId) return;
       draggedTabId = item.dataset.tabId;
-      const items = [...root.querySelectorAll(".ldu-tab-item[data-tab-id]")];
+      const sourceGroup = item.dataset.categoryGroup;
+      const items = [...root.querySelectorAll(".ldu-tab-item[data-tab-id]")].filter((candidate) => !grouped || candidate.dataset.categoryGroup === sourceGroup);
       const rects = items.map((candidate) => candidate.getBoundingClientRect());
       dragMetrics = items.map((candidate, index) => {
         const rect = rects[index];
         const nextRect = rects[index + 1];
         const previousRect = rects[index - 1];
-        const gap = nextRect ? Math.max(0, nextRect.left - rect.right) : previousRect ? Math.max(0, rect.left - previousRect.right) : 0;
+        const start = orientation === "vertical" ? rect.top : rect.left;
+        const end = orientation === "vertical" ? rect.bottom : rect.right;
+        const size = orientation === "vertical" ? rect.height : rect.width;
+        const nextStart = nextRect ? orientation === "vertical" ? nextRect.top : nextRect.left : null;
+        const previousEnd = previousRect ? orientation === "vertical" ? previousRect.bottom : previousRect.right : null;
+        const gap = nextStart !== null ? Math.max(0, nextStart - end) : previousEnd !== null ? Math.max(0, start - previousEnd) : 0;
         return {
           tabId: candidate.dataset.tabId,
           item: candidate,
           index,
-          center: rect.left + rect.width / 2,
-          shift: rect.width + gap
+          center: start + size / 2,
+          shift: size + gap
         };
       });
       root.classList.add("is-reordering");
@@ -1480,12 +1530,14 @@ ${tab.url}`;
       if (!draggedTabId || !dragMetrics) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-      if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
+      const pointerPosition = orientation === "vertical" ? event.clientY : event.clientX;
+      if (Number.isFinite(pointerPosition)) updateDragPosition(pointerPosition);
     };
     root.ondrop = (event) => {
       if (!draggedTabId || !dragMetrics) return;
       event.preventDefault();
-      if (Number.isFinite(event.clientX)) updateDragPosition(event.clientX);
+      const pointerPosition = orientation === "vertical" ? event.clientY : event.clientX;
+      if (Number.isFinite(pointerPosition)) updateDragPosition(pointerPosition);
       if (!dropTarget) {
         clearDragState();
         return;
@@ -1508,13 +1560,42 @@ ${tab.url}`;
     }
     const desiredItems = tabs.map((tab) => {
       const item = existing.get(tab.id) ?? createTabItem(root);
-      updateTabItem(item, tab, activeTabId, callbacks, root);
+      updateTabItem(item, tab, activeTabId, callbacks);
       return item;
     });
+    const existingHeaders = new Map(
+      [...root.querySelectorAll(":scope > .ldu-tab-group-header[data-group-key]")].map((header) => [header.dataset.groupKey, header])
+    );
+    const desiredNodes = [];
+    if (grouped) {
+      const groups = /* @__PURE__ */ new Map();
+      tabs.forEach((tab, index) => {
+        const category = resolveFixedPrimaryCategory(tab.title);
+        const key = category?.name ?? "other";
+        const group = groups.get(key) ?? {
+          label: category?.name ?? "\u5176\u4ED6",
+          color: category?.color ?? null,
+          items: []
+        };
+        group.items.push(desiredItems[index]);
+        groups.set(key, group);
+      });
+      for (const [key, group] of groups) {
+        const header = existingHeaders.get(key) ?? createGroupHeader(key);
+        header.querySelector(".ldu-tab-group-label").textContent = `${group.label} ${group.items.length}`;
+        if (group.color) header.style.setProperty("--ldu-tab-category-color", group.color);
+        else header.style.removeProperty("--ldu-tab-category-color");
+        desiredNodes.push(header, ...group.items);
+        existingHeaders.delete(key);
+      }
+    } else {
+      desiredNodes.push(...desiredItems);
+    }
+    existingHeaders.forEach((header) => header.remove());
     let cursor = root.firstElementChild;
-    for (const item of desiredItems) {
-      if (item !== cursor) root.insertBefore(item, cursor);
-      cursor = item.nextElementSibling;
+    for (const node of desiredNodes) {
+      if (node !== cursor) root.insertBefore(node, cursor);
+      cursor = node.nextElementSibling;
     }
   }
 
@@ -1534,6 +1615,7 @@ ${tab.url}`;
   --ldu-accent: var(--tertiary, #0088cc);
   --ldu-danger: var(--danger, #d04437);
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ldu-vertical-tabs-collapsed: 2.625rem;
 }
 
 body.ldu-layout-active {
@@ -1722,6 +1804,7 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   background: var(--ldu-surface);
   color: var(--ldu-text);
   border-inline: 1px solid var(--ldu-border);
+  container-type: inline-size;
 }
 
 #ldu-layout-shell #ldu-topic-panel,
@@ -1747,6 +1830,205 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   align-items: center;
   border-bottom: 1px solid var(--ldu-border);
   background: var(--ldu-surface-muted);
+}
+
+/* The vertical rail reserves only its compact marker width. Its expanded surface
+   overlays the current reading pane, so iframe geometry never jumps on hover. */
+body.ldu-tabs-vertical #ldu-topic-panel,
+body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+  display: grid;
+  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar {
+  position: relative;
+  z-index: 4;
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  width: min(17rem, max(10rem, calc(100cqi - .75rem)));
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  border-right: 1px solid var(--ldu-border);
+  box-shadow: 4px 0 14px rgb(0 0 0 / 12%);
+  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
+  transition: clip-path 180ms var(--ldu-ease-out), opacity 180ms ease-out;
+  transition-delay: 180ms;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
+body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
+body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
+  clip-path: inset(0);
+  transition-delay: 80ms;
+}
+
+body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
+  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+}
+
+body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
+  width: 100%;
+  clip-path: inset(0);
+  transition: none;
+}
+
+body.ldu-tabs-vertical .ldu-topic-content {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
+  flex-direction: column;
+  min-height: 0;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-topic-actions {
+  order: -1;
+  justify-content: flex-start;
+  min-height: 38px;
+  border-bottom: 1px solid var(--ldu-border);
+}
+
+.ldu-vertical-tabs-heading { display: none; }
+
+body.ldu-tabs-vertical .ldu-vertical-tabs-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding-left: 7px;
+  color: var(--primary-medium, #777);
+  font-size: var(--font-down-1, .875rem);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 36px;
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 4px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 9px;
+}
+
+.ldu-tab-glyph {
+  display: none;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  color: var(--ldu-tab-category-color, var(--primary-medium, #777));
+}
+
+body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
+
+.ldu-tab-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: none) {
+  body.ldu-tabs-vertical #ldu-topic-panel,
+  body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+    grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+  }
+
+  body.ldu-tabs-vertical .ldu-topic-toolbar {
+    width: 100%;
+    clip-path: inset(0);
+    transition: none;
+  }
+}
+
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
+  visibility: hidden;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-active {
+  box-shadow: inset 3px 0 0 var(--ldu-accent);
+}
+
+body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
+  background: color-mix(in srgb, var(--ldu-tab-category-color) 22%, var(--ldu-surface));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
+}
+
+.ldu-tab-group-header {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 2px;
+  color: var(--primary-medium, #777);
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.ldu-tab-group-marker {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ldu-tab-category-color, var(--primary-medium, #777));
+}
+
+.ldu-tab-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-tab-group-header {
+  padding-left: 18px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-before::before,
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-after::after {
+  top: auto;
+  bottom: auto;
+  left: 5px;
+  right: 5px;
+  width: auto;
+  height: 2px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-before::before { top: -2px; }
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-after::after { bottom: -2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.ldu-tabs-vertical .ldu-topic-toolbar { transition-duration: .01ms; }
 }
 
 .ldu-tab-strip {
@@ -2158,6 +2440,17 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-panel .dc-range { width: 82px; }
 }
 
+@media (max-height: 820px) and (min-width: 561px) {
+  .ldu-settings-panel .dc-header { padding-block: 9px; }
+  .ldu-settings-panel .dc-body { padding-block: 9px; }
+  .ldu-settings-panel .dc-group { margin-bottom: 10px; }
+  .ldu-settings-panel .dc-group-title { padding-bottom: 4px; margin-bottom: 2px; }
+  .ldu-settings-panel .dc-row { padding-block: 5px; }
+  .ldu-settings-panel .dc-label-box { gap: 1px; }
+  .ldu-settings-panel .dc-item-desc { line-height: 1.2; }
+  .ldu-settings-panel .dc-footer { padding-block: 8px; }
+}
+
 .ldu-settings-panel :is(button, a, select, input):focus-visible {
   outline: 2px solid var(--ldu-accent);
   outline-offset: 2px;
@@ -2268,6 +2561,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       this.paneSizes = { ...options.paneSizes };
       this.dualPaneSizes = { ...options.dualPaneSizes ?? options.paneSizes };
       this.hidePosters = options.hidePosters;
+      this.tabPresentation = options.tabPresentation ?? "horizontal";
+      this.verticalTabsAutoCollapse = options.verticalTabsAutoCollapse !== false;
     }
     shell = null;
     panel = null;
@@ -2279,6 +2574,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     paneSizes;
     dualPaneSizes;
     hidePosters;
+    tabPresentation;
+    verticalTabsAutoCollapse;
     open = false;
     secondaryOpen = false;
     listHandoff = null;
@@ -2326,7 +2623,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       this.listContent = null;
       this.open = false;
       this.secondaryOpen = false;
-      document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open");
+      document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open", "ldu-tabs-vertical", "ldu-vertical-tabs-static");
       document.documentElement.classList.remove("ldu-layout-two-root");
     }
     setOpen(open) {
@@ -2340,6 +2637,15 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     setPreference(preference) {
       this.preference = preference;
       this.apply();
+    }
+    setTabPresentation(presentation, autoCollapse = this.verticalTabsAutoCollapse) {
+      this.tabPresentation = presentation;
+      this.verticalTabsAutoCollapse = autoCollapse;
+      this.apply();
+    }
+    setTabInteractionLocked(locked, pane) {
+      const panel = pane === "secondary" ? this.secondaryPanel : this.panel;
+      panel?.querySelector(".ldu-topic-toolbar")?.classList.toggle("is-interaction-locked", locked);
     }
     setPaneSizes(paneSizes, dualPaneSizes = this.dualPaneSizes) {
       this.paneSizes = { ...paneSizes };
@@ -2425,6 +2731,9 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       document.body.classList.toggle("ldu-layout-three", mode === "three");
       document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
       document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
+      const verticalTabs = active && this.tabPresentation === "vertical";
+      document.body.classList.toggle("ldu-tabs-vertical", verticalTabs);
+      document.body.classList.toggle("ldu-vertical-tabs-static", verticalTabs && !this.verticalTabsAutoCollapse);
       const paneSizes = this.getActivePaneSizes();
       document.documentElement.style.setProperty("--ldu-sidebar-width", `${paneSizes.sidebar}px`);
       document.documentElement.style.setProperty("--ldu-topic-track", `${1 - paneSizes.listRatio}fr`);
@@ -2441,7 +2750,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       panel.innerHTML = `
       <div class="ldu-topic-toolbar">
         <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "\u7B2C\u4E8C\u9605\u8BFB\u533A" : "\u4E3B\u9605\u8BFB\u533A"}\u5DF2\u6253\u5F00\u7684\u5E16\u5B50"></div>
-        <div class="ldu-topic-actions"></div>
+        <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("list", 16)}<span class="ldu-vertical-tabs-heading-label">\u5E16\u5B50\u6807\u7B7E</span></span></div>
       </div>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">\u4ECE\u5217\u8868\u4E2D\u9009\u62E9\u5E16\u5B50</div>
@@ -2615,6 +2924,30 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-reading-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-reading-heading">\u9605\u8BFB\u4E0E\u6807\u7B7E</div>
+            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u5E16\u5B50\u6807\u7B7E\u680F\u6837\u5F0F</span>
+                <span class="dc-item-desc">\u53EF\u4F7F\u7528\u4F20\u7EDF\u6A2A\u5411\u6807\u7B7E\uFF0C\u6216\u7A7A\u95F4\u66F4\u5145\u88D5\u7684\u5782\u76F4\u6807\u7B7E\u680F</span>
+              </span>
+              <div class="dc-pills" data-pills-setting="tabPresentation">
+                <button type="button" class="dc-pill-btn" data-val="horizontal">\u6A2A\u5411</button>
+                <button type="button" class="dc-pill-btn" data-val="vertical">\u5782\u76F4</button>
+              </div>
+            </div>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77\u5782\u76F4\u6807\u7B7E\u680F</span>
+                <span class="dc-item-desc">\u5E73\u65F6\u53EA\u663E\u793A\u7D27\u51D1\u56FE\u6807\uFF0C\u60AC\u505C\u6216\u805A\u7126\u65F6\u8986\u76D6\u5C55\u5F00</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+            </label>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u6309\u5E16\u5B50\u5206\u533A\u81EA\u52A8\u5206\u7EC4</span>
+                <span class="dc-item-desc">\u4F7F\u7528\u5185\u7F6E\u4E3B\u5206\u7C7B\u8868\u6574\u7406\u6807\u7B7E\uFF0C\u4E0D\u989D\u5916\u626B\u63CF\u9875\u9762\u6216\u8BF7\u6C42\u7F51\u7EDC</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+            </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u4E0B\u6B21\u8BBF\u95EE\u65F6\u6062\u590D\u4E0A\u6B21\u6253\u5F00\u7684\u5E16\u5B50</span>
@@ -2791,6 +3124,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     sync() {
       if (!this.panel) return;
       const tabs = this.panel.querySelector('[data-setting="tabsEnabled"]');
+      const verticalTabsAutoCollapse = this.panel.querySelector('[data-setting="verticalTabsAutoCollapse"]');
+      const groupVerticalTabs = this.panel.querySelector('[data-setting="groupVerticalTabs"]');
       const restore = this.panel.querySelector('[data-setting="restoreSession"]');
       const posters = this.panel.querySelector('[data-setting="hidePosters"]');
       const colorizeTabs = this.panel.querySelector('[data-setting="colorizeTabs"]');
@@ -2799,6 +3134,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       const live = this.panel.querySelector('[data-setting="maxLiveFrames"]');
       const output = this.panel.querySelector('[data-output="maxLiveFrames"]');
       if (tabs) tabs.checked = this.settings.tabsEnabled;
+      if (verticalTabsAutoCollapse) verticalTabsAutoCollapse.checked = this.settings.verticalTabsAutoCollapse;
+      if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
       if (restore) restore.checked = this.settings.restoreSession;
       if (posters) posters.checked = this.settings.hidePosters;
       if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
@@ -2807,6 +3144,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (live) live.value = String(this.settings.maxLiveFrames);
       if (output) output.value = String(this.settings.maxLiveFrames);
       this.syncPills("layoutPreference", this.settings.layoutPreference);
+      this.syncPills("tabPresentation", this.settings.tabPresentation);
       this.syncPills("previewClickMode", this.settings.previewClickMode);
       this.syncDependencies();
     }
@@ -2831,6 +3169,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (!key || !value || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
       this.settings = { ...this.settings, [key]: value };
       this.syncPills(key, value);
+      this.syncDependencies();
       this.callbacks.onChange({ [key]: value });
     }
     syncPills(key, value) {
@@ -2844,7 +3183,12 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (!this.panel) return;
       this.panel.querySelectorAll("[data-depends-on]").forEach((row) => {
         const key = row.dataset.dependsOn;
-        row.hidden = !key || this.settings[key] !== true;
+        const expected = row.dataset.dependsValue;
+        const dependencyMatches = Boolean(key) && (expected === void 0 ? this.settings[key] === true : String(this.settings[key]) === expected);
+        const requiredKey = row.dataset.requiresSetting;
+        const requiredValue = row.dataset.requiresValue;
+        const requirementMatches = !requiredKey || requiredValue === void 0 || String(this.settings[requiredKey]) === requiredValue;
+        row.hidden = !dependencyMatches || !requirementMatches;
       });
     }
     setPanelOpen(open) {
@@ -2901,8 +3245,10 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     onKeyDown = (event) => {
       if (event.key === "Escape") this.close();
     };
-    open(tabId, clientX, clientY, splitDisabled = false) {
+    activePane = "primary";
+    open(tabId, clientX, clientY, splitDisabled = false, pane = "primary") {
       this.close();
+      this.activePane = pane;
       const root = document.createElement("div");
       root.className = "ldu-tab-context-menu";
       root.setAttribute("role", "menu");
@@ -2941,6 +3287,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       }
       document.body.append(root);
       this.root = root;
+      this.callbacks.onOpenChange?.(true, pane);
       const rect = root.getBoundingClientRect();
       const margin = 8;
       root.style.left = `${Math.max(margin, Math.min(clientX, window.innerWidth - rect.width - margin))}px`;
@@ -2950,10 +3297,12 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       root.querySelector("button:not(:disabled)")?.focus();
     }
     close() {
+      const hadRoot = Boolean(this.root);
       document.removeEventListener("pointerdown", this.onOutsidePointer, true);
       document.removeEventListener("keydown", this.onKeyDown, true);
       this.root?.remove();
       this.root = null;
+      if (hadRoot) this.callbacks.onOpenChange?.(false, this.activePane);
     }
     destroy() {
       this.close();
@@ -3515,7 +3864,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         onReload: (tabId) => this.reloadTab(tabId),
         onCopyLink: (tabId) => void this.copyTabLink(tabId),
         onBookmark: (tabId) => this.bookmarkTab(tabId),
-        onCloseOthers: (tabId) => this.closeOtherTabs(tabId)
+        onCloseOthers: (tabId) => this.closeOtherTabs(tabId),
+        onOpenChange: (open, pane) => this.layout.setTabInteractionLocked(open, pane)
       });
       this.sessionLease = claimSessionId(
         this.storage,
@@ -3544,6 +3894,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         paneSizes: this.session.paneSizes,
         dualPaneSizes: this.session.dualPaneSizes,
         hidePosters: this.settings.hidePosters,
+        tabPresentation: this.settings.tabPresentation,
+        verticalTabsAutoCollapse: this.settings.verticalTabsAutoCollapse,
         onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout)
       });
       this.mountSettings();
@@ -3896,6 +4248,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       this.settings = normalizeSettings({ ...this.settings, ...patch });
       saveSettings(this.storage, this.settings);
       this.layout.setPreference(this.settings.layoutPreference);
+      this.layout.setTabPresentation(this.settings.tabPresentation, this.settings.verticalTabsAutoCollapse);
       this.layout.setHidePosters(this.settings.hidePosters);
       if (patch.paneSizes || patch.dualPaneSizes) {
         this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
@@ -3926,7 +4279,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (this.settings.enabled && this.settings.previewEnabled) this.preview.mount();
       if (patch.restoreSession === false) clearRestorableSessions(this.storage);
       if (!this.settings.enabled || !this.settings.previewEnabled) this.preview.close();
-      if (patch.colorizeTabs !== void 0) this.renderTabs();
+      if (patch.colorizeTabs !== void 0 || patch.tabPresentation !== void 0 || patch.groupVerticalTabs !== void 0) this.renderTabs();
       const canShowTabs = this.settings.enabled && this.settings.tabsEnabled && (isSplitRoute(location.href) || this.tabStore.getTabs().length > 0);
       if (!canShowTabs) {
         this.disposeSplitRuntime();
@@ -4049,11 +4402,15 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
           if (tab) this.activateFrame(tab, "primary");
         },
         onClose: (tabId) => this.closeTab(tabId, "primary"),
-        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y),
+        onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, false, "primary"),
         onReorder: (tabId, targetTabId, position) => {
           this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
         }
-      }, { colorizeTabs: this.settings.colorizeTabs });
+      }, {
+        colorizeTabs: this.settings.colorizeTabs,
+        orientation: this.settings.tabPresentation,
+        groupByCategory: this.settings.groupVerticalTabs
+      });
       const secondaryRoot = this.layout.getSecondaryTabStripElement();
       if (secondaryRoot) {
         renderTabStrip(secondaryRoot, secondaryTabs, this.tabStore.getSession().secondaryActiveTabId, {
@@ -4062,11 +4419,15 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
             if (tab) this.activateFrame(tab, "secondary");
           },
           onClose: (tabId) => this.closeTab(tabId, "secondary"),
-          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true),
+          onContextMenu: (tabId, x, y) => this.tabContextMenu.open(tabId, x, y, true, "secondary"),
           onReorder: (tabId, targetTabId, position) => {
             this.tabStore.reorderInPane(tabId, targetTabId, position, Date.now());
           }
-        }, { colorizeTabs: this.settings.colorizeTabs });
+        }, {
+          colorizeTabs: this.settings.colorizeTabs,
+          orientation: this.settings.tabPresentation,
+          groupByCategory: this.settings.groupVerticalTabs
+        });
       }
       const actions = this.layout.getActionsElement();
       if (actions && !actions.querySelector(".ldu-close-all")) {

@@ -1,5 +1,6 @@
-import type { LayoutMode, LayoutPreference, PaneSizes } from "../core/types";
+import type { LayoutMode, LayoutPreference, PaneSizes, TabPresentation } from "../core/types";
 import { ensureAppStyles } from "./styles";
+import { iconSvg } from "./icons";
 
 const NARROW_BREAKPOINT = 1100;
 const WIDE_BREAKPOINT = 1680;
@@ -23,6 +24,8 @@ interface LayoutControllerOptions {
   paneSizes: PaneSizes;
   dualPaneSizes?: PaneSizes;
   hidePosters: boolean;
+  tabPresentation?: TabPresentation;
+  verticalTabsAutoCollapse?: boolean;
   onPaneSizesChange?: (sizes: PaneSizes, layout: PaneLayout) => void;
 }
 
@@ -37,6 +40,8 @@ export class LayoutController {
   private paneSizes: PaneSizes;
   private dualPaneSizes: PaneSizes;
   private hidePosters: boolean;
+  private tabPresentation: TabPresentation;
+  private verticalTabsAutoCollapse: boolean;
   private open = false;
   private secondaryOpen = false;
   private listHandoff: ListHandoff | null = null;
@@ -48,6 +53,8 @@ export class LayoutController {
     this.paneSizes = { ...options.paneSizes };
     this.dualPaneSizes = { ...(options.dualPaneSizes ?? options.paneSizes) };
     this.hidePosters = options.hidePosters;
+    this.tabPresentation = options.tabPresentation ?? "horizontal";
+    this.verticalTabsAutoCollapse = options.verticalTabsAutoCollapse !== false;
   }
 
   mount(): boolean {
@@ -93,7 +100,7 @@ export class LayoutController {
     this.listContent = null;
     this.open = false;
     this.secondaryOpen = false;
-    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open");
+    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open", "ldu-tabs-vertical", "ldu-vertical-tabs-static");
     document.documentElement.classList.remove("ldu-layout-two-root");
   }
 
@@ -110,6 +117,17 @@ export class LayoutController {
   setPreference(preference: LayoutPreference): void {
     this.preference = preference;
     this.apply();
+  }
+
+  setTabPresentation(presentation: TabPresentation, autoCollapse = this.verticalTabsAutoCollapse): void {
+    this.tabPresentation = presentation;
+    this.verticalTabsAutoCollapse = autoCollapse;
+    this.apply();
+  }
+
+  setTabInteractionLocked(locked: boolean, pane: "primary" | "secondary"): void {
+    const panel = pane === "secondary" ? this.secondaryPanel : this.panel;
+    panel?.querySelector<HTMLElement>(".ldu-topic-toolbar")?.classList.toggle("is-interaction-locked", locked);
   }
 
   setPaneSizes(paneSizes: PaneSizes, dualPaneSizes: PaneSizes = this.dualPaneSizes): void {
@@ -199,6 +217,9 @@ export class LayoutController {
     document.body.classList.toggle("ldu-layout-three", mode === "three");
     document.documentElement.classList.toggle("ldu-layout-two-root", mode === "two");
     document.body.classList.toggle("ldu-secondary-open", active && this.secondaryOpen);
+    const verticalTabs = active && this.tabPresentation === "vertical";
+    document.body.classList.toggle("ldu-tabs-vertical", verticalTabs);
+    document.body.classList.toggle("ldu-vertical-tabs-static", verticalTabs && !this.verticalTabsAutoCollapse);
     const paneSizes = this.getActivePaneSizes();
     document.documentElement.style.setProperty("--ldu-sidebar-width", `${paneSizes.sidebar}px`);
     document.documentElement.style.setProperty("--ldu-topic-track", `${1 - paneSizes.listRatio}fr`);
@@ -216,7 +237,7 @@ export class LayoutController {
     panel.innerHTML = `
       <div class="ldu-topic-toolbar">
         <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "第二阅读区" : "主阅读区"}已打开的帖子"></div>
-        <div class="ldu-topic-actions"></div>
+        <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("list", 16)}<span class="ldu-vertical-tabs-heading-label">帖子标签</span></span></div>
       </div>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">从列表中选择帖子</div>

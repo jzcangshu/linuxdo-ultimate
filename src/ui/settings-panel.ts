@@ -74,6 +74,30 @@ export class SettingsPanel {
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-reading-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-reading-heading">阅读与标签</div>
+            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
+              <span class="dc-label-box">
+                <span class="dc-item-title">帖子标签栏样式</span>
+                <span class="dc-item-desc">可使用传统横向标签，或空间更充裕的垂直标签栏</span>
+              </span>
+              <div class="dc-pills" data-pills-setting="tabPresentation">
+                <button type="button" class="dc-pill-btn" data-val="horizontal">横向</button>
+                <button type="button" class="dc-pill-btn" data-val="vertical">垂直</button>
+              </div>
+            </div>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <span class="dc-label-box">
+                <span class="dc-item-title">自动收起垂直标签栏</span>
+                <span class="dc-item-desc">平时只显示紧凑图标，悬停或聚焦时覆盖展开</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+            </label>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <span class="dc-label-box">
+                <span class="dc-item-title">按帖子分区自动分组</span>
+                <span class="dc-item-desc">使用内置主分类表整理标签，不额外扫描页面或请求网络</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+            </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
                 <span class="dc-item-title">下次访问时恢复上次打开的帖子</span>
@@ -254,6 +278,8 @@ export class SettingsPanel {
   private sync(): void {
     if (!this.panel) return;
     const tabs = this.panel.querySelector<HTMLInputElement>('[data-setting="tabsEnabled"]');
+    const verticalTabsAutoCollapse = this.panel.querySelector<HTMLInputElement>('[data-setting="verticalTabsAutoCollapse"]');
+    const groupVerticalTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="groupVerticalTabs"]');
     const restore = this.panel.querySelector<HTMLInputElement>('[data-setting="restoreSession"]');
     const posters = this.panel.querySelector<HTMLInputElement>('[data-setting="hidePosters"]');
     const colorizeTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="colorizeTabs"]');
@@ -262,6 +288,8 @@ export class SettingsPanel {
     const live = this.panel.querySelector<HTMLInputElement>('[data-setting="maxLiveFrames"]');
     const output = this.panel.querySelector<HTMLOutputElement>('[data-output="maxLiveFrames"]');
     if (tabs) tabs.checked = this.settings.tabsEnabled;
+    if (verticalTabsAutoCollapse) verticalTabsAutoCollapse.checked = this.settings.verticalTabsAutoCollapse;
+    if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
     if (restore) restore.checked = this.settings.restoreSession;
     if (posters) posters.checked = this.settings.hidePosters;
     if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
@@ -270,6 +298,7 @@ export class SettingsPanel {
     if (live) live.value = String(this.settings.maxLiveFrames);
     if (output) output.value = String(this.settings.maxLiveFrames);
     this.syncPills("layoutPreference", this.settings.layoutPreference);
+    this.syncPills("tabPresentation", this.settings.tabPresentation);
     this.syncPills("previewClickMode", this.settings.previewClickMode);
     this.syncDependencies();
   }
@@ -296,6 +325,7 @@ export class SettingsPanel {
     if (!key || !value || key === "schemaVersion" || key === "paneSizes" || key === "dualPaneSizes") return;
     this.settings = { ...this.settings, [key]: value } as Settings;
     this.syncPills(key, value);
+    this.syncDependencies();
     this.callbacks.onChange({ [key]: value });
   }
 
@@ -311,7 +341,15 @@ export class SettingsPanel {
     if (!this.panel) return;
     this.panel.querySelectorAll<HTMLElement>("[data-depends-on]").forEach((row) => {
       const key = row.dataset.dependsOn as keyof Settings | undefined;
-      row.hidden = !key || this.settings[key] !== true;
+      const expected = row.dataset.dependsValue;
+      const dependencyMatches = Boolean(key) && (expected === undefined
+        ? this.settings[key!] === true
+        : String(this.settings[key!]) === expected);
+      const requiredKey = row.dataset.requiresSetting as keyof Settings | undefined;
+      const requiredValue = row.dataset.requiresValue;
+      const requirementMatches = !requiredKey || requiredValue === undefined
+        || String(this.settings[requiredKey]) === requiredValue;
+      row.hidden = !dependencyMatches || !requirementMatches;
     });
   }
 

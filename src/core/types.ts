@@ -1,5 +1,6 @@
 export type LayoutPreference = "auto" | "two" | "three";
 export type LayoutMode = "native" | "two" | "three";
+export type TabPresentation = "horizontal" | "vertical";
 
 export interface PaneSizes {
   sidebar: number;
@@ -11,6 +12,9 @@ export interface Settings {
   enabled: boolean;
   layoutPreference: LayoutPreference;
   tabsEnabled: boolean;
+  tabPresentation: TabPresentation;
+  verticalTabsAutoCollapse: boolean;
+  groupVerticalTabs: boolean;
   restoreSession: boolean;
   hidePosters: boolean;
   colorizeTabs: boolean;

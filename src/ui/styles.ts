@@ -15,6 +15,7 @@ export const APP_STYLES = `
   --ldu-accent: var(--tertiary, #0088cc);
   --ldu-danger: var(--danger, #d04437);
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ldu-vertical-tabs-collapsed: 2.625rem;
 }
 
 body.ldu-layout-active {
@@ -203,6 +204,7 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   background: var(--ldu-surface);
   color: var(--ldu-text);
   border-inline: 1px solid var(--ldu-border);
+  container-type: inline-size;
 }
 
 #ldu-layout-shell #ldu-topic-panel,
@@ -228,6 +230,205 @@ body.ldu-hide-posters #main-outlet .topic-list .posters {
   align-items: center;
   border-bottom: 1px solid var(--ldu-border);
   background: var(--ldu-surface-muted);
+}
+
+/* The vertical rail reserves only its compact marker width. Its expanded surface
+   overlays the current reading pane, so iframe geometry never jumps on hover. */
+body.ldu-tabs-vertical #ldu-topic-panel,
+body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+  display: grid;
+  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar {
+  position: relative;
+  z-index: 4;
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  width: min(17rem, max(10rem, calc(100cqi - .75rem)));
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  border-right: 1px solid var(--ldu-border);
+  box-shadow: 4px 0 14px rgb(0 0 0 / 12%);
+  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
+  transition: clip-path 180ms var(--ldu-ease-out), opacity 180ms ease-out;
+  transition-delay: 180ms;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
+body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
+body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
+  clip-path: inset(0);
+  transition-delay: 80ms;
+}
+
+body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
+  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+}
+
+body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
+  width: 100%;
+  clip-path: inset(0);
+  transition: none;
+}
+
+body.ldu-tabs-vertical .ldu-topic-content {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
+  flex-direction: column;
+  min-height: 0;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-topic-actions {
+  order: -1;
+  justify-content: flex-start;
+  min-height: 38px;
+  border-bottom: 1px solid var(--ldu-border);
+}
+
+.ldu-vertical-tabs-heading { display: none; }
+
+body.ldu-tabs-vertical .ldu-vertical-tabs-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding-left: 7px;
+  color: var(--primary-medium, #777);
+  font-size: var(--font-down-1, .875rem);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 36px;
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 4px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 9px;
+}
+
+.ldu-tab-glyph {
+  display: none;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  color: var(--ldu-tab-category-color, var(--primary-medium, #777));
+}
+
+body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
+
+.ldu-tab-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: none) {
+  body.ldu-tabs-vertical #ldu-topic-panel,
+  body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+    grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+  }
+
+  body.ldu-tabs-vertical .ldu-topic-toolbar {
+    width: 100%;
+    clip-path: inset(0);
+    transition: none;
+  }
+}
+
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
+  visibility: hidden;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-active {
+  box-shadow: inset 3px 0 0 var(--ldu-accent);
+}
+
+body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
+  background: color-mix(in srgb, var(--ldu-tab-category-color) 22%, var(--ldu-surface));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
+}
+
+.ldu-tab-group-header {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 2px;
+  color: var(--primary-medium, #777);
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.ldu-tab-group-marker {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ldu-tab-category-color, var(--primary-medium, #777));
+}
+
+.ldu-tab-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-tab-group-header {
+  padding-left: 18px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-before::before,
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-after::after {
+  top: auto;
+  bottom: auto;
+  left: 5px;
+  right: 5px;
+  width: auto;
+  height: 2px;
+}
+
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-before::before { top: -2px; }
+body.ldu-tabs-vertical .ldu-tab-item.is-drop-after::after { bottom: -2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.ldu-tabs-vertical .ldu-topic-toolbar { transition-duration: .01ms; }
 }
 
 .ldu-tab-strip {
@@ -637,6 +838,17 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-panel .dc-row { gap: 10px; }
   .ldu-settings-panel .dc-item-desc { font-size: var(--font-down-2, .75rem); }
   .ldu-settings-panel .dc-range { width: 82px; }
+}
+
+@media (max-height: 820px) and (min-width: 561px) {
+  .ldu-settings-panel .dc-header { padding-block: 9px; }
+  .ldu-settings-panel .dc-body { padding-block: 9px; }
+  .ldu-settings-panel .dc-group { margin-bottom: 10px; }
+  .ldu-settings-panel .dc-group-title { padding-bottom: 4px; margin-bottom: 2px; }
+  .ldu-settings-panel .dc-row { padding-block: 5px; }
+  .ldu-settings-panel .dc-label-box { gap: 1px; }
+  .ldu-settings-panel .dc-item-desc { line-height: 1.2; }
+  .ldu-settings-panel .dc-footer { padding-block: 8px; }
 }
 
 .ldu-settings-panel :is(button, a, select, input):focus-visible {

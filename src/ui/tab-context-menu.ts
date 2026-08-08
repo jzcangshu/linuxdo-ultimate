@@ -7,9 +7,10 @@ export interface TabContextMenuCallbacks {
   onCopyLink: (tabId: string) => void;
   onBookmark: (tabId: string) => void;
   onCloseOthers: (tabId: string) => void;
+  onOpenChange?: (open: boolean, pane: "primary" | "secondary") => void;
 }
 
-type Action = keyof TabContextMenuCallbacks;
+type Action = Exclude<keyof TabContextMenuCallbacks, "onOpenChange">;
 
 const GROUPS: Array<Array<{ action: Action; key: string; label: string; icon: IconName; shortcut?: string }>> = [
   [
@@ -32,11 +33,13 @@ export class TabContextMenu {
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") this.close();
   };
+  private activePane: "primary" | "secondary" = "primary";
 
   constructor(private readonly callbacks: TabContextMenuCallbacks) {}
 
-  open(tabId: string, clientX: number, clientY: number, splitDisabled = false): void {
+  open(tabId: string, clientX: number, clientY: number, splitDisabled = false, pane: "primary" | "secondary" = "primary"): void {
     this.close();
+    this.activePane = pane;
     const root = document.createElement("div");
     root.className = "ldu-tab-context-menu";
     root.setAttribute("role", "menu");
@@ -75,6 +78,7 @@ export class TabContextMenu {
     }
     document.body.append(root);
     this.root = root;
+    this.callbacks.onOpenChange?.(true, pane);
     const rect = root.getBoundingClientRect();
     const margin = 8;
     root.style.left = `${Math.max(margin, Math.min(clientX, window.innerWidth - rect.width - margin))}px`;
@@ -85,10 +89,12 @@ export class TabContextMenu {
   }
 
   close(): void {
+    const hadRoot = Boolean(this.root);
     document.removeEventListener("pointerdown", this.onOutsidePointer, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
     this.root?.remove();
     this.root = null;
+    if (hadRoot) this.callbacks.onOpenChange?.(false, this.activePane);
   }
 
   destroy(): void { this.close(); }

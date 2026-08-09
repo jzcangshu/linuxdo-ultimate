@@ -13,6 +13,8 @@ describe("embedded topic preview bridge", () => {
     document.body.replaceChildren();
     document.getElementById(APP_STYLE_ID)?.remove();
     document.getElementById(EMBEDDED_STYLE_ID)?.remove();
+    window.__LDU_TOPIC_TOOLS__?.stop();
+    delete window.__LDU_TOPIC_TOOLS__;
     delete window.__LDU_TEST_MODE__;
   });
 
@@ -119,6 +121,13 @@ describe("embedded topic preview bridge", () => {
 
     document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 }));
 
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "ldu:frame-interaction",
+      tabId: "topic-1",
+    }, location.origin);
+
+    postMessage.mockClear();
+    window.dispatchEvent(new WheelEvent("wheel"));
     expect(postMessage).toHaveBeenCalledWith({
       type: "ldu:frame-interaction",
       tabId: "topic-1",

@@ -1,3 +1,3 @@
 import { bootFrameBridge } from "../frame-bridge";
 
-bootFrameBridge();
+if (!location.pathname.startsWith("/challenge")) bootFrameBridge();

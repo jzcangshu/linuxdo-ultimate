@@ -1,4 +1,5 @@
 import type { TopicTabState } from "../core/types";
+import type { TopicToolsConfig } from "../discourse/topic-tools";
 
 const SCROLL_RESTORE_TIMEOUT_MS = 15_000;
 
@@ -39,6 +40,11 @@ export class TopicFramePool {
   private readonly frames = new Map<string, FrameRecord>();
   private liveLimit: number;
   private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
+  private topicToolsConfig: TopicToolsConfig = {
+    ownerOnlyEnabled: false,
+    cleanModeEnabled: false,
+    lowEndOptimizationEnabled: false,
+  };
   private activeTabId: string | null = null;
 
   constructor(
@@ -56,6 +62,11 @@ export class TopicFramePool {
   setPreviewConfig(config: FramePreviewConfig): void {
     this.previewConfig = { ...config };
     for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
+  }
+
+  setTopicToolsConfig(config: TopicToolsConfig): void {
+    this.topicToolsConfig = { ...config };
+    for (const record of this.frames.values()) this.sendTopicToolsConfig(record.iframe);
   }
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
@@ -99,6 +110,7 @@ export class TopicFramePool {
         this.restoreScroll(current);
         this.sendLifecycleState(current);
         this.sendPreviewConfig(iframe);
+        this.sendTopicToolsConfig(iframe);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
       };
@@ -138,6 +150,10 @@ export class TopicFramePool {
     if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
     const record = this.frames.get(data.tabId);
     if (!record || event.source !== record.iframe.contentWindow) return;
+    if (data.type === "ldu:frame-interaction") {
+      this.cancelScrollRestore(record);
+      record.restoreScrollY = 0;
+    }
     if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
       try {
         record.reportedUrl = new URL(data.url, document.baseURI).href;
@@ -150,6 +166,7 @@ export class TopicFramePool {
       this.restoreScroll(record);
       this.sendLifecycleState(record);
       this.sendPreviewConfig(record.iframe);
+      this.sendTopicToolsConfig(record.iframe);
       this.flushCommands(record);
     }
     this.onMessage(data as FrameMessage, record.iframe);
@@ -215,6 +232,7 @@ export class TopicFramePool {
       current.loaded = true;
       this.restoreScroll(current);
       this.sendPreviewConfig(iframe);
+      this.sendTopicToolsConfig(iframe);
       this.flushCommands(current);
       this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
     };
@@ -250,6 +268,10 @@ export class TopicFramePool {
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+  }
+
+  private sendTopicToolsConfig(iframe: HTMLIFrameElement): void {
+    iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.topicToolsConfig }, location.origin);
   }
 
   private setFrameActive(record: FrameRecord, active: boolean): void {

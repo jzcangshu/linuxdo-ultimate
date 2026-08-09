@@ -10,23 +10,34 @@ describe("settings panel", () => {
     const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange: vi.fn() });
     panel.mount();
 
-    expect(host.querySelector(".ldu-settings-heading")?.textContent).toBe("Linux Do Ultimate");
+    expect(host.querySelector(".ldu-settings-heading")?.textContent).toContain("Linux Do Ultimate");
     expect(host.querySelector(".ldu-brand-ultimate")?.textContent).toBe("Ultimate");
+    expect(host.querySelector(".ldu-settings-version")?.textContent).toMatch(/^v\d+\.\d+\.\d+$/);
     expect([...host.querySelectorAll(".ldu-settings-group-title")].map((node) => node.textContent)).toEqual([
       "布局",
       "阅读与标签",
+      "页面样式",
       "实用工具",
     ]);
     expect(host.querySelector('[data-setting="enabled"]')).toBeNull();
     expect(host.querySelector('[data-setting="tabsEnabled"]')?.closest("label")?.textContent).toContain("启用分屏模式");
     expect(host.querySelector('[data-setting="tabsEnabled"]')?.closest("label")?.querySelector(".dc-item-desc")?.textContent)
-      .toContain("分屏阅读和页内帖子标签");
+      .toContain("并排浏览帖子列表与正文");
     expect(host.querySelector('[data-setting="tabsEnabled"]')?.closest("section")?.querySelector(".ldu-settings-group-title")?.textContent).toBe("布局");
-    expect(host.querySelector('[data-setting="restoreSession"]')?.closest("label")?.textContent).toContain("下次访问时恢复上次打开的帖子");
-    expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.textContent).toContain("隐藏话题列表中的用户头像列");
-    expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.textContent).toContain("按分类为帖子标签上色");
-    expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.textContent).toContain("帖子标签栏样式");
+    expect(host.querySelector('[data-setting="restoreSession"]')?.closest("label")?.textContent).toContain("恢复上次帖子");
+    expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.textContent).toContain("隐藏列表头像列");
+    expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.textContent).toContain("只看楼主");
+    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("清爽模式");
+    expect(host.querySelector('[data-setting="lowEndOptimizationEnabled"]')?.closest("label")?.textContent).toContain("低端设备性能优化");
+    expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.textContent).toContain("标签分类上色");
+    expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.textContent).toContain("标签栏样式");
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.textContent).toContain("LDC 收入");
+    expect(host.querySelector(".dc-child-row")).toBeNull();
+    expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
+    expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
+    expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
+    expect(host.querySelector('[data-pills-setting="previewClickMode"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
+    expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
 
     const layoutRow = host.querySelector<HTMLElement>('[data-depends-on="tabsEnabled"]')!;
     const previewRow = host.querySelector<HTMLElement>('[data-depends-on="previewEnabled"]')!;
@@ -67,7 +78,7 @@ describe("settings panel", () => {
     panel.mount();
 
     const layout = host.querySelector<HTMLElement>('[data-pills-setting="layoutPreference"]')!;
-    expect(layout.closest(".dc-row")?.textContent).toContain("帖子详情页位置");
+    expect(layout.closest(".dc-row")?.textContent).toContain("详情页位置");
     expect([...layout.querySelectorAll<HTMLButtonElement>(".dc-pill-btn")].map((button) => [button.dataset.val, button.textContent])).toEqual([
       ["auto", "自动"],
       ["two", "右侧"],
@@ -79,7 +90,7 @@ describe("settings panel", () => {
     expect(host.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]')?.checked).toBe(true);
     expect(host.querySelector(".dc-modal")).not.toBeNull();
     expect(host.querySelector(".dc-item-desc.alert")?.textContent).toContain("运行目标网站脚本");
-    expect(host.querySelectorAll(".dc-label-box").length).toBe(12);
+    expect(host.querySelectorAll(".dc-label-box").length).toBe(15);
   });
 
   it("provides repository and three explicit LDC donation destinations", () => {
@@ -134,6 +145,10 @@ describe("settings panel", () => {
     expect(host.querySelector(".ldu-icon-button")?.classList).toContain("ldu-update-available");
     expect(host.querySelector<HTMLElement>(".ldu-update-menu")?.hidden).toBe(false);
     expect(host.querySelector(".ldu-update-summary")?.textContent).toContain("新增检查更新");
+    expect(host.querySelector(".ldu-update-title")?.textContent).toBe("发现新版本");
+    expect(host.querySelector(".ldu-update-version")?.textContent).toBe("v0.4.2");
+    expect(host.querySelector(".ldu-update-date")?.textContent).toBe("发布于 2026-08-08");
+    expect(host.querySelectorAll(".ldu-update-changelog li")).toHaveLength(1);
 
     panel.setUpdateState({ status: "current", version: "0.4.2" });
     expect(update.classList).not.toContain("ldu-update-available");

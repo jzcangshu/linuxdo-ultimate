@@ -12,6 +12,9 @@
     restoreSession: false,
     hidePosters: true,
     colorizeTabs: true,
+    ownerOnlyEnabled: false,
+    cleanModeEnabled: false,
+    lowEndOptimizationEnabled: false,
     previewEnabled: false,
     creditEnabled: true,
     previewClickMode: "double",
@@ -45,6 +48,9 @@
       restoreSession: isCurrentSchema && source.restoreSession === true,
       hidePosters: source.hidePosters !== false,
       colorizeTabs: source.colorizeTabs !== false,
+      ownerOnlyEnabled: source.ownerOnlyEnabled === true,
+      cleanModeEnabled: source.cleanModeEnabled === true,
+      lowEndOptimizationEnabled: source.lowEndOptimizationEnabled === true,
       previewEnabled: source.previewEnabled === true,
       creditEnabled: source.creditEnabled !== false,
       previewClickMode: source.previewClickMode === "single" ? "single" : "double",
@@ -696,6 +702,11 @@
     frames = /* @__PURE__ */ new Map();
     liveLimit;
     previewConfig = { enabled: false, clickMode: "double" };
+    topicToolsConfig = {
+      ownerOnlyEnabled: false,
+      cleanModeEnabled: false,
+      lowEndOptimizationEnabled: false
+    };
     activeTabId = null;
     setMaxLiveFrames(value) {
       this.liveLimit = Math.max(1, Math.min(10, Math.floor(value)));
@@ -704,6 +715,10 @@
     setPreviewConfig(config) {
       this.previewConfig = { ...config };
       for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
+    }
+    setTopicToolsConfig(config) {
+      this.topicToolsConfig = { ...config };
+      for (const record of this.frames.values()) this.sendTopicToolsConfig(record.iframe);
     }
     activate(tab, now) {
       const switchingToAnotherFrame = this.activeTabId !== tab.id;
@@ -744,6 +759,7 @@
           this.restoreScroll(current);
           this.sendLifecycleState(current);
           this.sendPreviewConfig(iframe);
+          this.sendTopicToolsConfig(iframe);
           this.flushCommands(current);
           this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
         };
@@ -781,6 +797,10 @@
       if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
       const record = this.frames.get(data.tabId);
       if (!record || event.source !== record.iframe.contentWindow) return;
+      if (data.type === "ldu:frame-interaction") {
+        this.cancelScrollRestore(record);
+        record.restoreScrollY = 0;
+      }
       if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
         try {
           record.reportedUrl = new URL(data.url, document.baseURI).href;
@@ -793,6 +813,7 @@
         this.restoreScroll(record);
         this.sendLifecycleState(record);
         this.sendPreviewConfig(record.iframe);
+        this.sendTopicToolsConfig(record.iframe);
         this.flushCommands(record);
       }
       this.onMessage(data, record.iframe);
@@ -852,6 +873,7 @@
         current.loaded = true;
         this.restoreScroll(current);
         this.sendPreviewConfig(iframe);
+        this.sendTopicToolsConfig(iframe);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
       };
@@ -885,6 +907,9 @@
     }
     sendPreviewConfig(iframe) {
       iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
+    }
+    sendTopicToolsConfig(iframe) {
+      iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.topicToolsConfig }, location.origin);
     }
     setFrameActive(record, active) {
       const hidden = String(!active);
@@ -960,7 +985,12 @@
     }
     iframe = null;
     reportedUrl = "";
-    frameConfig = { enabled: false, clickMode: "double", hidePosters: true };
+    frameConfig = {
+      enabled: false,
+      clickMode: "double",
+      hidePosters: true,
+      topicTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false }
+    };
     restoreScrollY = 0;
     restoreTimer = null;
     restoreDeadline = 0;
@@ -973,6 +1003,7 @@
         iframe.dataset.frameId = this.frameId;
         iframe.addEventListener("load", () => {
           this.sendPreviewConfig(iframe);
+          this.sendTopicToolsConfig(iframe);
           this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
         });
         this.iframe = iframe;
@@ -1009,8 +1040,15 @@
       return this.iframe;
     }
     setConfig(config) {
-      this.frameConfig = { ...config };
-      if (this.iframe) this.sendPreviewConfig(this.iframe);
+      this.frameConfig = {
+        ...this.frameConfig,
+        ...config,
+        topicTools: config.topicTools ? { ...config.topicTools } : this.frameConfig.topicTools
+      };
+      if (this.iframe) {
+        this.sendPreviewConfig(this.iframe);
+        this.sendTopicToolsConfig(this.iframe);
+      }
     }
     handleMessage(event) {
       const data = event.data;
@@ -1027,6 +1065,9 @@
     }
     sendPreviewConfig(iframe) {
       iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.frameConfig }, location.origin);
+    }
+    sendTopicToolsConfig(iframe) {
+      iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.frameConfig.topicTools }, location.origin);
     }
     resolveSameOrigin(url) {
       try {
@@ -1295,6 +1336,7 @@
     "bookmark-filled": '<path class="ldu-symbol-fill" d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
     "close-others": '<rect x="3" y="5" width="13" height="12" rx="2"/><path d="M8 3h10a3 3 0 0 1 3 3v8"/><path d="m18 16 4 4m0-4-4 4"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+    "tab-list": '<path d="m4 6 5 6-5 6M11 6h9M11 12h9M11 18h9"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
     maximize: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
     restore: '<path d="M9 9H4V4M15 9h5V4M9 15H4v5M15 15h5v5"/>',
@@ -1359,16 +1401,12 @@
     const label = document.createElement("span");
     label.className = "ldu-tab-title";
     button.append(glyph, label);
-    button.addEventListener("pointerdown", () => {
-      button.closest(".ldu-topic-toolbar")?.classList.add("is-pointer-focused");
-    });
     button.addEventListener("click", () => {
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
       if (tabId && state) state.callbacks.onActivate(tabId);
     });
     button.addEventListener("keydown", (event) => {
-      button.closest(".ldu-topic-toolbar")?.classList.remove("is-pointer-focused");
       const tabId = item.dataset.tabId;
       const state = tabStripStates.get(root);
       if (!tabId || !state) return;
@@ -1624,7 +1662,7 @@ ${tab.url}`;
   --ldu-accent: var(--tertiary, #0088cc);
   --ldu-danger: var(--danger, #d04437);
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ldu-vertical-tabs-collapsed: 2.625rem;
+  --ldu-vertical-tabs-collapsed: calc(var(--font-0, 1rem) * 2.75);
 }
 
 body.ldu-layout-active {
@@ -1845,19 +1883,19 @@ body.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel { border-right
   background: var(--ldu-surface-muted);
 }
 
-/* The vertical rail reserves only its compact marker width. Its expanded surface
-   overlays the current reading pane, so iframe geometry never jumps on hover. */
+/* Vertical rails have four explicit states: left/right and auto/static. */
 body.ldu-tabs-vertical #ldu-topic-panel,
 body.ldu-tabs-vertical #ldu-secondary-topic-panel {
   display: grid;
-  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 
+body.ldu-tabs-vertical .ldu-topic-content {
+  grid-row: 1;
+}
+
 body.ldu-tabs-vertical .ldu-topic-toolbar {
-  position: relative;
   z-index: 4;
-  grid-column: 1;
   grid-row: 1;
   display: flex;
   width: min(17rem, max(10rem, calc(100cqi - .75rem)));
@@ -1868,43 +1906,36 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   overflow: hidden;
   border-right: 1px solid var(--ldu-border);
   box-shadow: 4px 0 14px rgb(0 0 0 / 12%);
-  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
   transition: clip-path 180ms var(--ldu-ease-out), opacity 180ms ease-out;
   transition-delay: 180ms;
 }
 
-body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
-body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
-body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
-body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
-  clip-path: inset(0);
-  transition-delay: 80ms;
+/* Detail in the middle: keep the compact rail on the left. */
+body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
+body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
+  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
 }
 
-body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-topic-panel,
-body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
-  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-toolbar {
+  position: relative;
+  grid-column: 1;
+  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
 }
 
-body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
-  width: 100%;
-  clip-path: inset(0);
-  transition: none;
-}
-
-body.ldu-tabs-vertical .ldu-topic-content {
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-content {
   grid-column: 2;
-  grid-row: 1;
 }
 
+/* Detail on the right: overlay the compact rail on the iframe scrollbar. */
 body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
 body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
-  grid-template-columns: minmax(0, 1fr) var(--ldu-vertical-tabs-collapsed);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
-  grid-column: 2;
-  justify-self: end;
+  position: absolute;
+  inset-block: 0;
+  right: 0;
   border-right: 0;
   border-left: 1px solid var(--ldu-border);
   clip-path: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
@@ -1914,13 +1945,36 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-content {
   grid-column: 1;
 }
 
+body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(:focus-visible),
+body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
+  clip-path: inset(0);
+  transition-delay: 80ms;
+}
+
+/* Fixed left rail. */
+body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-secondary-topic-panel {
+  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+}
+
+/* Fixed right rail. */
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-topic-panel,
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
   grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
 }
 
+body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
+  position: relative;
+  width: 100%;
+  clip-path: inset(0);
+  transition: none;
+}
+
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static .ldu-topic-toolbar {
-  justify-self: stretch;
+  right: auto;
+  grid-column: 2;
 }
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-actions {
@@ -1933,6 +1987,15 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading {
   padding-left: 0;
 }
 
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading > .ldu-symbol {
+  order: 2;
+  transform: scaleX(-1);
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading-label {
+  text-align: right;
+}
+
 body.ldu-tabs-vertical .ldu-tab-title,
 body.ldu-tabs-vertical .ldu-tab-group-label {
   text-align: start;
@@ -1942,8 +2005,8 @@ body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
   flex-direction: column;
   min-height: 0;
   align-items: stretch;
-  gap: 2px;
-  padding: 6px 4px;
+  gap: .35em;
+  padding: .55em .35em;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -1960,7 +2023,7 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip::-webkit
 body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-topic-actions {
   order: -1;
   justify-content: flex-start;
-  min-height: 38px;
+  min-height: 2.75em;
   border-bottom: 1px solid var(--ldu-border);
 }
 
@@ -1984,18 +2047,20 @@ body.ldu-tabs-vertical .ldu-tab-item {
   width: auto;
   min-width: 0;
   max-width: none;
-  min-height: 36px;
-  flex: 0 0 36px;
+  min-height: 2.75em;
+  flex: 0 0 2.75em;
   border: 0;
-  border-radius: 4px;
+  border-radius: .35em;
+  font-size: var(--font-0, 1rem);
 }
 
 body.ldu-tabs-vertical .ldu-tab-button {
   display: flex;
-  min-height: 36px;
+  min-height: 2.75em;
   align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 9px;
+  gap: .625em;
+  padding: .625em .5em .625em .75em;
+  font-size: var(--font-0, 1rem);
 }
 
 .ldu-tab-glyph {
@@ -2009,6 +2074,17 @@ body.ldu-tabs-vertical .ldu-tab-button {
 
 body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
 
+body.ldu-tabs-vertical .ldu-tab-close {
+  width: 1.75em;
+  height: 1.75em;
+  margin-right: .25em;
+}
+
+body.ldu-tabs-vertical .ldu-tab-close .ldu-symbol {
+  width: 1em;
+  height: 1em;
+}
+
 .ldu-tab-title {
   display: block;
   min-width: 0;
@@ -2018,22 +2094,33 @@ body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
 }
 
 @media (hover: none) {
-  body.ldu-tabs-vertical #ldu-topic-panel,
-  body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
+  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
     grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
   }
 
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
+    grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
+  }
+
   body.ldu-tabs-vertical .ldu-topic-toolbar {
+    position: relative;
     width: 100%;
     clip-path: inset(0);
     transition: none;
   }
+
+  body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
+    right: auto;
+    grid-column: 2;
+  }
 }
 
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
   visibility: hidden;
 }
 
@@ -2046,6 +2133,14 @@ body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.i
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
 
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-item.is-active {
+  box-shadow: inset -3px 0 0 var(--ldu-accent);
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
+  box-shadow: inset -3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
+}
+
 .ldu-tab-group-header {
   display: flex;
   min-height: 26px;
@@ -2053,7 +2148,7 @@ body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.i
   gap: 7px;
   padding: 6px 8px 2px;
   color: var(--primary-medium, #777);
-  font-size: var(--font-down-2, .75rem);
+  font-size: var(--font-down-1, .875rem);
   font-weight: 600;
   letter-spacing: 0;
   white-space: nowrap;
@@ -2371,7 +2466,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   width: 100%;
   max-height: inherit;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--ldu-border);
   border-radius: 6px;
   background: var(--ldu-surface);
@@ -2388,6 +2483,9 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 }
 
 .ldu-settings-panel .dc-header h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   margin: 0;
   padding: 0;
   color: var(--ldu-text);
@@ -2399,6 +2497,14 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .ldu-brand-ultimate {
   color: #ffd43b;
   text-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
+.ldu-settings-panel .ldu-settings-version {
+  margin-left: 6px;
+  color: var(--primary-medium, #8b949e);
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .ldu-settings-panel .dc-close-btn {
@@ -2481,10 +2587,48 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
 .ldu-settings-panel .ldu-update-wrap { position: relative; }
-.ldu-settings-panel .ldu-update-menu { right: 0; min-width: 250px; max-width: min(360px, 80vw); padding: 10px; }
-.ldu-settings-panel .ldu-update-summary { color: var(--ldu-text); font-size: var(--font-down-2, .75rem); line-height: 1.45; }
-.ldu-settings-panel .ldu-update-summary ul { margin: 6px 0 8px; padding-left: 18px; text-align: left; }
-.ldu-settings-panel .ldu-update-link { background: var(--ldu-accent); color: #fff; text-align: center; }
+.ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  min-width: min(360px, calc(100vw - 32px));
+  max-width: none;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 8px;
+}
+.ldu-settings-panel .ldu-update-summary {
+  display: grid;
+  gap: 8px;
+  color: var(--ldu-text);
+  font-size: var(--font-down-1, .875rem);
+  line-height: 1.55;
+}
+.ldu-settings-panel .ldu-update-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ldu-settings-panel .ldu-update-title { font-size: var(--font-0, 1rem); font-weight: 700; }
+.ldu-settings-panel .ldu-update-version {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #ffd43b 55%, var(--ldu-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #ffd43b 12%, transparent);
+  color: color-mix(in srgb, #ffd43b 78%, var(--ldu-text));
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 700;
+}
+.ldu-settings-panel .ldu-update-date { color: var(--primary-medium, #8b949e); font-size: var(--font-down-2, .75rem); }
+.ldu-settings-panel .ldu-update-changelog { margin: 0; padding-left: 20px; text-align: left; }
+.ldu-settings-panel .ldu-update-changelog li + li { margin-top: 6px; }
+.ldu-settings-panel .ldu-update-changelog li::marker { color: var(--ldu-accent); }
+.ldu-settings-panel .ldu-update-link {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  background: var(--ldu-accent);
+  color: #fff;
+  font-size: var(--font-down-1, .875rem);
+  font-weight: 600;
+  text-align: center;
+}
 .ldu-settings-panel .ldu-donate-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; display: flex; min-width: 100px; flex-direction: column; padding: 4px; border: 1px solid var(--ldu-border); border-radius: 4px; background: var(--ldu-surface-muted); box-shadow: 0 6px 18px rgb(0 0 0 / 50%); }
 .ldu-settings-panel .dc-dropdown-menu[hidden] { display: none; }
@@ -2812,7 +2956,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       panel.innerHTML = `
       <div class="ldu-topic-toolbar">
         <div class="ldu-tab-strip" role="tablist" aria-label="${secondary ? "\u7B2C\u4E8C\u9605\u8BFB\u533A" : "\u4E3B\u9605\u8BFB\u533A"}\u5DF2\u6253\u5F00\u7684\u5E16\u5B50"></div>
-        <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("list", 16)}<span class="ldu-vertical-tabs-heading-label">\u5E16\u5B50\u6807\u7B7E</span></span></div>
+        <div class="ldu-topic-actions"><span class="ldu-vertical-tabs-heading">${iconSvg("tab-list", 18)}<span class="ldu-vertical-tabs-heading-label">\u5E16\u5B50\u6807\u7B7E</span></span></div>
       </div>
       <div class="ldu-topic-content">
         <div class="ldu-topic-empty">\u4ECE\u5217\u8868\u4E2D\u9009\u62E9\u5E16\u5B50</div>
@@ -2924,6 +3068,121 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     return Math.round(Math.min(0.7, Math.max(0.3, value)) * 1e3) / 1e3;
   }
 
+  // src/core/update-checker.ts
+  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/jzcangshu/linuxdo-ultimate/main/updates/latest.json";
+  var UPDATE_CACHE_KEY = "linuxdo-ultimate:update-cache";
+  var UPDATE_ATTEMPT_KEY = "linuxdo-ultimate:update-attempt";
+  var UPDATE_CACHE_TTL_MS = 24 * 60 * 6e4;
+  var UPDATE_FAILURE_COOLDOWN_MS = 60 * 6e4;
+  function compareVersions(left, right) {
+    const parse = (value) => {
+      const match = value.trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+      if (!match) return null;
+      return [Number(match[1]), Number(match[2]), Number(match[3])];
+    };
+    const a = parse(left);
+    const b = parse(right);
+    if (!a || !b) return 0;
+    for (let index = 0; index < a.length; index += 1) {
+      const leftPart = a[index] ?? 0;
+      const rightPart = b[index] ?? 0;
+      if (leftPart !== rightPart) return leftPart > rightPart ? 1 : -1;
+    }
+    return 0;
+  }
+  function validateUpdateManifest(value) {
+    if (!value || typeof value !== "object") throw new Error("\u66F4\u65B0\u6E05\u5355\u683C\u5F0F\u65E0\u6548");
+    const source = value;
+    const version = typeof source.version === "string" ? source.version : "";
+    const publishedAt = typeof source.publishedAt === "string" ? source.publishedAt : "";
+    const releaseUrl = typeof source.releaseUrl === "string" ? source.releaseUrl : "";
+    const changelog = Array.isArray(source.changelog) ? source.changelog.filter((item) => typeof item === "string").slice(0, 8) : [];
+    if (source.schemaVersion !== 1 || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version) || !publishedAt || changelog.length === 0) {
+      throw new Error("\u66F4\u65B0\u6E05\u5355\u5185\u5BB9\u4E0D\u5B8C\u6574");
+    }
+    const parsedUrl = new URL(releaseUrl);
+    if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "github.com" || parsedUrl.pathname !== "/jzcangshu/linuxdo-ultimate/releases/tag/v" + version.replace(/^v/i, "")) {
+      throw new Error("\u66F4\u65B0\u6E05\u5355\u53D1\u5E03\u5730\u5740\u65E0\u6548");
+    }
+    return { schemaVersion: 1, version, publishedAt, releaseUrl, changelog };
+  }
+  function defaultRequest(options) {
+    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest(options);
+    let aborted = false;
+    void fetch(options.url, { headers: options.headers, signal: AbortSignal.timeout(options.timeout) }).then(async (response) => {
+      if (!aborted) options.onload({ status: response.status, responseText: await response.text() });
+    }).catch((error) => {
+      if (!aborted) options.onerror(error);
+    });
+    return { abort: () => {
+      aborted = true;
+    } };
+  }
+  function getCurrentVersion() {
+    try {
+      if (typeof chrome !== "undefined") {
+        const version = chrome.runtime?.getManifest?.().version;
+        if (version) return version;
+      }
+    } catch {
+    }
+    try {
+      if (typeof GM_info !== "undefined" && GM_info.script.version) return GM_info.script.version;
+    } catch {
+    }
+    return "0.0.0";
+  }
+  var UpdateChecker = class {
+    constructor(storage, request = defaultRequest, currentVersion = getCurrentVersion()) {
+      this.storage = storage;
+      this.request = request;
+      this.currentVersion = currentVersion;
+    }
+    async check(force = false) {
+      const now = Date.now();
+      const cached = await Promise.resolve(this.storage.get(UPDATE_CACHE_KEY, null));
+      if (!force && cached?.checkedByVersion === this.currentVersion && now - cached.checkedAt < UPDATE_CACHE_TTL_MS) {
+        return this.compare(cached.manifest);
+      }
+      const lastAttempt = await Promise.resolve(this.storage.get(UPDATE_ATTEMPT_KEY, 0));
+      if (!force && lastAttempt > 0 && now - lastAttempt < UPDATE_FAILURE_COOLDOWN_MS) {
+        return cached ? this.compare(cached.manifest) : { status: "current", version: this.currentVersion };
+      }
+      this.storage.set(UPDATE_ATTEMPT_KEY, now);
+      return new Promise((resolve) => {
+        const finishError = (message) => resolve({ status: "error", message });
+        this.request({
+          method: "GET",
+          url: force ? `${UPDATE_MANIFEST_URL}?t=${now}` : UPDATE_MANIFEST_URL,
+          headers: { Accept: "application/json" },
+          timeout: 1e4,
+          onload: (response) => {
+            if (response.status < 200 || response.status >= 300) {
+              finishError(`HTTP ${response.status}`);
+              return;
+            }
+            try {
+              const manifest = validateUpdateManifest(JSON.parse(response.responseText));
+              this.storage.set(UPDATE_CACHE_KEY, {
+                checkedAt: now,
+                checkedByVersion: this.currentVersion,
+                manifest
+              });
+              resolve(this.compare(manifest));
+            } catch (error) {
+              finishError(error instanceof Error ? error.message : "\u66F4\u65B0\u6E05\u5355\u89E3\u6790\u5931\u8D25");
+            }
+          },
+          onerror: () => finishError("\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25"),
+          ontimeout: () => finishError("\u8BF7\u6C42\u8D85\u65F6")
+        });
+      });
+    }
+    compare(manifest) {
+      return compareVersions(manifest.version, this.currentVersion) > 0 ? { status: "available", manifest } : { status: "current", version: this.currentVersion };
+    }
+  };
+
   // src/ui/settings-panel.ts
   var SettingsPanel = class {
     constructor(host, settings, callbacks) {
@@ -2959,7 +3218,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       panel.innerHTML = `
       <div class="dc-modal">
         <header class="dc-header">
-          <h2 class="ldu-settings-heading">Linux Do <span class="ldu-brand-ultimate">Ultimate</span></h2>
+          <h2 class="ldu-settings-heading">Linux Do <span class="ldu-brand-ultimate">Ultimate</span><span class="ldu-settings-version">v${getCurrentVersion()}</span></h2>
           <button type="button" class="dc-close-btn ldu-settings-close" title="\u5173\u95ED" aria-label="\u5173\u95ED\u8BBE\u7F6E">${iconSvg("close", 16)}</button>
         </header>
         <div class="dc-body">
@@ -2968,14 +3227,14 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u542F\u7528\u5206\u5C4F\u6A21\u5F0F</span>
-                <span class="dc-item-desc">\u63A7\u5236\u5206\u5C4F\u9605\u8BFB\u548C\u9875\u5185\u5E16\u5B50\u6807\u7B7E\u529F\u80FD</span>
+                <span class="dc-item-desc">\u5728\u5F53\u524D\u9875\u9762\u5E76\u6392\u6D4F\u89C8\u5E16\u5B50\u5217\u8868\u4E0E\u6B63\u6587</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="tabsEnabled"><span class="dc-slider"></span></span>
             </label>
             <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u5E16\u5B50\u8BE6\u60C5\u9875\u4F4D\u7F6E</span>
-                <span class="dc-item-desc">\u81EA\u52A8\u6A21\u5F0F\u5C06\u7531\u5C4F\u5E55\u53EF\u7528\u6A2A\u5411\u7A7A\u95F4\u51B3\u5B9A</span>
+                <span class="dc-item-title">\u8BE6\u60C5\u9875\u4F4D\u7F6E</span>
+                <span class="dc-item-desc">\u201C\u81EA\u52A8\u201D\u4F1A\u6839\u636E\u7A97\u53E3\u5BBD\u5EA6\u9009\u62E9</span>
               </span>
               <div class="dc-pills" data-pills-setting="layoutPreference">
                 <button type="button" class="dc-pill-btn" data-val="auto">\u81EA\u52A8</button>
@@ -2988,8 +3247,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-reading-heading">\u9605\u8BFB\u4E0E\u6807\u7B7E</div>
             <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u5E16\u5B50\u6807\u7B7E\u680F\u6837\u5F0F</span>
-                <span class="dc-item-desc">\u53EF\u4F7F\u7528\u4F20\u7EDF\u6A2A\u5411\u6807\u7B7E\uFF0C\u6216\u7A7A\u95F4\u66F4\u5145\u88D5\u7684\u5782\u76F4\u6807\u7B7E\u680F</span>
+                <span class="dc-item-title">\u6807\u7B7E\u680F\u6837\u5F0F</span>
               </span>
               <div class="dc-pills" data-pills-setting="tabPresentation">
                 <button type="button" class="dc-pill-btn" data-val="horizontal">\u6A2A\u5411</button>
@@ -2998,60 +3256,80 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
             </div>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77\u5782\u76F4\u6807\u7B7E\u680F</span>
-                <span class="dc-item-desc">\u5E73\u65F6\u53EA\u663E\u793A\u7D27\u51D1\u56FE\u6807\uFF0C\u60AC\u505C\u6216\u805A\u7126\u65F6\u8986\u76D6\u5C55\u5F00</span>
+                <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77</span>
+                <span class="dc-item-desc">\u79FB\u5F00\u9F20\u6807\u540E\u6536\u8D77\u4E3A\u56FE\u6807\u680F</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6309\u5E16\u5B50\u5206\u533A\u81EA\u52A8\u5206\u7EC4</span>
-                <span class="dc-item-desc">\u4F7F\u7528\u5185\u7F6E\u4E3B\u5206\u7C7B\u8868\u6574\u7406\u6807\u7B7E\uFF0C\u4E0D\u989D\u5916\u626B\u63CF\u9875\u9762\u6216\u8BF7\u6C42\u7F51\u7EDC</span>
+                <span class="dc-item-title">\u6309\u5206\u533A\u5206\u7EC4</span>
+                <span class="dc-item-desc">\u6309\u5E16\u5B50\u4E3B\u5206\u7C7B\u6574\u7406\u5782\u76F4\u6807\u7B7E</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u4E0B\u6B21\u8BBF\u95EE\u65F6\u6062\u590D\u4E0A\u6B21\u6253\u5F00\u7684\u5E16\u5B50</span>
-                <span class="dc-item-desc">\u5173\u95ED\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u540E\u91CD\u65B0\u8FDB\u5165\u65F6\u6062\u590D\u4E0A\u6B21\u9605\u8BFB\u72B6\u6001</span>
+                <span class="dc-item-title">\u6062\u590D\u4E0A\u6B21\u5E16\u5B50</span>
+                <span class="dc-item-desc">\u4E0B\u6B21\u8BBF\u95EE\u65F6\u6062\u590D\u6700\u540E\u5173\u95ED\u7684\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u4F1A\u8BDD</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="restoreSession"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u9690\u85CF\u8BDD\u9898\u5217\u8868\u4E2D\u7684\u7528\u6237\u5934\u50CF\u5217</span>
-                <span class="dc-item-desc">\u9690\u85CF\u53C2\u4E0E\u8005\u5934\u50CF\u5217\uFF0C\u4E3A\u6807\u9898\u817E\u51FA\u66F4\u591A\u7A7A\u95F4</span>
+                <span class="dc-item-title">\u9690\u85CF\u5217\u8868\u5934\u50CF\u5217</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="hidePosters"><span class="dc-slider"></span></span>
             </label>
+            <label class="dc-row ldu-settings-control">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u53EA\u770B\u697C\u4E3B</span>
+                <span class="dc-item-desc">\u5728\u5E16\u5B50\u9875\u663E\u793A\u5207\u6362\u6309\u94AE\u5E76\u6309\u4E3B\u9898\u8BB0\u4F4F\u72B6\u6001</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="ownerOnlyEnabled"><span class="dc-slider"></span></span>
+            </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6309\u5206\u7C7B\u4E3A\u5E16\u5B50\u6807\u7B7E\u4E0A\u8272</span>
-                <span class="dc-item-desc">\u4F7F\u7528\u5E16\u5B50\u6240\u5C5E\u5206\u7C7B\u56FE\u6807\u989C\u8272\u4E3A\u6807\u7B7E\u6DFB\u52A0\u80CC\u666F\u8272</span>
+                <span class="dc-item-title">\u6807\u7B7E\u5206\u7C7B\u4E0A\u8272</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6700\u591A\u4FDD\u7559\u6D3B\u52A8\u9875\u9762</span>
+                <span class="dc-item-title">\u6D3B\u52A8\u9875\u9762\u4E0A\u9650</span>
                 <span class="dc-item-desc">\u9650\u5236\u540C\u65F6\u4FDD\u7559\u5728\u5185\u5B58\u4E2D\u7684\u5E16\u5B50\u9875\u9762\u6570\u91CF</span>
               </span>
               <span class="dc-range-group ldu-settings-range-control"><input type="range" class="dc-range" data-setting="maxLiveFrames" min="1" max="10" step="1"><output class="dc-range-number" data-output="maxLiveFrames"></output></span>
+            </label>
+          </section>
+          <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
+            <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">\u9875\u9762\u6837\u5F0F</div>
+            <label class="dc-row ldu-settings-control">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u6E05\u723D\u6A21\u5F0F</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
+            </label>
+            <label class="dc-row ldu-settings-control">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u4F4E\u7AEF\u8BBE\u5907\u6027\u80FD\u4F18\u5316</span>
+                <span class="dc-item-desc">\u51CF\u5C11\u52A8\u753B\u548C\u8FC7\u6E21\u6548\u679C\uFF0C\u964D\u4F4E\u8BBE\u5907\u8D1F\u62C5</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="lowEndOptimizationEnabled"><span class="dc-slider"></span></span>
             </label>
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-tools-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-tools-heading">\u5B9E\u7528\u5DE5\u5177</div>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u542F\u7528\u94FE\u63A5\u60AC\u6D6E\u9884\u89C8</span>
+                <span class="dc-item-title">\u94FE\u63A5\u60AC\u6D6E\u9884\u89C8</span>
                 <span class="dc-item-desc alert ldu-settings-risk" data-depends-on="previewEnabled" role="note">\u9884\u89C8\u9875\u9762\u4F1A\u8FD0\u884C\u76EE\u6807\u7F51\u7AD9\u811A\u672C\uFF0C\u8BF7\u53EA\u9884\u89C8\u53EF\u4FE1\u94FE\u63A5\u3002</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
             </label>
             <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="previewEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u9884\u89C8\u89E6\u53D1\u65B9\u5F0F</span>
-                <span class="dc-item-desc">\u9009\u62E9\u89E6\u53D1\u60AC\u6D6E\u9884\u89C8\u7A97\u53E3\u7684\u64CD\u4F5C\u65B9\u5F0F</span>
+                <span class="dc-item-title">\u89E6\u53D1\u65B9\u5F0F</span>
               </span>
               <div class="dc-pills" data-pills-setting="previewClickMode">
                 <button type="button" class="dc-pill-btn" data-val="double">\u53CC\u51FB</button>
@@ -3061,7 +3339,6 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u5728\u9876\u90E8\u663E\u793A LDC \u6536\u5165</span>
-                <span class="dc-item-desc">\u5728\u9876\u90E8\u5BFC\u822A\u6761\u8BED\u8A00\u5207\u6362\u65C1\u663E\u793A\u6536\u5165\u503C\uFF0C\u70B9\u51FB\u53EF\u5237\u65B0</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="creditEnabled"><span class="dc-slider"></span></span>
             </label>
@@ -3074,7 +3351,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
               <button type="button" class="dc-btn ldu-settings-action ldu-settings-update" aria-expanded="false" aria-controls="ldu-update-menu">${iconSvg("refresh", 14)}\u68C0\u67E5\u66F4\u65B0</button>
               <div class="dc-dropdown-menu ldu-update-menu" id="ldu-update-menu" role="status" aria-live="polite" hidden>
                 <div class="ldu-update-summary"></div>
-                <a class="dc-dropdown-item ldu-update-link" href="#" target="_blank" rel="noopener noreferrer">\u524D\u5F80\u4E0B\u8F7D</a>
+                <a class="dc-dropdown-item ldu-update-link" href="#" target="_blank" rel="noopener noreferrer">\u67E5\u770B\u65B0\u7248\u5E76\u4E0B\u8F7D</a>
               </div>
             </div>
             <a class="dc-btn ldu-settings-action ldu-settings-github" href="https://github.com/jzcangshu/linuxdo-ultimate" target="_blank" rel="noopener noreferrer">${iconSvg("github", 14)}Github</a>
@@ -3160,14 +3437,28 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (result.status === "available") {
         this.setUpdateButton(button, `\u53D1\u73B0 v${result.manifest.version}`);
         button.title = `\u53D1\u73B0\u65B0\u7248\u672C v${result.manifest.version}`;
-        summary.textContent = `\u53D1\u73B0\u65B0\u7248\u672C v${result.manifest.version}`;
+        summary.replaceChildren();
+        const header = document.createElement("div");
+        header.className = "ldu-update-header";
+        const title = document.createElement("strong");
+        title.className = "ldu-update-title";
+        title.textContent = "\u53D1\u73B0\u65B0\u7248\u672C";
+        const version = document.createElement("span");
+        version.className = "ldu-update-version";
+        version.textContent = `v${result.manifest.version}`;
+        header.append(title, version);
+        const publishedAt = document.createElement("time");
+        publishedAt.className = "ldu-update-date";
+        publishedAt.dateTime = result.manifest.publishedAt;
+        publishedAt.textContent = `\u53D1\u5E03\u4E8E ${result.manifest.publishedAt}`;
         const list = document.createElement("ul");
+        list.className = "ldu-update-changelog";
         result.manifest.changelog.forEach((item) => {
           const entry = document.createElement("li");
           entry.textContent = item;
           list.append(entry);
         });
-        summary.append(list);
+        summary.append(header, publishedAt, list);
         link.href = result.manifest.releaseUrl;
         this.setUpdateMenuOpen(showDetails);
         return;
@@ -3190,7 +3481,10 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       const groupVerticalTabs = this.panel.querySelector('[data-setting="groupVerticalTabs"]');
       const restore = this.panel.querySelector('[data-setting="restoreSession"]');
       const posters = this.panel.querySelector('[data-setting="hidePosters"]');
+      const ownerOnly = this.panel.querySelector('[data-setting="ownerOnlyEnabled"]');
       const colorizeTabs = this.panel.querySelector('[data-setting="colorizeTabs"]');
+      const cleanMode = this.panel.querySelector('[data-setting="cleanModeEnabled"]');
+      const lowEndOptimization = this.panel.querySelector('[data-setting="lowEndOptimizationEnabled"]');
       const preview = this.panel.querySelector('[data-setting="previewEnabled"]');
       const credit = this.panel.querySelector('[data-setting="creditEnabled"]');
       const live = this.panel.querySelector('[data-setting="maxLiveFrames"]');
@@ -3200,7 +3494,10 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
       if (restore) restore.checked = this.settings.restoreSession;
       if (posters) posters.checked = this.settings.hidePosters;
+      if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
       if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
+      if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;
+      if (lowEndOptimization) lowEndOptimization.checked = this.settings.lowEndOptimizationEnabled;
       if (preview) preview.checked = this.settings.previewEnabled;
       if (credit) credit.checked = this.settings.creditEnabled;
       if (live) live.value = String(this.settings.maxLiveFrames);
@@ -3749,120 +4046,298 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     }
   };
 
-  // src/core/update-checker.ts
-  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/jzcangshu/linuxdo-ultimate/main/updates/latest.json";
-  var UPDATE_CACHE_KEY = "linuxdo-ultimate:update-cache";
-  var UPDATE_ATTEMPT_KEY = "linuxdo-ultimate:update-attempt";
-  var UPDATE_CACHE_TTL_MS = 24 * 60 * 6e4;
-  var UPDATE_FAILURE_COOLDOWN_MS = 60 * 6e4;
-  function compareVersions(left, right) {
-    const parse = (value) => {
-      const match = value.trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-      if (!match) return null;
-      return [Number(match[1]), Number(match[2]), Number(match[3])];
-    };
-    const a = parse(left);
-    const b = parse(right);
-    if (!a || !b) return 0;
-    for (let index = 0; index < a.length; index += 1) {
-      const leftPart = a[index] ?? 0;
-      const rightPart = b[index] ?? 0;
-      if (leftPart !== rightPart) return leftPart > rightPart ? 1 : -1;
+  // src/discourse/topic-tools.ts
+  var DEFAULT_CONFIG = {
+    ownerOnlyEnabled: false,
+    cleanModeEnabled: false,
+    lowEndOptimizationEnabled: false
+  };
+  var STYLE_ID = "ldu-topic-tools-style";
+  var OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
+  var LEGACY_OWNER_STATE_KEY = "on_off";
+  var OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
+  var ALL_MODE = "\u5F53\u524D\u67E5\u770B\u5168\u90E8";
+  var WELCOME_TEXT = "\u5E0C\u671B\u4F60\u559C\u6B22\u8FD9\u91CC\u3002\u6709\u95EE\u9898\uFF0C\u8BF7\u63D0\u95EE\uFF0C\u6216\u641C\u7D22\u73B0\u6709\u5E16\u5B50\u3002";
+  var TopicToolsController = class {
+    config = { ...DEFAULT_CONFIG };
+    observer = null;
+    applyQueued = false;
+    started = false;
+    lastOwnerTopicId = "";
+    nativeSidebarCollapsed = false;
+    win;
+    doc;
+    embedded;
+    isSplitHost;
+    constructor(options = {}) {
+      this.win = options.window ?? window;
+      this.doc = options.document ?? document;
+      this.embedded = options.isEmbedded === true;
+      this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
     }
-    return 0;
-  }
-  function validateUpdateManifest(value) {
-    if (!value || typeof value !== "object") throw new Error("\u66F4\u65B0\u6E05\u5355\u683C\u5F0F\u65E0\u6548");
-    const source = value;
-    const version = typeof source.version === "string" ? source.version : "";
-    const publishedAt = typeof source.publishedAt === "string" ? source.publishedAt : "";
-    const releaseUrl = typeof source.releaseUrl === "string" ? source.releaseUrl : "";
-    const changelog = Array.isArray(source.changelog) ? source.changelog.filter((item) => typeof item === "string").slice(0, 8) : [];
-    if (source.schemaVersion !== 1 || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version) || !publishedAt || changelog.length === 0) {
-      throw new Error("\u66F4\u65B0\u6E05\u5355\u5185\u5BB9\u4E0D\u5B8C\u6574");
-    }
-    const parsedUrl = new URL(releaseUrl);
-    if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "github.com" || parsedUrl.pathname !== "/jzcangshu/linuxdo-ultimate/releases/tag/v" + version.replace(/^v/i, "")) {
-      throw new Error("\u66F4\u65B0\u6E05\u5355\u53D1\u5E03\u5730\u5740\u65E0\u6548");
-    }
-    return { schemaVersion: 1, version, publishedAt, releaseUrl, changelog };
-  }
-  function defaultRequest(options) {
-    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest(options);
-    let aborted = false;
-    void fetch(options.url, { headers: options.headers, signal: AbortSignal.timeout(options.timeout) }).then(async (response) => {
-      if (!aborted) options.onload({ status: response.status, responseText: await response.text() });
-    }).catch((error) => {
-      if (!aborted) options.onerror(error);
-    });
-    return { abort: () => {
-      aborted = true;
-    } };
-  }
-  function getCurrentVersion() {
-    try {
-      if (typeof chrome !== "undefined") {
-        const version = chrome.runtime?.getManifest?.().version;
-        if (version) return version;
+    start() {
+      if (this.started) return this;
+      this.started = true;
+      ensureStyles(this.doc);
+      this.queueApply();
+      const Observer = this.win.MutationObserver;
+      if (Observer && this.doc.documentElement) {
+        this.observer = new Observer(() => this.queueApply());
+        this.observer.observe(this.doc.documentElement, { childList: true, subtree: true, characterData: true });
       }
-    } catch {
+      return this;
     }
-    try {
-      if (typeof GM_info !== "undefined" && GM_info.script.version) return GM_info.script.version;
-    } catch {
+    stop() {
+      this.observer?.disconnect();
+      this.observer = null;
+      this.started = false;
+      this.clearOwnerFilter();
+      this.doc.getElementById("ldu-owner-toggle")?.remove();
     }
-    return "0.0.0";
-  }
-  var UpdateChecker = class {
-    constructor(storage, request = defaultRequest, currentVersion = getCurrentVersion()) {
-      this.storage = storage;
-      this.request = request;
-      this.currentVersion = currentVersion;
+    setConfig(patch) {
+      this.config = { ...this.config, ...patch };
+      ensureStyles(this.doc);
+      this.applyStateAttributes();
+      this.queueApply();
     }
-    async check(force = false) {
-      const now = Date.now();
-      const cached = await Promise.resolve(this.storage.get(UPDATE_CACHE_KEY, null));
-      if (!force && cached?.checkedByVersion === this.currentVersion && now - cached.checkedAt < UPDATE_CACHE_TTL_MS) {
-        return this.compare(cached.manifest);
+    getConfig() {
+      return { ...this.config };
+    }
+    queueApply() {
+      if (this.applyQueued) return;
+      this.applyQueued = true;
+      const run = () => {
+        this.applyQueued = false;
+        this.apply();
+      };
+      if (typeof this.win.requestAnimationFrame === "function") this.win.requestAnimationFrame(run);
+      else this.win.setTimeout(run, 0);
+    }
+    apply() {
+      this.applyStateAttributes();
+      if (this.config.cleanModeEnabled || this.doc.querySelector('[data-ldu-clean-hidden="true"]')) {
+        this.applyCleanTextMarkers();
       }
-      const lastAttempt = await Promise.resolve(this.storage.get(UPDATE_ATTEMPT_KEY, 0));
-      if (!force && lastAttempt > 0 && now - lastAttempt < UPDATE_FAILURE_COOLDOWN_MS) {
-        return cached ? this.compare(cached.manifest) : { status: "current", version: this.currentVersion };
+      if (this.config.ownerOnlyEnabled || this.doc.getElementById("ldu-owner-toggle") || this.lastOwnerTopicId) {
+        this.syncOwnerControl();
+        this.applyOwnerFilter();
       }
-      this.storage.set(UPDATE_ATTEMPT_KEY, now);
-      return new Promise((resolve) => {
-        const finishError = (message) => resolve({ status: "error", message });
-        this.request({
-          method: "GET",
-          url: force ? `${UPDATE_MANIFEST_URL}?t=${now}` : UPDATE_MANIFEST_URL,
-          headers: { Accept: "application/json" },
-          timeout: 1e4,
-          onload: (response) => {
-            if (response.status < 200 || response.status >= 300) {
-              finishError(`HTTP ${response.status}`);
-              return;
-            }
-            try {
-              const manifest = validateUpdateManifest(JSON.parse(response.responseText));
-              this.storage.set(UPDATE_CACHE_KEY, {
-                checkedAt: now,
-                checkedByVersion: this.currentVersion,
-                manifest
-              });
-              resolve(this.compare(manifest));
-            } catch (error) {
-              finishError(error instanceof Error ? error.message : "\u66F4\u65B0\u6E05\u5355\u89E3\u6790\u5931\u8D25");
-            }
-          },
-          onerror: () => finishError("\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25"),
-          ontimeout: () => finishError("\u8BF7\u6C42\u8D85\u65F6")
+      this.collapseNativeSidebarIfNeeded();
+    }
+    applyStateAttributes() {
+      const root = this.doc.documentElement;
+      const cleanMode = String(this.config.cleanModeEnabled);
+      const lowEnd = String(this.config.lowEndOptimizationEnabled && isLowEndDevice(this.win.navigator));
+      if (root.dataset.lduCleanMode !== cleanMode) root.dataset.lduCleanMode = cleanMode;
+      if (root.dataset.lduLowEnd !== lowEnd) root.dataset.lduLowEnd = lowEnd;
+    }
+    isTopicPage() {
+      return getTopicInfo(this.win.location.href, this.win.location.href) !== null;
+    }
+    getTopicId() {
+      return getTopicInfo(this.win.location.href, this.win.location.href)?.topicId ?? null;
+    }
+    storageKey(topicId) {
+      return `${OWNER_STATE_PREFIX}${topicId}`;
+    }
+    readOwnerMode(topicId) {
+      try {
+        const stored = this.win.localStorage.getItem(this.storageKey(topicId));
+        if (stored === "owner" || stored === OWNER_MODE) return true;
+        if (stored === "all" || stored === ALL_MODE) return false;
+        const legacy = this.win.localStorage.getItem(LEGACY_OWNER_STATE_KEY);
+        if (legacy === OWNER_MODE || legacy === ALL_MODE) {
+          const ownerOnly = legacy === OWNER_MODE;
+          this.writeOwnerMode(topicId, ownerOnly);
+          return ownerOnly;
+        }
+        return false;
+      } catch {
+        try {
+          return this.win.sessionStorage.getItem(this.storageKey(topicId)) === "owner";
+        } catch {
+          return false;
+        }
+      }
+    }
+    writeOwnerMode(topicId, ownerOnly) {
+      try {
+        this.win.localStorage.setItem(this.storageKey(topicId), ownerOnly ? "owner" : "all");
+      } catch {
+        try {
+          this.win.sessionStorage.setItem(this.storageKey(topicId), ownerOnly ? "owner" : "all");
+        } catch {
+        }
+      }
+    }
+    findOwnerId() {
+      const ownerPost = this.doc.querySelector(
+        '#post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]'
+      );
+      return ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? null;
+    }
+    syncOwnerControl() {
+      const topicId = this.getTopicId();
+      const shouldShow = this.config.ownerOnlyEnabled && Boolean(topicId) && !this.isHiddenHostTopic();
+      const existing = this.doc.getElementById("ldu-owner-toggle");
+      if (!shouldShow) {
+        existing?.remove();
+        this.clearOwnerFilter();
+        this.lastOwnerTopicId = "";
+        return;
+      }
+      if (!topicId) return;
+      let button = existing;
+      if (!button) {
+        button = this.doc.createElement("button");
+        button.id = "ldu-owner-toggle";
+        button.type = "button";
+        button.className = "ldu-owner-toggle";
+        button.addEventListener("click", () => {
+          const next = !this.readOwnerMode(topicId);
+          this.writeOwnerMode(topicId, next);
+          this.updateOwnerButton(button, next);
+          this.applyOwnerFilter();
         });
-      });
+      }
+      const mount = this.findOwnerMount();
+      if (mount && button.parentElement !== mount) mount.append(button);
+      const mode = this.readOwnerMode(topicId);
+      this.updateOwnerButton(button, mode);
+      if (this.lastOwnerTopicId !== topicId) {
+        this.clearOwnerFilter();
+        this.lastOwnerTopicId = topicId;
+      }
     }
-    compare(manifest) {
-      return compareVersions(manifest.version, this.currentVersion) > 0 ? { status: "available", manifest } : { status: "current", version: this.currentVersion };
+    findOwnerMount() {
+      const candidates = [
+        ".topic-footer-main-buttons",
+        ".timeline-footer-controls",
+        ".topic-controls",
+        "#topic-title",
+        ".topic-category",
+        ".post-stream"
+      ];
+      for (const selector of candidates) {
+        const node = this.doc.querySelector(selector);
+        if (node) return node;
+      }
+      return this.doc.body;
+    }
+    updateOwnerButton(button, ownerOnly) {
+      button.textContent = ownerOnly ? OWNER_MODE : ALL_MODE;
+      button.setAttribute("aria-pressed", String(ownerOnly));
+      button.title = ownerOnly ? "\u663E\u793A\u5168\u90E8\u56DE\u590D" : "\u53EA\u770B\u697C\u4E3B";
+    }
+    applyOwnerFilter() {
+      if (!this.config.ownerOnlyEnabled || !this.isTopicPage()) {
+        this.clearOwnerFilter();
+        return;
+      }
+      const topicId = this.getTopicId();
+      if (!topicId || !this.readOwnerMode(topicId)) {
+        this.clearOwnerFilter();
+        return;
+      }
+      const ownerId = this.findOwnerId();
+      if (!ownerId) return;
+      for (const post of this.doc.querySelectorAll(".topic-post")) {
+        const author = post.dataset.userId ?? post.querySelector("[data-user-id]")?.dataset.userId ?? post.querySelector("[data-user-id]")?.getAttribute("data-user-id");
+        const hidden = author !== ownerId;
+        if (post.hidden !== hidden) post.hidden = hidden;
+        if (hidden) post.dataset.lduOwnerHidden = "true";
+        else delete post.dataset.lduOwnerHidden;
+      }
+    }
+    clearOwnerFilter() {
+      for (const post of this.doc.querySelectorAll('.topic-post[data-ldu-owner-hidden="true"]')) {
+        post.hidden = false;
+        delete post.dataset.lduOwnerHidden;
+      }
+    }
+    applyCleanTextMarkers() {
+      const hide = this.config.cleanModeEnabled;
+      if (!hide) {
+        for (const paragraph of this.doc.querySelectorAll('[data-ldu-clean-hidden="true"]')) {
+          delete paragraph.dataset.lduCleanHidden;
+        }
+        return;
+      }
+      for (const paragraph of this.doc.querySelectorAll("p")) {
+        if (!paragraph.textContent?.includes(WELCOME_TEXT)) continue;
+        paragraph.dataset.lduCleanHidden = "true";
+      }
+    }
+    collapseNativeSidebarIfNeeded() {
+      if (!this.config.cleanModeEnabled || this.embedded || this.isSplitHost() || this.nativeSidebarCollapsed) return;
+      const toggle = this.doc.querySelector("button.btn-sidebar-toggle");
+      if (toggle?.getAttribute("aria-expanded") !== "true") return;
+      this.nativeSidebarCollapsed = true;
+      toggle.click();
+    }
+    isHiddenHostTopic() {
+      return !this.embedded && this.isSplitHost();
     }
   };
+  function installTopicTools(options = {}) {
+    const win = options.window ?? window;
+    if (win.__LDU_TOPIC_TOOLS__) return win.__LDU_TOPIC_TOOLS__;
+    const controller = new TopicToolsController(options);
+    win.__LDU_TOPIC_TOOLS__ = controller;
+    controller.start();
+    return controller;
+  }
+  function isLowEndDevice(navigator2) {
+    const hardwareConcurrency = navigator2.hardwareConcurrency;
+    const deviceMemory = navigator2.deviceMemory;
+    return Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= 4 || typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory <= 4;
+  }
+  function ensureStyles(doc) {
+    const existing = doc.getElementById(STYLE_ID);
+    if (existing instanceof HTMLStyleElement) return existing;
+    const style = doc.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
+    html[data-ldu-clean-mode="true"] div.link-bottom-line a.badge-category__wrapper,
+    html[data-ldu-clean-mode="true"] td.posters.topic-list-data,
+    html[data-ldu-clean-mode="true"] a.discourse-tag.box[href^="/tag/"],
+    html[data-ldu-clean-mode="true"] a[href="/t/topic/482293"],
+    html[data-ldu-clean-mode="true"] a[href="https://linux.do/t/topic/482293"] {
+      display: none !important;
+    }
+    html[data-ldu-clean-mode="true"] [data-ldu-clean-hidden="true"] {
+      display: none !important;
+    }
+    html[data-ldu-low-end="true"] *,
+    html[data-ldu-low-end="true"] *::before,
+    html[data-ldu-low-end="true"] *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .ldu-owner-toggle {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      justify-content: center;
+      margin: 4px 6px 4px 0;
+      padding: 4px 9px;
+      border: 1px solid var(--primary-low, #d9d9d9);
+      border-radius: 5px;
+      background: var(--secondary, #fff);
+      color: var(--primary, #222);
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--font-down-1, .875rem);
+      line-height: 1.2;
+    }
+    .ldu-owner-toggle:hover { background: var(--primary-very-low, #f5f5f5); }
+    .ldu-owner-toggle[aria-pressed="true"] { border-color: var(--tertiary, #0088cc); color: var(--tertiary, #0088cc); }
+  `;
+    (doc.head ?? doc.documentElement).append(style);
+    return style;
+  }
 
   // src/app.ts
   var ROUTE_DEBOUNCE_MS = 100;
@@ -3910,9 +4385,15 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
     listHandoffTimer = null;
     updateChecker = new UpdateChecker(this.storage);
     updateCheckTimer = null;
+    topicTools;
     start() {
       this.settings = loadSettings(this.storage);
       ensureAppStyles();
+      this.topicTools = installTopicTools({
+        isEmbedded: false,
+        isSplitHost: () => document.body.classList.contains("ldu-layout-active") || isSplitRoute(location.href) || Boolean(this.tabStore?.getTabs().length)
+      });
+      this.topicTools.setConfig(this.getTopicToolsConfig());
       this.preview = new PreviewController({
         isEnabled: () => this.settings.enabled && this.settings.previewEnabled,
         clickMode: () => this.settings.previewClickMode,
@@ -4164,7 +4645,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       this.listFrame.setConfig({
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode,
-        hidePosters: this.settings.hidePosters
+        hidePosters: this.settings.hidePosters,
+        topicTools: this.getTopicToolsConfig()
       });
       const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
       let resolved;
@@ -4253,6 +4735,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode
       });
+      this.frames.setTopicToolsConfig(this.getTopicToolsConfig());
       this.renderTabs();
     }
     ensureSecondaryFrames() {
@@ -4271,6 +4754,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode
       });
+      this.secondaryFrames.setTopicToolsConfig(this.getTopicToolsConfig());
     }
     mountSettings() {
       if (this.settingsPanel) return;
@@ -4306,12 +4790,35 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       const target = document.querySelector(".d-header-icons") ?? document.querySelector(".d-header .contents") ?? document.body;
       if (this.settingsHost.parentElement !== target) target.append(this.settingsHost);
     }
+    getTopicToolsConfig() {
+      return {
+        ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
+        cleanModeEnabled: this.settings.enabled && this.settings.cleanModeEnabled,
+        lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled
+      };
+    }
     applySettings(patch) {
       this.settings = normalizeSettings({ ...this.settings, ...patch });
       saveSettings(this.storage, this.settings);
+      const patchKeys = Object.keys(patch);
+      const presentationOnly = patchKeys.length > 0 && patchKeys.every((key) => [
+        "verticalTabsAutoCollapse",
+        "tabPresentation",
+        "groupVerticalTabs",
+        "colorizeTabs"
+      ].includes(key));
+      if (presentationOnly) {
+        if (patch.verticalTabsAutoCollapse !== void 0 || patch.tabPresentation !== void 0) {
+          this.layout.setTabPresentation(this.settings.tabPresentation, this.settings.verticalTabsAutoCollapse);
+        }
+        this.settingsPanel?.setSettings(this.settings);
+        if (patch.tabPresentation !== void 0 || patch.groupVerticalTabs !== void 0 || patch.colorizeTabs !== void 0) this.renderTabs(false);
+        return;
+      }
       this.layout.setPreference(this.settings.layoutPreference);
       this.layout.setTabPresentation(this.settings.tabPresentation, this.settings.verticalTabsAutoCollapse);
       this.layout.setHidePosters(this.settings.hidePosters);
+      this.topicTools?.setConfig(this.getTopicToolsConfig());
       if (patch.paneSizes || patch.dualPaneSizes) {
         this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
         this.tabStore.setSessionFields({
@@ -4330,10 +4837,13 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode
       });
+      this.frames?.setTopicToolsConfig(this.getTopicToolsConfig());
+      this.secondaryFrames?.setTopicToolsConfig(this.getTopicToolsConfig());
       this.listFrame?.setConfig({
         enabled: this.settings.enabled && this.settings.previewEnabled,
         clickMode: this.settings.previewClickMode,
-        hidePosters: this.settings.hidePosters
+        hidePosters: this.settings.hidePosters,
+        topicTools: this.getTopicToolsConfig()
       });
       this.settingsPanel?.setSettings(this.settings);
       this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);
@@ -4447,7 +4957,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
         iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
       }
     }
-    renderTabs() {
+    renderTabs(activateFrames = true) {
       const root = this.layout?.getTabStripElement();
       if (!root || !this.tabStore) return;
       const primaryTabs = this.tabStore.getPrimaryTabs();
@@ -4524,6 +5034,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
       if (empty) empty.hidden = primaryTabs.length > 0;
       const secondaryEmpty = this.layout.getSecondaryContentElement()?.querySelector(".ldu-topic-empty");
       if (secondaryEmpty) secondaryEmpty.hidden = secondaryTabs.length > 0;
+      if (!activateFrames) return;
       const active = this.tabStore.getActive();
       if (active) this.activateFrame(active, "primary");
       const secondaryActive = this.tabStore.getSecondaryActive();
@@ -4763,11 +5274,13 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
   // src/extension/host.ts
   installExtensionRequestBridge();
-  startLinuxDoApp({
-    loadPreviewer: async () => {
-      const runtimeUrl = chrome.runtime.getURL("preview-runtime.js");
-      const module = await import(runtimeUrl);
-      return module.installLinkHoverPreviewer;
-    }
-  });
+  if (!location.pathname.startsWith("/challenge")) {
+    startLinuxDoApp({
+      loadPreviewer: async () => {
+        const runtimeUrl = chrome.runtime.getURL("preview-runtime.js");
+        const module = await import(runtimeUrl);
+        return module.installLinkHoverPreviewer;
+      }
+    });
+  }
 })();

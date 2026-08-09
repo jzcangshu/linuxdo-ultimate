@@ -1,6 +1,6 @@
 export type IconName =
   | "settings" | "close" | "split" | "external" | "refresh" | "copy"
-  | "bookmark" | "bookmark-filled" | "close-others" | "list" | "check"
+  | "bookmark" | "bookmark-filled" | "close-others" | "list" | "tab-list" | "check"
   | "maximize" | "restore" | "trash" | "thumbs-up" | "thumbs-down"
   | "github" | "gift";
 
@@ -15,6 +15,7 @@ const ICON_CONTENT: Record<IconName, string> = {
   "bookmark-filled": '<path class="ldu-symbol-fill" d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
   "close-others": '<rect x="3" y="5" width="13" height="12" rx="2"/><path d="M8 3h10a3 3 0 0 1 3 3v8"/><path d="m18 16 4 4m0-4-4 4"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  "tab-list": '<path d="m4 6 5 6-5 6M11 6h9M11 12h9M11 18h9"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   maximize: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
   restore: '<path d="M9 9H4V4M15 9h5V4M9 15H4v5M15 15h5v5"/>',

@@ -4,7 +4,7 @@ export const USERSCRIPT_HEADER = `// ==UserScript==
 // @namespace    https://linux.do/
 // @version      __VERSION__
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
-// @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复与多标签链接预览。
+// @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
 // @license      MIT
 // @match        https://linux.do/*
@@ -13,6 +13,7 @@ export const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_info
+// @grant        GM_registerMenuCommand
 // @connect      *
 // @run-at       document-start
 // ==/UserScript==`;

@@ -15,7 +15,7 @@ export const APP_STYLES = `
   --ldu-accent: var(--tertiary, #0088cc);
   --ldu-danger: var(--danger, #d04437);
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ldu-vertical-tabs-collapsed: 2.625rem;
+  --ldu-vertical-tabs-collapsed: calc(var(--font-0, 1rem) * 2.75);
 }
 
 body.ldu-layout-active {
@@ -236,19 +236,19 @@ body.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel { border-right
   background: var(--ldu-surface-muted);
 }
 
-/* The vertical rail reserves only its compact marker width. Its expanded surface
-   overlays the current reading pane, so iframe geometry never jumps on hover. */
+/* Vertical rails have four explicit states: left/right and auto/static. */
 body.ldu-tabs-vertical #ldu-topic-panel,
 body.ldu-tabs-vertical #ldu-secondary-topic-panel {
   display: grid;
-  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 
+body.ldu-tabs-vertical .ldu-topic-content {
+  grid-row: 1;
+}
+
 body.ldu-tabs-vertical .ldu-topic-toolbar {
-  position: relative;
   z-index: 4;
-  grid-column: 1;
   grid-row: 1;
   display: flex;
   width: min(17rem, max(10rem, calc(100cqi - .75rem)));
@@ -259,43 +259,36 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   overflow: hidden;
   border-right: 1px solid var(--ldu-border);
   box-shadow: 4px 0 14px rgb(0 0 0 / 12%);
-  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
   transition: clip-path 180ms var(--ldu-ease-out), opacity 180ms ease-out;
   transition-delay: 180ms;
 }
 
-body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
-body.ldu-tabs-vertical .ldu-topic-toolbar:focus-within,
-body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
-body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
-  clip-path: inset(0);
-  transition-delay: 80ms;
+/* Detail in the middle: keep the compact rail on the left. */
+body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
+body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
+  grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
 }
 
-body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-topic-panel,
-body.ldu-tabs-vertical.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
-  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-toolbar {
+  position: relative;
+  grid-column: 1;
+  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
 }
 
-body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
-  width: 100%;
-  clip-path: inset(0);
-  transition: none;
-}
-
-body.ldu-tabs-vertical .ldu-topic-content {
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-content {
   grid-column: 2;
-  grid-row: 1;
 }
 
+/* Detail on the right: overlay the compact rail on the iframe scrollbar. */
 body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
 body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
-  grid-template-columns: minmax(0, 1fr) var(--ldu-vertical-tabs-collapsed);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
-  grid-column: 2;
-  justify-self: end;
+  position: absolute;
+  inset-block: 0;
+  right: 0;
   border-right: 0;
   border-left: 1px solid var(--ldu-border);
   clip-path: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
@@ -305,13 +298,36 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-content {
   grid-column: 1;
 }
 
+body.ldu-tabs-vertical .ldu-topic-toolbar:hover,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(:focus-visible),
+body.ldu-tabs-vertical .ldu-topic-toolbar.is-interaction-locked,
+body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
+  clip-path: inset(0);
+  transition-delay: 80ms;
+}
+
+/* Fixed left rail. */
+body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-secondary-topic-panel {
+  grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
+}
+
+/* Fixed right rail. */
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-topic-panel,
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
   grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
 }
 
+body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
+  position: relative;
+  width: 100%;
+  clip-path: inset(0);
+  transition: none;
+}
+
 body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static .ldu-topic-toolbar {
-  justify-self: stretch;
+  right: auto;
+  grid-column: 2;
 }
 
 body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-actions {
@@ -324,6 +340,15 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading {
   padding-left: 0;
 }
 
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading > .ldu-symbol {
+  order: 2;
+  transform: scaleX(-1);
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading-label {
+  text-align: right;
+}
+
 body.ldu-tabs-vertical .ldu-tab-title,
 body.ldu-tabs-vertical .ldu-tab-group-label {
   text-align: start;
@@ -333,8 +358,8 @@ body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
   flex-direction: column;
   min-height: 0;
   align-items: stretch;
-  gap: 2px;
-  padding: 6px 4px;
+  gap: .35em;
+  padding: .55em .35em;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -351,7 +376,7 @@ body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip::-webkit
 body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-topic-actions {
   order: -1;
   justify-content: flex-start;
-  min-height: 38px;
+  min-height: 2.75em;
   border-bottom: 1px solid var(--ldu-border);
 }
 
@@ -375,18 +400,20 @@ body.ldu-tabs-vertical .ldu-tab-item {
   width: auto;
   min-width: 0;
   max-width: none;
-  min-height: 36px;
-  flex: 0 0 36px;
+  min-height: 2.75em;
+  flex: 0 0 2.75em;
   border: 0;
-  border-radius: 4px;
+  border-radius: .35em;
+  font-size: var(--font-0, 1rem);
 }
 
 body.ldu-tabs-vertical .ldu-tab-button {
   display: flex;
-  min-height: 36px;
+  min-height: 2.75em;
   align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 9px;
+  gap: .625em;
+  padding: .625em .5em .625em .75em;
+  font-size: var(--font-0, 1rem);
 }
 
 .ldu-tab-glyph {
@@ -400,6 +427,17 @@ body.ldu-tabs-vertical .ldu-tab-button {
 
 body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
 
+body.ldu-tabs-vertical .ldu-tab-close {
+  width: 1.75em;
+  height: 1.75em;
+  margin-right: .25em;
+}
+
+body.ldu-tabs-vertical .ldu-tab-close .ldu-symbol {
+  width: 1em;
+  height: 1em;
+}
+
 .ldu-tab-title {
   display: block;
   min-width: 0;
@@ -409,22 +447,33 @@ body.ldu-tabs-vertical .ldu-tab-glyph { display: inline-grid; }
 }
 
 @media (hover: none) {
-  body.ldu-tabs-vertical #ldu-topic-panel,
-  body.ldu-tabs-vertical #ldu-secondary-topic-panel {
+  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
+  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
     grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
   }
 
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
+    grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
+  }
+
   body.ldu-tabs-vertical .ldu-topic-toolbar {
+    position: relative;
     width: 100%;
     clip-path: inset(0);
     transition: none;
   }
+
+  body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
+    right: auto;
+    grid-column: 2;
+  }
 }
 
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
-body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:focus-within):not(.is-pointer-focused):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-title,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-close,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-tab-group-label,
+body.ldu-tabs-vertical:not(.ldu-vertical-tabs-static) .ldu-topic-toolbar:not(:hover):not(:has(:focus-visible)):not(.is-interaction-locked):not(:has(.ldu-tab-strip.is-reordering)) .ldu-vertical-tabs-heading-label {
   visibility: hidden;
 }
 
@@ -437,6 +486,14 @@ body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.i
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
 
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-item.is-active {
+  box-shadow: inset -3px 0 0 var(--ldu-accent);
+}
+
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
+  box-shadow: inset -3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
+}
+
 .ldu-tab-group-header {
   display: flex;
   min-height: 26px;
@@ -444,7 +501,7 @@ body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.i
   gap: 7px;
   padding: 6px 8px 2px;
   color: var(--primary-medium, #777);
-  font-size: var(--font-down-2, .75rem);
+  font-size: var(--font-down-1, .875rem);
   font-weight: 600;
   letter-spacing: 0;
   white-space: nowrap;
@@ -762,7 +819,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   width: 100%;
   max-height: inherit;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--ldu-border);
   border-radius: 6px;
   background: var(--ldu-surface);
@@ -779,6 +836,9 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 }
 
 .ldu-settings-panel .dc-header h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   margin: 0;
   padding: 0;
   color: var(--ldu-text);
@@ -790,6 +850,14 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .ldu-brand-ultimate {
   color: #ffd43b;
   text-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
+.ldu-settings-panel .ldu-settings-version {
+  margin-left: 6px;
+  color: var(--primary-medium, #8b949e);
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .ldu-settings-panel .dc-close-btn {
@@ -872,10 +940,48 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
 .ldu-settings-panel .ldu-update-wrap { position: relative; }
-.ldu-settings-panel .ldu-update-menu { right: 0; min-width: 250px; max-width: min(360px, 80vw); padding: 10px; }
-.ldu-settings-panel .ldu-update-summary { color: var(--ldu-text); font-size: var(--font-down-2, .75rem); line-height: 1.45; }
-.ldu-settings-panel .ldu-update-summary ul { margin: 6px 0 8px; padding-left: 18px; text-align: left; }
-.ldu-settings-panel .ldu-update-link { background: var(--ldu-accent); color: #fff; text-align: center; }
+.ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  min-width: min(360px, calc(100vw - 32px));
+  max-width: none;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 8px;
+}
+.ldu-settings-panel .ldu-update-summary {
+  display: grid;
+  gap: 8px;
+  color: var(--ldu-text);
+  font-size: var(--font-down-1, .875rem);
+  line-height: 1.55;
+}
+.ldu-settings-panel .ldu-update-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ldu-settings-panel .ldu-update-title { font-size: var(--font-0, 1rem); font-weight: 700; }
+.ldu-settings-panel .ldu-update-version {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #ffd43b 55%, var(--ldu-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #ffd43b 12%, transparent);
+  color: color-mix(in srgb, #ffd43b 78%, var(--ldu-text));
+  font-size: var(--font-down-2, .75rem);
+  font-weight: 700;
+}
+.ldu-settings-panel .ldu-update-date { color: var(--primary-medium, #8b949e); font-size: var(--font-down-2, .75rem); }
+.ldu-settings-panel .ldu-update-changelog { margin: 0; padding-left: 20px; text-align: left; }
+.ldu-settings-panel .ldu-update-changelog li + li { margin-top: 6px; }
+.ldu-settings-panel .ldu-update-changelog li::marker { color: var(--ldu-accent); }
+.ldu-settings-panel .ldu-update-link {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  background: var(--ldu-accent);
+  color: #fff;
+  font-size: var(--font-down-1, .875rem);
+  font-weight: 600;
+  text-align: center;
+}
 .ldu-settings-panel .ldu-donate-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; display: flex; min-width: 100px; flex-direction: column; padding: 4px; border: 1px solid var(--ldu-border); border-radius: 4px; background: var(--ldu-surface-muted); box-shadow: 0 6px 18px rgb(0 0 0 / 50%); }
 .ldu-settings-panel .dc-dropdown-menu[hidden] { display: none; }

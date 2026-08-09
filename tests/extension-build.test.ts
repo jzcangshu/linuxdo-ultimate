@@ -6,11 +6,12 @@ describe("browser extension build", () => {
     ["chrome", "dist/extension"],
     ["firefox", "dist/extension-firefox"],
   ])("isolates host, bridge and lazy preview artifacts for %s", async (_browser, outdir) => {
-    const [manifestSource, packageSource, host, bridge, preview] = await Promise.all([
+    const [manifestSource, packageSource, host, bridge, challenge, preview] = await Promise.all([
       readFile(`${outdir}/manifest.json`, "utf8"),
       readFile("package.json", "utf8"),
       readFile(`${outdir}/host.js`, "utf8"),
       readFile(`${outdir}/bridge.js`, "utf8"),
+      readFile(`${outdir}/challenge.js`, "utf8"),
       readFile(`${outdir}/preview-runtime.js`, "utf8"),
     ]);
     const manifest = JSON.parse(manifestSource) as {
@@ -33,13 +34,20 @@ describe("browser extension build", () => {
     expect(manifest.content_scripts).toEqual(expect.arrayContaining([
       expect.objectContaining({ js: ["host.js"], all_frames: false }),
       expect.objectContaining({ js: ["bridge.js"], all_frames: true }),
+      expect.objectContaining({ js: ["challenge.js"], all_frames: true }),
     ]));
     expect(manifest.web_accessible_resources[0]?.resources).toContain("preview-runtime.js");
     expect(host).toContain("preview-runtime.js");
+    expect(host).toContain('location.pathname.startsWith("/challenge")');
     expect(host).not.toContain("agy-preview-container");
     expect(bridge).toContain("ldu:frame-ready");
+    expect(bridge).toContain('location.pathname.startsWith("/challenge")');
     expect(bridge).not.toContain("LinuxDoApp");
     expect(bridge).not.toContain("agy-preview-container");
+    expect(challenge).toContain("linux_do_auto_challenge_nf_guard");
+    expect(challenge).toContain("403 error");
+    expect(challenge).not.toContain("LinuxDoApp");
+    expect(challenge).not.toContain("agy-preview-container");
     expect(preview).toContain("agy-preview-container");
     expect((await stat(`${outdir}/background.js`)).size).toBeGreaterThan(0);
     await Promise.all([16, 32, 48, 128].map(async (size) => {

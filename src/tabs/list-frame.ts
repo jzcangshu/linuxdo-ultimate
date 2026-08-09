@@ -1,3 +1,5 @@
+import type { TopicToolsConfig } from "../discourse/topic-tools";
+
 export interface ListFrameMessage {
   type: "ldu:list-ready" | "ldu:list-visual-ready" | "ldu:list-state" | "ldu:list-interaction" | "ldu:list-topic-open" | "ldu:list-navigate" | "ldu:list-preview-open" | "ldu:list-preview-dismiss";
   frameId: string;
@@ -13,7 +15,17 @@ export interface ListFrameMessage {
 export class ListFrameController {
   private iframe: HTMLIFrameElement | null = null;
   private reportedUrl = "";
-  private frameConfig = { enabled: false, clickMode: "double" as "double" | "single", hidePosters: true };
+  private frameConfig: {
+    enabled: boolean;
+    clickMode: "double" | "single";
+    hidePosters: boolean;
+    topicTools: TopicToolsConfig;
+  } = {
+    enabled: false,
+    clickMode: "double" as "double" | "single",
+    hidePosters: true,
+    topicTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false } satisfies TopicToolsConfig,
+  };
   private restoreScrollY = 0;
   private restoreTimer: number | null = null;
   private restoreDeadline = 0;
@@ -33,6 +45,7 @@ export class ListFrameController {
       iframe.dataset.frameId = this.frameId;
       iframe.addEventListener("load", () => {
         this.sendPreviewConfig(iframe);
+        this.sendTopicToolsConfig(iframe);
         this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
       });
       this.iframe = iframe;
@@ -70,9 +83,21 @@ export class ListFrameController {
 
   getElement(): HTMLIFrameElement | null { return this.iframe; }
 
-  setConfig(config: { enabled: boolean; clickMode: "double" | "single"; hidePosters: boolean }): void {
-    this.frameConfig = { ...config };
-    if (this.iframe) this.sendPreviewConfig(this.iframe);
+  setConfig(config: {
+    enabled: boolean;
+    clickMode: "double" | "single";
+    hidePosters: boolean;
+    topicTools?: TopicToolsConfig;
+  }): void {
+    this.frameConfig = {
+      ...this.frameConfig,
+      ...config,
+      topicTools: config.topicTools ? { ...config.topicTools } : this.frameConfig.topicTools,
+    };
+    if (this.iframe) {
+      this.sendPreviewConfig(this.iframe);
+      this.sendTopicToolsConfig(this.iframe);
+    }
   }
 
   handleMessage(event: MessageEvent): void {
@@ -87,6 +112,10 @@ export class ListFrameController {
 
   private sendPreviewConfig(iframe: HTMLIFrameElement): void {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.frameConfig }, location.origin);
+  }
+
+  private sendTopicToolsConfig(iframe: HTMLIFrameElement): void {
+    iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.frameConfig.topicTools }, location.origin);
   }
 
   private resolveSameOrigin(url: string): URL | null {

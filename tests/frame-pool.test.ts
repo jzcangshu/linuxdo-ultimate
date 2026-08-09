@@ -154,6 +154,24 @@ describe("topic frame pool", () => {
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:frame-interaction" }), frame);
   });
 
+  it("cancels a pending scroll restore when the user interacts with a frame", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate({ ...tab("1"), scrollY: 900 }, 1);
+    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
+    Object.defineProperty(frame.contentWindow!, "scrollY", { configurable: true, value: 0 });
+    frame.dispatchEvent(new Event("load"));
+    const event = new MessageEvent("message", {
+      data: { type: "ldu:frame-interaction", tabId: "topic-1" },
+    });
+    Object.defineProperty(event, "source", { value: frame.contentWindow });
+    pool.handleMessage(event);
+    vi.advanceTimersByTime(500);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
   it("supports a live-frame limit of ten", () => {
     const host = document.createElement("div");
     const suspended: string[] = [];

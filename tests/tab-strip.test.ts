@@ -105,19 +105,20 @@ describe("topic tab category colors", () => {
     expect(latestActivate).toHaveBeenCalledWith("topic-1");
   });
 
-  it("marks pointer activation so focus does not keep a collapsed vertical rail open", () => {
-    const toolbar = document.createElement("div");
-    toolbar.className = "ldu-topic-toolbar";
+  it("moves keyboard focus in the visual tab direction", () => {
     const root = document.createElement("div");
-    toolbar.append(root);
-    document.body.append(toolbar);
-    renderTabStrip(root, [tab("帖子")], "topic-1", { onActivate: vi.fn(), onClose: vi.fn() }, { orientation: "vertical" });
+    document.body.append(root);
+    const onActivate = vi.fn();
+    renderTabStrip(root, [tab("帖子"), { ...tab("第二帖"), id: "topic-2", topicId: "2" }], "topic-1", {
+      onActivate,
+      onClose: vi.fn(),
+    }, { orientation: "vertical" });
 
-    const button = root.querySelector<HTMLButtonElement>(".ldu-tab-button")!;
-    button.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    expect(toolbar.classList).toContain("is-pointer-focused");
-    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    expect(toolbar.classList).not.toContain("is-pointer-focused");
+    const buttons = root.querySelectorAll<HTMLButtonElement>(".ldu-tab-button");
+    buttons[0]!.focus();
+    buttons[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(onActivate).toHaveBeenCalledWith("topic-2");
+    expect(document.activeElement).toBe(buttons[1]);
   });
 
   it("keeps only the title and close action in each topic tab", () => {

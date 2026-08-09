@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.2",
-  "publishedAt": "2026-08-08",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.5.2",
+  "version": "0.6.2",
+  "publishedAt": "2026-08-09",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.2",
   "changelog": [
-    "修复关闭官方侧栏后最左侧边缘无法触发垂直标签栏。",
-    "右侧标签栏改为从右向左覆盖展开，不再向窗口外溢出。",
-    "隐藏右侧标签列表的原生滚动条，同时保留滚动能力。"
+    "新增只看楼主工具，并按主题保存查看状态。",
+    "新增清爽模式，可隐藏公告、提示、分类徽章、标签和列表头像列。",
+    "新增低端设备性能优化开关，不移植黑白灰滤镜。"
   ]
 }

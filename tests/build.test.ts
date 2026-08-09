@@ -12,8 +12,11 @@ describe("userscript build", () => {
     expect(output).toContain("// ==UserScript==");
     expect(output).toContain("// @name         Linux Do Ultimate");
     expect(output).toContain("// @match        https://linux.do/*");
+    expect(output).toContain("// @grant        GM_registerMenuCommand");
     expect(output).toContain(`// @version      ${packageVersion}`);
     expect(output).toContain("__linuxDoUltimateLoaded");
+    expect(output).toContain("GM_registerMenuCommand(MANUAL_MENU_TEXT");
+    expect(output).toContain("linux_do_auto_challenge_nf_guard");
     expect(output).not.toContain("__VERSION__");
   });
 });

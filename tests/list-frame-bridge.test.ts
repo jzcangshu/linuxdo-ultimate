@@ -9,6 +9,8 @@ describe("embedded list bridge", () => {
     document.body.replaceChildren();
     document.getElementById(APP_STYLE_ID)?.remove();
     document.getElementById(EMBEDDED_STYLE_ID)?.remove();
+    window.__LDU_TOPIC_TOOLS__?.stop();
+    delete window.__LDU_TOPIC_TOOLS__;
     delete window.__LDU_TEST_MODE__;
     await Promise.resolve();
     vi.runOnlyPendingTimers();

@@ -8,6 +8,7 @@ const files = [
   "manifest.json",
   "host.js",
   "bridge.js",
+  "challenge.js",
   "preview-runtime.js",
   "background.js",
   "icons/icon-16.png",

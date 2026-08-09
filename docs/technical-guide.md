@@ -4,7 +4,7 @@
 
 ## 1. 技术栈与构建产物
 
-源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。V0.4 的 Chrome 正式产物位于 `dist/extension`，Firefox 正式产物位于 `dist/extension-firefox`；两者都包含顶层 `host.js`、轻量 `bridge.js`、按需 `preview-runtime.js`、跨域请求 `background.js`、官方 Logo 图标和各自的 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
+源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。Chrome 正式产物位于 `dist/extension`，Firefox 正式产物位于 `dist/extension-firefox`；两者都包含顶层 `host.js`、轻量 `bridge.js`、独立过盾模块 `challenge.js`、按需 `preview-runtime.js`、跨域请求 `background.js`、官方 Logo 图标和各自的 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
 
 ```powershell
 pnpm install
@@ -22,7 +22,7 @@ pnpm package:extension
 | --- | --- |
 | `src/app.ts` | 顶层页面编排、路由同步、设置应用、各模块协调 |
 | `src/core` | 设置、会话结构、默认值、迁移和存储适配 |
-| `src/discourse` | 路由识别、分类读取、阅读计数追踪 |
+| `src/discourse` | 路由识别、分类读取、阅读计数追踪、帖子阅读小工具 |
 | `src/tabs` | 列表页面控制器、帖子标签、内嵌页面池和标签栏渲染 |
 | `src/ui` | 分屏布局、拖动比例、设置面板和全局样式 |
 | `src/preview` | 悬浮预览、跨域获取、缓存和内容清理 |
@@ -32,7 +32,7 @@ pnpm package:extension
 | `src/core/update-checker.ts` | 版本比较、更新清单校验、低频缓存与手动检查 |
 | `updates/latest.json` | 当前正式版本、发布时间、发行页和结构化更新摘要 |
 
-插件运行时保持现有业务模块不变。`host.ts` 只在顶层调用 `startLinuxDoApp`；`bridge.ts` 只调用 `bootFrameBridge`；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心重新静态导入 host 或 bridge。
+插件运行时保持现有业务模块不变。`host.ts` 只在非 Challenge 顶层页面调用 `startLinuxDoApp`；`bridge.ts` 只在非 Challenge 子页面调用 `bootFrameBridge`；`challenge.ts` 在所有 Linux Do frame 中独立运行过盾检测，并只重定向当前 frame；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心重新静态导入 host、bridge 或 challenge。
 
 更新检查复用同一个后台请求兼容层，但不调用 GitHub API。顶层应用启动 20 秒后，仅在页面可见时读取仓库 `main` 分支中的 `updates/latest.json`；成功结果按当前插件版本缓存 24 小时，失败尝试在 1 小时内不自动重复。手动检查添加时间参数绕过缓存。发布时必须同步更新 `package.json`、`updates/latest.json`、更新日志和正式 Release；清单只允许指向本仓库对应版本的 GitHub Release 地址。
 
@@ -71,6 +71,9 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 - `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
+- `ownerOnlyEnabled`：帖子页只看楼主切换工具，按主题保存查看状态，默认关闭。
+- `cleanModeEnabled`：清爽模式，隐藏公告、提示、分类徽章、标签和头像列，默认关闭。
+- `lowEndOptimizationEnabled`：低端设备动画与过渡降级，默认关闭；只在设备满足低端判定时生效。
 - `maxLiveFrames`：同时保留的活动内嵌页面数量，默认 3，范围 1 到 10。
 - `maxOpenTabs`：阅读区标签总数上限，默认 50，范围 5 到 50。超出时按最久未活跃顺序淘汰非活动标签；该项没有设置界面入口。
 
@@ -98,6 +101,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 | `ldu:frame-state` | 内嵌页到顶层 | 报告地址或滚动变化 |
 | `ldu:frame-interaction` | 帖子内嵌页到顶层 | 通知顶层关闭点击外部应收起的浮层 |
 | `ldu:preview-config` | 顶层到内嵌页 | 下发预览开关和单击、双击模式 |
+| `ldu:topic-tools-config` | 顶层到内嵌页 | 下发只看楼主、清爽模式和低端设备优化开关 |
 | `ldu:bookmark` | 顶层到帖子内嵌页 | 携带主题编号，请求创建整篇主题书签 |
 | `ldu:bookmark-result` | 帖子内嵌页到顶层 | 报告主题书签成功或论坛返回的失败原因 |
 | `ldu:preview-open` | 内嵌页到顶层 | 请求顶层显示外链预览 |

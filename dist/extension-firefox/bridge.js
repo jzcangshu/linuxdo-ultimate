@@ -155,6 +155,299 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     return Boolean(target && (!current || target.topicId !== current.topicId));
   }
 
+  // src/discourse/topic-tools.ts
+  var DEFAULT_CONFIG = {
+    ownerOnlyEnabled: false,
+    cleanModeEnabled: false,
+    lowEndOptimizationEnabled: false
+  };
+  var STYLE_ID = "ldu-topic-tools-style";
+  var OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
+  var LEGACY_OWNER_STATE_KEY = "on_off";
+  var OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
+  var ALL_MODE = "\u5F53\u524D\u67E5\u770B\u5168\u90E8";
+  var WELCOME_TEXT = "\u5E0C\u671B\u4F60\u559C\u6B22\u8FD9\u91CC\u3002\u6709\u95EE\u9898\uFF0C\u8BF7\u63D0\u95EE\uFF0C\u6216\u641C\u7D22\u73B0\u6709\u5E16\u5B50\u3002";
+  var TopicToolsController = class {
+    config = { ...DEFAULT_CONFIG };
+    observer = null;
+    applyQueued = false;
+    started = false;
+    lastOwnerTopicId = "";
+    nativeSidebarCollapsed = false;
+    win;
+    doc;
+    embedded;
+    isSplitHost;
+    constructor(options = {}) {
+      this.win = options.window ?? window;
+      this.doc = options.document ?? document;
+      this.embedded = options.isEmbedded === true;
+      this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
+    }
+    start() {
+      if (this.started) return this;
+      this.started = true;
+      ensureStyles(this.doc);
+      this.queueApply();
+      const Observer = this.win.MutationObserver;
+      if (Observer && this.doc.documentElement) {
+        this.observer = new Observer(() => this.queueApply());
+        this.observer.observe(this.doc.documentElement, { childList: true, subtree: true, characterData: true });
+      }
+      return this;
+    }
+    stop() {
+      this.observer?.disconnect();
+      this.observer = null;
+      this.started = false;
+      this.clearOwnerFilter();
+      this.doc.getElementById("ldu-owner-toggle")?.remove();
+    }
+    setConfig(patch) {
+      this.config = { ...this.config, ...patch };
+      ensureStyles(this.doc);
+      this.applyStateAttributes();
+      this.queueApply();
+    }
+    getConfig() {
+      return { ...this.config };
+    }
+    queueApply() {
+      if (this.applyQueued) return;
+      this.applyQueued = true;
+      const run = () => {
+        this.applyQueued = false;
+        this.apply();
+      };
+      if (typeof this.win.requestAnimationFrame === "function") this.win.requestAnimationFrame(run);
+      else this.win.setTimeout(run, 0);
+    }
+    apply() {
+      this.applyStateAttributes();
+      if (this.config.cleanModeEnabled || this.doc.querySelector('[data-ldu-clean-hidden="true"]')) {
+        this.applyCleanTextMarkers();
+      }
+      if (this.config.ownerOnlyEnabled || this.doc.getElementById("ldu-owner-toggle") || this.lastOwnerTopicId) {
+        this.syncOwnerControl();
+        this.applyOwnerFilter();
+      }
+      this.collapseNativeSidebarIfNeeded();
+    }
+    applyStateAttributes() {
+      const root = this.doc.documentElement;
+      const cleanMode = String(this.config.cleanModeEnabled);
+      const lowEnd = String(this.config.lowEndOptimizationEnabled && isLowEndDevice(this.win.navigator));
+      if (root.dataset.lduCleanMode !== cleanMode) root.dataset.lduCleanMode = cleanMode;
+      if (root.dataset.lduLowEnd !== lowEnd) root.dataset.lduLowEnd = lowEnd;
+    }
+    isTopicPage() {
+      return getTopicInfo(this.win.location.href, this.win.location.href) !== null;
+    }
+    getTopicId() {
+      return getTopicInfo(this.win.location.href, this.win.location.href)?.topicId ?? null;
+    }
+    storageKey(topicId) {
+      return `${OWNER_STATE_PREFIX}${topicId}`;
+    }
+    readOwnerMode(topicId) {
+      try {
+        const stored = this.win.localStorage.getItem(this.storageKey(topicId));
+        if (stored === "owner" || stored === OWNER_MODE) return true;
+        if (stored === "all" || stored === ALL_MODE) return false;
+        const legacy = this.win.localStorage.getItem(LEGACY_OWNER_STATE_KEY);
+        if (legacy === OWNER_MODE || legacy === ALL_MODE) {
+          const ownerOnly = legacy === OWNER_MODE;
+          this.writeOwnerMode(topicId, ownerOnly);
+          return ownerOnly;
+        }
+        return false;
+      } catch {
+        try {
+          return this.win.sessionStorage.getItem(this.storageKey(topicId)) === "owner";
+        } catch {
+          return false;
+        }
+      }
+    }
+    writeOwnerMode(topicId, ownerOnly) {
+      try {
+        this.win.localStorage.setItem(this.storageKey(topicId), ownerOnly ? "owner" : "all");
+      } catch {
+        try {
+          this.win.sessionStorage.setItem(this.storageKey(topicId), ownerOnly ? "owner" : "all");
+        } catch {
+        }
+      }
+    }
+    findOwnerId() {
+      const ownerPost = this.doc.querySelector(
+        '#post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]'
+      );
+      return ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? null;
+    }
+    syncOwnerControl() {
+      const topicId = this.getTopicId();
+      const shouldShow = this.config.ownerOnlyEnabled && Boolean(topicId) && !this.isHiddenHostTopic();
+      const existing = this.doc.getElementById("ldu-owner-toggle");
+      if (!shouldShow) {
+        existing?.remove();
+        this.clearOwnerFilter();
+        this.lastOwnerTopicId = "";
+        return;
+      }
+      if (!topicId) return;
+      let button = existing;
+      if (!button) {
+        button = this.doc.createElement("button");
+        button.id = "ldu-owner-toggle";
+        button.type = "button";
+        button.className = "ldu-owner-toggle";
+        button.addEventListener("click", () => {
+          const next = !this.readOwnerMode(topicId);
+          this.writeOwnerMode(topicId, next);
+          this.updateOwnerButton(button, next);
+          this.applyOwnerFilter();
+        });
+      }
+      const mount = this.findOwnerMount();
+      if (mount && button.parentElement !== mount) mount.append(button);
+      const mode = this.readOwnerMode(topicId);
+      this.updateOwnerButton(button, mode);
+      if (this.lastOwnerTopicId !== topicId) {
+        this.clearOwnerFilter();
+        this.lastOwnerTopicId = topicId;
+      }
+    }
+    findOwnerMount() {
+      const candidates = [
+        ".topic-footer-main-buttons",
+        ".timeline-footer-controls",
+        ".topic-controls",
+        "#topic-title",
+        ".topic-category",
+        ".post-stream"
+      ];
+      for (const selector of candidates) {
+        const node = this.doc.querySelector(selector);
+        if (node) return node;
+      }
+      return this.doc.body;
+    }
+    updateOwnerButton(button, ownerOnly) {
+      button.textContent = ownerOnly ? OWNER_MODE : ALL_MODE;
+      button.setAttribute("aria-pressed", String(ownerOnly));
+      button.title = ownerOnly ? "\u663E\u793A\u5168\u90E8\u56DE\u590D" : "\u53EA\u770B\u697C\u4E3B";
+    }
+    applyOwnerFilter() {
+      if (!this.config.ownerOnlyEnabled || !this.isTopicPage()) {
+        this.clearOwnerFilter();
+        return;
+      }
+      const topicId = this.getTopicId();
+      if (!topicId || !this.readOwnerMode(topicId)) {
+        this.clearOwnerFilter();
+        return;
+      }
+      const ownerId = this.findOwnerId();
+      if (!ownerId) return;
+      for (const post of this.doc.querySelectorAll(".topic-post")) {
+        const author = post.dataset.userId ?? post.querySelector("[data-user-id]")?.dataset.userId ?? post.querySelector("[data-user-id]")?.getAttribute("data-user-id");
+        const hidden = author !== ownerId;
+        if (post.hidden !== hidden) post.hidden = hidden;
+        if (hidden) post.dataset.lduOwnerHidden = "true";
+        else delete post.dataset.lduOwnerHidden;
+      }
+    }
+    clearOwnerFilter() {
+      for (const post of this.doc.querySelectorAll('.topic-post[data-ldu-owner-hidden="true"]')) {
+        post.hidden = false;
+        delete post.dataset.lduOwnerHidden;
+      }
+    }
+    applyCleanTextMarkers() {
+      const hide = this.config.cleanModeEnabled;
+      if (!hide) {
+        for (const paragraph of this.doc.querySelectorAll('[data-ldu-clean-hidden="true"]')) {
+          delete paragraph.dataset.lduCleanHidden;
+        }
+        return;
+      }
+      for (const paragraph of this.doc.querySelectorAll("p")) {
+        if (!paragraph.textContent?.includes(WELCOME_TEXT)) continue;
+        paragraph.dataset.lduCleanHidden = "true";
+      }
+    }
+    collapseNativeSidebarIfNeeded() {
+      if (!this.config.cleanModeEnabled || this.embedded || this.isSplitHost() || this.nativeSidebarCollapsed) return;
+      const toggle = this.doc.querySelector("button.btn-sidebar-toggle");
+      if (toggle?.getAttribute("aria-expanded") !== "true") return;
+      this.nativeSidebarCollapsed = true;
+      toggle.click();
+    }
+    isHiddenHostTopic() {
+      return !this.embedded && this.isSplitHost();
+    }
+  };
+  function installTopicTools(options = {}) {
+    const win = options.window ?? window;
+    if (win.__LDU_TOPIC_TOOLS__) return win.__LDU_TOPIC_TOOLS__;
+    const controller = new TopicToolsController(options);
+    win.__LDU_TOPIC_TOOLS__ = controller;
+    controller.start();
+    return controller;
+  }
+  function isLowEndDevice(navigator) {
+    const hardwareConcurrency = navigator.hardwareConcurrency;
+    const deviceMemory = navigator.deviceMemory;
+    return Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= 4 || typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory <= 4;
+  }
+  function ensureStyles(doc) {
+    const existing = doc.getElementById(STYLE_ID);
+    if (existing instanceof HTMLStyleElement) return existing;
+    const style = doc.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
+    html[data-ldu-clean-mode="true"] div.link-bottom-line a.badge-category__wrapper,
+    html[data-ldu-clean-mode="true"] td.posters.topic-list-data,
+    html[data-ldu-clean-mode="true"] a.discourse-tag.box[href^="/tag/"],
+    html[data-ldu-clean-mode="true"] a[href="/t/topic/482293"],
+    html[data-ldu-clean-mode="true"] a[href="https://linux.do/t/topic/482293"] {
+      display: none !important;
+    }
+    html[data-ldu-clean-mode="true"] [data-ldu-clean-hidden="true"] {
+      display: none !important;
+    }
+    html[data-ldu-low-end="true"] *,
+    html[data-ldu-low-end="true"] *::before,
+    html[data-ldu-low-end="true"] *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .ldu-owner-toggle {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      justify-content: center;
+      margin: 4px 6px 4px 0;
+      padding: 4px 9px;
+      border: 1px solid var(--primary-low, #d9d9d9);
+      border-radius: 5px;
+      background: var(--secondary, #fff);
+      color: var(--primary, #222);
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--font-down-1, .875rem);
+      line-height: 1.2;
+    }
+    .ldu-owner-toggle:hover { background: var(--primary-very-low, #f5f5f5); }
+    .ldu-owner-toggle[aria-pressed="true"] { border-color: var(--tertiary, #0088cc); color: var(--tertiary, #0088cc); }
+  `;
+    (doc.head ?? doc.documentElement).append(style);
+    return style;
+  }
+
   // src/frame-bridge.ts
   var DOUBLE_CLICK_DELAY_MS = 300;
   function bootFrameBridge() {
@@ -167,6 +460,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     const tabId = frameName.slice("ldu-topic:".length);
     document.documentElement.dataset.lduEmbeddedTopic = "true";
     ensureEmbeddedStyles(document);
+    const topicTools = installTopicTools({ isEmbedded: true });
     let timer = null;
     let pendingSendType = null;
     let lastUrl = "";
@@ -383,6 +677,14 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         });
         return;
       }
+      if (data?.type === "ldu:topic-tools-config") {
+        topicTools.setConfig({
+          ownerOnlyEnabled: data.ownerOnlyEnabled === true,
+          cleanModeEnabled: data.cleanModeEnabled === true,
+          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
+        });
+        return;
+      }
       if (data?.type !== "ldu:preview-config") return;
       previewEnabled = data.enabled === true;
       previewClickMode = data.clickMode === "single" ? "single" : "double";
@@ -392,6 +694,21 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     document.addEventListener("pointerdown", (event) => {
       window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
       if (previewEnabled && previewClickMode === "double" && event.detail >= 2) cancelPendingClick();
+    }, true);
+    let scrollInteractionTimer = null;
+    const notifyScrollInteraction = () => {
+      if (scrollInteractionTimer !== null) return;
+      window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
+      scrollInteractionTimer = window.setTimeout(() => {
+        scrollInteractionTimer = null;
+      }, 120);
+    };
+    window.addEventListener("wheel", notifyScrollInteraction, { passive: true, capture: true });
+    window.addEventListener("touchstart", notifyScrollInteraction, { passive: true, capture: true });
+    document.addEventListener("keydown", (event) => {
+      if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", "Space"].includes(event.key)) {
+        notifyScrollInteraction();
+      }
     }, true);
     document.addEventListener("click", (event) => {
       if (replayingClick || !isPlainPrimaryClick(event)) return;
@@ -449,6 +766,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   function bootListBridge(frameId) {
     document.documentElement.dataset.lduEmbeddedList = "true";
     ensureEmbeddedStyles(document);
+    const topicTools = installTopicTools({ isEmbedded: true });
     let timer = null;
     let clickTimer = null;
     let visualReadySent = false;
@@ -534,6 +852,14 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || event.origin !== location.origin) return;
       const data = event.data;
+      if (data?.type === "ldu:topic-tools-config") {
+        topicTools.setConfig({
+          ownerOnlyEnabled: data.ownerOnlyEnabled === true,
+          cleanModeEnabled: data.cleanModeEnabled === true,
+          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
+        });
+        return;
+      }
       if (data?.type !== "ldu:preview-config") return;
       previewEnabled = data.enabled === true;
       previewClickMode = data.clickMode === "single" ? "single" : "double";
@@ -608,5 +934,5 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   }
 
   // src/extension/bridge.ts
-  bootFrameBridge();
+  if (!location.pathname.startsWith("/challenge")) bootFrameBridge();
 })();

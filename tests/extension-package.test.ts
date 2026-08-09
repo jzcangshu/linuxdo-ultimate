@@ -12,6 +12,7 @@ describe("extension release archive", () => {
     expect(Object.keys(files).sort()).toEqual([
       "background.js",
       "bridge.js",
+      "challenge.js",
       "host.js",
       "icons/icon-128.png",
       "icons/icon-16.png",

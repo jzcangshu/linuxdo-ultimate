@@ -25,6 +25,7 @@ await Promise.all(targets.map(async ({ outdir: dirname, manifest, browserTarget 
   await Promise.all([
     build({ ...shared, entryPoints: [path.join(root, "src/extension/host.ts")], outfile: path.join(outdir, "host.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/bridge.ts")], outfile: path.join(outdir, "bridge.js"), format: "iife" }),
+    build({ ...shared, entryPoints: [path.join(root, "src/extension/challenge.ts")], outfile: path.join(outdir, "challenge.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/background.ts")], outfile: path.join(outdir, "background.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/preview-runtime.ts")], outfile: path.join(outdir, "preview-runtime.js"), format: "esm" }),
     ...icons.map((size) => copyFile(

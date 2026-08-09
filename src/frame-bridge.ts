@@ -1,5 +1,6 @@
 import { ensureEmbeddedStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
+import { installTopicTools } from "./discourse/topic-tools";
 
 const DOUBLE_CLICK_DELAY_MS = 300;
 
@@ -13,6 +14,7 @@ export function bootFrameBridge(): void {
   const tabId = frameName.slice("ldu-topic:".length);
   document.documentElement.dataset.lduEmbeddedTopic = "true";
   ensureEmbeddedStyles(document);
+  const topicTools = installTopicTools({ isEmbedded: true });
 
   let timer: number | null = null;
   let pendingSendType: "ldu:frame-state" | "ldu:frame-ready" | null = null;
@@ -171,6 +173,9 @@ export function bootFrameBridge(): void {
       hidePosters?: unknown;
       topicId?: unknown;
       active?: unknown;
+      ownerOnlyEnabled?: unknown;
+      cleanModeEnabled?: unknown;
+      lowEndOptimizationEnabled?: unknown;
     } | null;
     if (data?.type === "ldu:frame-lifecycle") {
       setSoftFrozen(data.active !== true);
@@ -227,6 +232,14 @@ export function bootFrameBridge(): void {
       });
       return;
     }
+    if (data?.type === "ldu:topic-tools-config") {
+      topicTools.setConfig({
+        ownerOnlyEnabled: data.ownerOnlyEnabled === true,
+        cleanModeEnabled: data.cleanModeEnabled === true,
+        lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+      });
+      return;
+    }
     if (data?.type !== "ldu:preview-config") return;
     previewEnabled = data.enabled === true;
     previewClickMode = data.clickMode === "single" ? "single" : "double";
@@ -236,6 +249,21 @@ export function bootFrameBridge(): void {
   document.addEventListener("pointerdown", (event) => {
     window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
     if (previewEnabled && previewClickMode === "double" && event.detail >= 2) cancelPendingClick();
+  }, true);
+  let scrollInteractionTimer: number | null = null;
+  const notifyScrollInteraction = () => {
+    if (scrollInteractionTimer !== null) return;
+    window.parent.postMessage({ type: "ldu:frame-interaction", tabId }, location.origin);
+    scrollInteractionTimer = window.setTimeout(() => {
+      scrollInteractionTimer = null;
+    }, 120);
+  };
+  window.addEventListener("wheel", notifyScrollInteraction, { passive: true, capture: true });
+  window.addEventListener("touchstart", notifyScrollInteraction, { passive: true, capture: true });
+  document.addEventListener("keydown", (event) => {
+    if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", "Space"].includes(event.key)) {
+      notifyScrollInteraction();
+    }
   }, true);
   document.addEventListener("click", (event) => {
     if (replayingClick || !isPlainPrimaryClick(event)) return;
@@ -290,6 +318,7 @@ export function bootFrameBridge(): void {
 function bootListBridge(frameId: string): void {
   document.documentElement.dataset.lduEmbeddedList = "true";
   ensureEmbeddedStyles(document);
+  const topicTools = installTopicTools({ isEmbedded: true });
   let timer: number | null = null;
   let clickTimer: number | null = null;
   let visualReadySent = false;
@@ -367,7 +396,23 @@ function bootListBridge(frameId: string): void {
   };
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== location.origin) return;
-    const data = event.data as { type?: string; enabled?: unknown; clickMode?: unknown; hidePosters?: unknown } | null;
+    const data = event.data as {
+      type?: string;
+      enabled?: unknown;
+      clickMode?: unknown;
+      hidePosters?: unknown;
+      ownerOnlyEnabled?: unknown;
+      cleanModeEnabled?: unknown;
+      lowEndOptimizationEnabled?: unknown;
+    } | null;
+    if (data?.type === "ldu:topic-tools-config") {
+      topicTools.setConfig({
+        ownerOnlyEnabled: data.ownerOnlyEnabled === true,
+        cleanModeEnabled: data.cleanModeEnabled === true,
+        lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+      });
+      return;
+    }
     if (data?.type !== "ldu:preview-config") return;
     previewEnabled = data.enabled === true;
     previewClickMode = data.clickMode === "single" ? "single" : "double";

@@ -10,5 +10,7 @@ describe("shared icons", () => {
     setIcon(button, "close", 16);
     expect(button.querySelector(".ldu-symbol-close")).not.toBeNull();
     expect(createIcon(document, "bookmark").querySelector(".ldu-symbol-bookmark")).not.toBeNull();
+    expect(iconSvg("tab-list", 18)).toContain('class="ldu-symbol ldu-symbol-tab-list"');
+    expect(iconSvg("tab-list", 18)).toContain("m4 6 5 6-5 6");
   });
 });

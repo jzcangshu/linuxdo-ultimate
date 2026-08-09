@@ -101,6 +101,16 @@ describe("browser smoke", () => {
     document.querySelector<HTMLButtonElement>('.ldu-settings-host > button')!.click();
     expect(document.querySelector<HTMLElement>('#ldu-settings-panel')?.hidden).toBe(false);
     const frame = document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")!;
+    const frameSrc = frame.src;
+    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
+    document.querySelector<HTMLButtonElement>('[data-pills-setting="tabPresentation"] [data-val="vertical"]')!.click();
+    const autoCollapse = document.querySelector<HTMLInputElement>('[data-setting="verticalTabsAutoCollapse"]')!;
+    autoCollapse.checked = false;
+    autoCollapse.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")).toBe(frame);
+    expect(frame.src).toBe(frameSrc);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(document.body.classList).toContain("ldu-vertical-tabs-static");
     const frameInteraction = new MessageEvent("message", {
       data: { type: "ldu:frame-interaction", tabId: "topic-42" },
     });

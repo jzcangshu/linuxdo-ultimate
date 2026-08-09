@@ -8,10 +8,12 @@ interface PreviewRuntimeModule {
 
 installExtensionRequestBridge();
 
-startLinuxDoApp({
-  loadPreviewer: async () => {
-    const runtimeUrl = chrome.runtime.getURL("preview-runtime.js");
-    const module = await import(runtimeUrl) as PreviewRuntimeModule;
-    return module.installLinkHoverPreviewer;
-  },
-});
+if (!location.pathname.startsWith("/challenge")) {
+  startLinuxDoApp({
+    loadPreviewer: async () => {
+      const runtimeUrl = chrome.runtime.getURL("preview-runtime.js");
+      const module = await import(runtimeUrl) as PreviewRuntimeModule;
+      return module.installLinkHoverPreviewer;
+    },
+  });
+}

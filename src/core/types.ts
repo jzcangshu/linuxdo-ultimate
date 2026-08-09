@@ -18,6 +18,9 @@ export interface Settings {
   restoreSession: boolean;
   hidePosters: boolean;
   colorizeTabs: boolean;
+  ownerOnlyEnabled: boolean;
+  cleanModeEnabled: boolean;
+  lowEndOptimizationEnabled: boolean;
   previewEnabled: boolean;
   creditEnabled: boolean;
   previewClickMode: "double" | "single";

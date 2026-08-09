@@ -9,7 +9,6 @@ function tab(title: string): TopicTabState {
     topicId: "1",
     url: "/t/topic/1",
     title,
-    scrollY: 0,
     suspended: false,
     lastActiveAt: 1,
   };

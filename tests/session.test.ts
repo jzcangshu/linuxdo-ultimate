@@ -78,6 +78,7 @@ describe("session state", () => {
     const restored = normalizeSession(legacy, initial);
     expect(restored.tabs[0]).not.toHaveProperty("categoryName");
     expect(restored.tabs[0]).not.toHaveProperty("categoryColor");
+    expect(restored.tabs[0]).not.toHaveProperty("scrollY");
   });
 
   it("bounds restored tabs and keeps the active tab valid", () => {

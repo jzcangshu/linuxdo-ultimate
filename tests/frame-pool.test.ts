@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TopicTabState } from "../src/core/types";
 import { TopicFramePool } from "../src/tabs/frame-pool";
 
@@ -9,21 +9,12 @@ function tab(topicId: string, url = `/t/topic/${topicId}`): TopicTabState {
     topicId,
     url,
     title: `Topic ${topicId}`,
-    scrollY: 0,
     suspended: false,
     lastActiveAt: 0,
   };
 }
 
 describe("topic frame pool", () => {
-  afterEach(() => {
-    // The scroll restoration retry intentionally schedules another attempt
-    // while a large topic is still expanding. Clear that pending attempt
-    // before Vitest tears down the jsdom window.
-    vi.clearAllTimers();
-    vi.useRealTimers();
-  });
-
   it("reuses a frame and navigates it for an explicit target change", () => {
     const host = document.createElement("div");
     const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
@@ -39,7 +30,7 @@ describe("topic frame pool", () => {
     const pool = new TopicFramePool(host, 2, onMessage, vi.fn());
     const frame = pool.activate(tab("1"), 1);
     const event = new MessageEvent("message", {
-      data: { type: "ldu:frame-state", tabId: "topic-1", url: "http://localhost:3000/t/topic/1/22", scrollY: 900 },
+      data: { type: "ldu:frame-state", tabId: "topic-1", url: "http://localhost:3000/t/topic/1/22" },
     });
     Object.defineProperty(event, "source", { value: frame.contentWindow });
     pool.handleMessage(event);
@@ -50,19 +41,30 @@ describe("topic frame pool", () => {
     expect(reused.src).toBe(originalSrc);
   });
 
-  it("removes the least recently used frame and reports its last scroll position", () => {
+  it("leaves topic reading-position restoration to Discourse", () => {
     const host = document.createElement("div");
     document.body.append(host);
-    const suspended: Array<{ id: string; scrollY: number }> = [];
-    const pool = new TopicFramePool(host, 1, vi.fn(), (id, scrollY) => {
-      suspended.push({ id, scrollY });
-    });
-    const frame = pool.activate(tab("1"), 1);
-    Object.defineProperty(frame.contentWindow!, "scrollY", { value: 4200, configurable: true });
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate({ ...tab("1", "/t/topic/1/22"), postNumber: 22 }, 1);
+    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
+
+    frame.dispatchEvent(new Event("load"));
+    pool.activate(tab("2"), 2);
+    pool.activate({ ...tab("1", "/t/topic/1/22"), postNumber: 22 }, 3);
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("removes the least recently used frame and reports the suspended tab", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const suspended: string[] = [];
+    const pool = new TopicFramePool(host, 1, vi.fn(), (id) => suspended.push(id));
+    pool.activate(tab("1"), 1);
 
     pool.activate(tab("2"), 2);
 
-    expect(suspended).toEqual([{ id: "topic-1", scrollY: 4200 }]);
+    expect(suspended).toEqual(["topic-1"]);
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
   });
 
@@ -154,24 +156,6 @@ describe("topic frame pool", () => {
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:frame-interaction" }), frame);
   });
 
-  it("cancels a pending scroll restore when the user interacts with a frame", () => {
-    vi.useFakeTimers();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
-    const frame = pool.activate({ ...tab("1"), scrollY: 900 }, 1);
-    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
-    Object.defineProperty(frame.contentWindow!, "scrollY", { configurable: true, value: 0 });
-    frame.dispatchEvent(new Event("load"));
-    const event = new MessageEvent("message", {
-      data: { type: "ldu:frame-interaction", tabId: "topic-1" },
-    });
-    Object.defineProperty(event, "source", { value: frame.contentWindow });
-    pool.handleMessage(event);
-    vi.advanceTimersByTime(500);
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-  });
-
   it("supports a live-frame limit of ten", () => {
     const host = document.createElement("div");
     const suspended: string[] = [];
@@ -215,7 +199,7 @@ describe("topic frame pool", () => {
     const transfer = first.detach("topic-1");
     expect(transfer?.iframe).toBe(frame);
     expect(firstHost.querySelector("iframe")).toBeNull();
-    const current = { ...tab("1", "/t/topic/1/18"), scrollY: 2200 };
+    const current = tab("1", "/t/topic/1/18");
     expect(second.adopt(current, transfer!, 2)).toBe(frame);
     expect(secondHost.querySelectorAll("iframe")).toHaveLength(1);
     expect(new URL(frame.src).pathname).toBe("/t/topic/1/18");
@@ -284,21 +268,6 @@ describe("topic frame pool", () => {
     );
   });
 
-  it("reapplies the saved scroll position when returning to a live frame", () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const pool = new TopicFramePool(host, 3, vi.fn(), vi.fn());
-    const first = pool.activate({ ...tab("1"), scrollY: 1800 }, 1);
-    const scrollTo = vi.spyOn(first.contentWindow!, "scrollTo").mockImplementation(() => {});
-    first.dispatchEvent(new Event("load"));
-    scrollTo.mockClear();
-
-    pool.activate(tab("2"), 2);
-    pool.activate({ ...tab("1"), scrollY: 1800 }, 3);
-
-    expect(scrollTo).toHaveBeenCalledWith({ top: 1800, behavior: "instant" });
-  });
-
   it("resends the desired frozen state when a background frame reports ready", () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -320,48 +289,4 @@ describe("topic frame pool", () => {
     );
   });
 
-  it("restores the captured scroll position after a transferred frame reloads", () => {
-    vi.useFakeTimers();
-    const firstHost = document.createElement("div");
-    const secondHost = document.createElement("div");
-    document.body.append(firstHost, secondHost);
-    const first = new TopicFramePool(firstHost, 2, vi.fn(), vi.fn());
-    const second = new TopicFramePool(secondHost, 2, vi.fn(), vi.fn());
-    const frame = first.activate(tab("1"), 1);
-    const transfer = first.detach("topic-1")!;
-
-    second.adopt({ ...tab("1", "/t/topic/1/18"), scrollY: 2200 }, transfer, 2);
-    const scrollTo = vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation(() => {});
-    frame.dispatchEvent(new Event("load"));
-    vi.runOnlyPendingTimers();
-
-    expect(scrollTo).toHaveBeenCalledWith({ top: 2200, behavior: "instant" });
-    vi.useRealTimers();
-  });
-
-  it("keeps retrying while a large topic is still expanding", () => {
-    vi.useFakeTimers();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
-    const frame = pool.activate({ ...tab("1"), scrollY: 2200 }, 1);
-    let currentScroll = 0;
-    let maxScroll = 0;
-    Object.defineProperty(frame.contentWindow!, "scrollY", {
-      configurable: true,
-      get: () => currentScroll,
-    });
-    vi.spyOn(frame.contentWindow!, "scrollTo").mockImplementation((options) => {
-      const top = (options as ScrollToOptions).top ?? 0;
-      currentScroll = Math.min(top, maxScroll);
-    });
-
-    frame.dispatchEvent(new Event("load"));
-    vi.advanceTimersByTime(5_000);
-    maxScroll = 3_000;
-    vi.advanceTimersByTime(100);
-
-    expect(currentScroll).toBe(2_200);
-    vi.useRealTimers();
-  });
 });

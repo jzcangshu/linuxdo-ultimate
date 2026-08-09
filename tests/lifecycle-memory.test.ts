@@ -31,7 +31,7 @@ describe("split runtime lifecycle", () => {
     layout.setOpen(true);
     const content = layout.getContentElement()!;
     const pool = new TopicFramePool(content, 3, vi.fn(), vi.fn());
-    pool.activate({ id: "topic-1", topicId: "1", url: "https://linux.do/t/a/1", title: "A", scrollY: 0, suspended: false, lastActiveAt: 1 }, 1);
+    pool.activate({ id: "topic-1", topicId: "1", url: "https://linux.do/t/a/1", title: "A", suspended: false, lastActiveAt: 1 }, 1);
     pool.destroy();
     expect(content.querySelectorAll("iframe")).toHaveLength(0);
     layout.destroy();

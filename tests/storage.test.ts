@@ -139,7 +139,6 @@ describe("storage", () => {
       topicId: "42",
       url: "https://linux.do/t/topic/42",
       title: "Current topic",
-      scrollY: 120,
       suspended: false,
       lastActiveAt: 11,
     });
@@ -178,7 +177,7 @@ describe("storage", () => {
   it("rebases an opted-in previous session onto the new browser tab", () => {
     const storage = new MemoryStorage();
     const previous = createSession("closed-tab", "https://linux.do/c/develop/4", 10);
-    previous.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", scrollY: 0, suspended: false, lastActiveAt: 11 });
+    previous.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", suspended: false, lastActiveAt: 11 });
     previous.activeTabId = "topic-1";
     saveSession(storage, previous);
     stageSessionClose(storage, previous);
@@ -192,7 +191,7 @@ describe("storage", () => {
   it("does not replace the latest restorable session for an untouched empty tab", () => {
     const storage = new MemoryStorage();
     const previous = createSession("closed-tab", "https://linux.do/c/develop/4", 10);
-    previous.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", scrollY: 0, suspended: false, lastActiveAt: 11 });
+    previous.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", suspended: false, lastActiveAt: 11 });
     previous.activeTabId = "topic-1";
     saveSession(storage, previous);
     stageSessionClose(storage, previous);
@@ -205,10 +204,10 @@ describe("storage", () => {
   it("restores exactly the last closed browser-tab session without merging sessions", () => {
     const storage = new MemoryStorage();
     const first = createSession("window-a", "https://linux.do/c/develop/4", 1);
-    first.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "A", scrollY: 0, suspended: false, lastActiveAt: 2 });
+    first.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "A", suspended: false, lastActiveAt: 2 });
     first.activeTabId = "topic-1";
     const second = createSession("window-b", "https://linux.do/c/news/34", 3);
-    second.tabs.push({ id: "topic-2", topicId: "2", url: "https://linux.do/t/topic/2", title: "B", scrollY: 0, suspended: false, lastActiveAt: 4 });
+    second.tabs.push({ id: "topic-2", topicId: "2", url: "https://linux.do/t/topic/2", title: "B", suspended: false, lastActiveAt: 4 });
     second.activeTabId = "topic-2";
 
     saveSession(storage, first);
@@ -225,10 +224,10 @@ describe("storage", () => {
   it("cancels a reload candidate while preserving the previously closed session", () => {
     const storage = new MemoryStorage();
     const closed = createSession("closed-window", "https://linux.do/latest", 1);
-    closed.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", scrollY: 0, suspended: false, lastActiveAt: 2 });
+    closed.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", suspended: false, lastActiveAt: 2 });
     closed.activeTabId = "topic-1";
     const refreshing = createSession("refreshing-window", "https://linux.do/latest", 3);
-    refreshing.tabs.push({ id: "topic-2", topicId: "2", url: "https://linux.do/t/topic/2", title: "Refreshing", scrollY: 0, suspended: false, lastActiveAt: 4 });
+    refreshing.tabs.push({ id: "topic-2", topicId: "2", url: "https://linux.do/t/topic/2", title: "Refreshing", suspended: false, lastActiveAt: 4 });
     refreshing.activeTabId = "topic-2";
 
     stageSessionClose(storage, closed);
@@ -241,7 +240,7 @@ describe("storage", () => {
   it("clears shared restoration state when the preference is disabled", () => {
     const storage = new MemoryStorage();
     const session = createSession("closed-window", "https://linux.do/latest", 1);
-    session.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", scrollY: 0, suspended: false, lastActiveAt: 2 });
+    session.tabs.push({ id: "topic-1", topicId: "1", url: "https://linux.do/t/topic/1", title: "Closed", suspended: false, lastActiveAt: 2 });
     session.activeTabId = "topic-1";
     stageSessionClose(storage, session);
     clearRestorableSessions(storage);

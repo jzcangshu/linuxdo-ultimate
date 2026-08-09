@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.5
+// @version      0.6.6
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -118,7 +118,6 @@
       url: tab.url,
       title: typeof tab.title === "string" && tab.title.trim() ? tab.title : `\u4E3B\u9898 ${tab.topicId}`,
       ...typeof tab.postNumber === "number" && Number.isFinite(tab.postNumber) ? { postNumber: Math.max(1, Math.floor(tab.postNumber)) } : {},
-      scrollY: clampNumber(tab.scrollY, 0, 1e7, 0),
       suspended: tab.suspended === true,
       lastActiveAt: clampNumber(tab.lastActiveAt, 0, Number.MAX_SAFE_INTEGER, 0)
     };
@@ -184,7 +183,6 @@
       url: input.url,
       title: input.title || `\u4E3B\u9898 ${input.topicId}`,
       ...input.postNumber ? { postNumber: input.postNumber } : {},
-      scrollY: 0,
       suspended: false,
       lastActiveAt: now
     };
@@ -709,7 +707,6 @@
   }
 
   // src/tabs/frame-pool.ts
-  var SCROLL_RESTORE_TIMEOUT_MS = 15e3;
   var TopicFramePool = class {
     constructor(container, maxLiveFrames, onMessage, onSuspend) {
       this.container = container;
@@ -749,11 +746,6 @@
           this.setFrameActive(current, tabId === tab.id);
         }
         this.activeTabId = tab.id;
-        if (record.loaded) {
-          this.cancelScrollRestore(record);
-          record.restoreScrollY = tab.scrollY;
-          if (tab.scrollY > 0) this.restoreScroll(record);
-        }
       }
       this.suspendOverflow(tab.id);
       return record.iframe;
@@ -777,7 +769,6 @@
           const current = this.frames.get(tab.id);
           if (!current || current.iframe !== iframe) return;
           current.loaded = true;
-          this.restoreScroll(current);
           this.sendLifecycleState(current);
           this.sendInitialConfigs(current);
           this.flushCommands(current);
@@ -793,9 +784,6 @@
           softFrozen: true,
           commands: [],
           loadListener,
-          restoreScrollY: tab.scrollY,
-          restoreTimer: null,
-          restoreDeadline: 0,
           configSentForDocument: false
         };
         this.frames.set(tab.id, record);
@@ -808,7 +796,6 @@
           record.reportedUrl = null;
           record.loaded = false;
           record.configSentForDocument = false;
-          record.restoreScrollY = tab.scrollY;
           record.iframe.src = requestedUrl;
         }
       }
@@ -819,10 +806,6 @@
       if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
       const record = this.frames.get(data.tabId);
       if (!record || event.source !== record.iframe.contentWindow) return;
-      if (data.type === "ldu:frame-interaction") {
-        this.cancelScrollRestore(record);
-        record.restoreScrollY = 0;
-      }
       if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
         try {
           record.reportedUrl = new URL(data.url, document.baseURI).href;
@@ -832,7 +815,6 @@
       }
       if (data.type === "ldu:frame-ready") {
         record.loaded = true;
-        this.restoreScroll(record);
         this.sendLifecycleState(record);
         this.sendInitialConfigs(record);
         this.flushCommands(record);
@@ -843,7 +825,6 @@
       const record = this.frames.get(tabId);
       if (!record) return;
       record.commands = [];
-      this.cancelScrollRestore(record);
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
@@ -877,7 +858,6 @@
     detach(tabId) {
       const record = this.frames.get(tabId);
       if (!record) return null;
-      this.cancelScrollRestore(record);
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
@@ -893,7 +873,6 @@
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
         current.loaded = true;
-        this.restoreScroll(current);
         this.sendInitialConfigs(current);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
@@ -907,9 +886,6 @@
         reportedUrl: null,
         loaded: false,
         loadListener,
-        restoreScrollY: tab.scrollY,
-        restoreTimer: null,
-        restoreDeadline: 0,
         configSentForDocument: false
       };
       this.frames.set(tab.id, record);
@@ -920,7 +896,6 @@
     destroy() {
       for (const record of this.frames.values()) {
         record.commands = [];
-        this.cancelScrollRestore(record);
         record.iframe.removeEventListener("load", record.loadListener);
         record.iframe.remove();
       }
@@ -959,47 +934,18 @@
       const commands = record.commands.splice(0);
       for (const command of commands) record.iframe.contentWindow?.postMessage(command, location.origin);
     }
-    restoreScroll(record) {
-      const target = record.restoreScrollY;
-      if (target <= 0 || !record.iframe.contentWindow) return;
-      if (typeof window === "undefined") {
-        record.restoreTimer = null;
-        record.restoreDeadline = 0;
-        return;
-      }
-      if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-      if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
-      record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
-      if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
-        record.restoreScrollY = 0;
-        record.restoreDeadline = 0;
-        record.restoreTimer = null;
-        return;
-      }
-      record.restoreTimer = window.setTimeout(() => {
-        record.restoreTimer = null;
-        if ([...this.frames.values()].includes(record)) this.restoreScroll(record);
-      }, 100);
-    }
-    cancelScrollRestore(record) {
-      if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-      record.restoreTimer = null;
-      record.restoreDeadline = 0;
-    }
     suspendOverflow(activeTabId) {
       while (this.frames.size > this.liveLimit) {
         const candidates = [...this.frames.entries()].filter(([tabId2]) => tabId2 !== activeTabId).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt);
         const candidate = candidates[0];
         if (!candidate) return;
         const [tabId, record] = candidate;
-        const scrollY = record.iframe.contentWindow?.scrollY ?? 0;
         record.commands = [];
-        this.cancelScrollRestore(record);
         record.iframe.removeEventListener("load", record.loadListener);
         record.iframe.remove();
         this.frames.delete(tabId);
         if (this.activeTabId === tabId) this.activeTabId = null;
-        this.onSuspend(tabId, scrollY);
+        this.onSuspend(tabId);
       }
     }
   };
@@ -4758,8 +4704,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         content,
         this.settings.maxLiveFrames,
         (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
-        (tabId, scrollY) => {
-          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+        (tabId) => {
+          this.tabStore.update(tabId, { suspended: true }, Date.now(), false);
           this.schedulePersist();
         }
       );
@@ -4777,8 +4723,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         content,
         this.settings.maxLiveFrames,
         (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
-        (tabId, scrollY) => {
-          this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+        (tabId) => {
+          this.tabStore.update(tabId, { suspended: true }, Date.now(), false);
           this.schedulePersist();
         }
       );
@@ -4972,16 +4918,11 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const patch = {
         ...message.url ? { url: message.url } : {},
         ...message.title ? { title: message.title } : {},
-        // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
-        ...message.type !== "ldu:frame-ready" && typeof message.scrollY === "number" ? { scrollY: message.scrollY } : {},
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       };
       this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
       if (message.type === "ldu:frame-state") this.schedulePersist();
-      if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
-        iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
-      }
     }
     renderTabs(activateFrames = true) {
       const root = this.layout?.getTabStripElement();
@@ -5168,13 +5109,11 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (!tab || !iframe?.contentWindow) return tab;
       let url = tab.url;
       let title = tab.title;
-      let scrollY = tab.scrollY;
       try {
         const currentUrl = iframe.contentWindow.location.href;
         if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
         const currentTitle = iframe.contentDocument?.title?.trim();
         if (currentTitle) title = currentTitle;
-        scrollY = iframe.contentWindow.scrollY;
       } catch {
         return tab;
       }
@@ -5182,7 +5121,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.tabStore.update(tabId, {
         url,
         title,
-        scrollY,
         ...info?.postNumber ? { postNumber: info.postNumber } : {},
         suspended: false
       }, Date.now(), false);
@@ -5450,8 +5388,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         if (softFrozen && type === "ldu:frame-state") return;
         const payload = {
           type,
-          tabId,
-          scrollY: window.scrollY
+          tabId
         };
         if (type === "ldu:frame-ready" || lastUrl !== location.href) {
           lastUrl = location.href;
@@ -5461,7 +5398,9 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         window.parent.postMessage(payload, location.origin);
       }, type === "ldu:frame-ready" ? 0 : 120);
     };
-    window.addEventListener("scroll", () => send("ldu:frame-state"), { passive: true });
+    window.addEventListener("scroll", () => {
+      if (lastUrl !== location.href) send("ldu:frame-state");
+    }, { passive: true });
     window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
     document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
     window.addEventListener("popstate", () => send("ldu:frame-state"));

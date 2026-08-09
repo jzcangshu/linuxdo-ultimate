@@ -473,8 +473,8 @@ class LinuxDoApp {
       content,
       this.settings.maxLiveFrames,
       (message, iframe) => this.handleFrameMessage(message, iframe, "primary"),
-      (tabId, scrollY) => {
-        this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+      (tabId) => {
+        this.tabStore.update(tabId, { suspended: true }, Date.now(), false);
         this.schedulePersist();
       },
     );
@@ -493,8 +493,8 @@ class LinuxDoApp {
       content,
       this.settings.maxLiveFrames,
       (message, iframe) => this.handleFrameMessage(message, iframe, "secondary"),
-      (tabId, scrollY) => {
-        this.tabStore.update(tabId, { scrollY, suspended: true }, Date.now(), false);
+      (tabId) => {
+        this.tabStore.update(tabId, { suspended: true }, Date.now(), false);
         this.schedulePersist();
       },
     );
@@ -708,18 +708,11 @@ class LinuxDoApp {
     const patch = {
       ...(message.url ? { url: message.url } : {}),
       ...(message.title ? { title: message.title } : {}),
-      // A freshly loaded frame always reports 0, which would clobber the position we are about to restore.
-      ...(message.type !== "ldu:frame-ready" && typeof message.scrollY === "number"
-        ? { scrollY: message.scrollY }
-        : {}),
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     };
     this.tabStore.update(tab.id, patch, Date.now(), message.type === "ldu:frame-ready" || Boolean(message.title && !sameTopic));
     if (message.type === "ldu:frame-state") this.schedulePersist();
-    if (message.type === "ldu:frame-ready" && tab.scrollY > 0) {
-      iframe.contentWindow?.scrollTo({ top: tab.scrollY, behavior: "instant" });
-    }
   }
 
   private renderTabs(activateFrames = true): void {
@@ -917,13 +910,11 @@ class LinuxDoApp {
     if (!tab || !iframe?.contentWindow) return tab;
     let url = tab.url;
     let title = tab.title;
-    let scrollY = tab.scrollY;
     try {
       const currentUrl = iframe.contentWindow.location.href;
       if (getTopicInfo(currentUrl, tab.url)?.topicId === tab.topicId) url = currentUrl;
       const currentTitle = iframe.contentDocument?.title?.trim();
       if (currentTitle) title = currentTitle;
-      scrollY = iframe.contentWindow.scrollY;
     } catch {
       return tab;
     }
@@ -931,7 +922,6 @@ class LinuxDoApp {
     this.tabStore.update(tabId, {
       url,
       title,
-      scrollY,
       ...(info?.postNumber ? { postNumber: info.postNumber } : {}),
       suspended: false,
     }, Date.now(), false);

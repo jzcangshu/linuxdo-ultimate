@@ -109,7 +109,6 @@ describe("browser smoke", () => {
     expect(document.querySelector("#ldu-secondary-topic-panel .ldu-topic-frame")).toBe(retainedTopicFrame);
     expect(document.body.classList.contains("ldu-secondary-open")).toBe(true);
     retainedTopicFrame.contentWindow!.history.replaceState({}, "", "/t/topic/42/15");
-    Object.defineProperty(retainedTopicFrame.contentWindow, "scrollY", { configurable: true, value: 1800 });
     document.querySelector<HTMLButtonElement>(".ldu-close-secondary")!.click();
     expect(document.querySelectorAll("#ldu-topic-panel .ldu-tab-item")).toHaveLength(1);
     expect(document.querySelectorAll("#ldu-secondary-topic-panel .ldu-tab-item")).toHaveLength(0);
@@ -164,7 +163,7 @@ describe("browser smoke", () => {
 
     const addFrameListener = vi.spyOn(frame, "addEventListener");
     const frameState = new MessageEvent("message", {
-      data: { type: "ldu:frame-state", tabId: "topic-42", url: frame.src, scrollY: 320 },
+      data: { type: "ldu:frame-state", tabId: "topic-42", url: frame.src },
     });
     Object.defineProperty(frameState, "source", { value: frame.contentWindow });
     window.dispatchEvent(frameState);

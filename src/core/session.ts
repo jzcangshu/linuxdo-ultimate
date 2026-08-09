@@ -36,7 +36,6 @@ function normalizeTab(value: unknown): TopicTabState | null {
     ...(typeof tab.postNumber === "number" && Number.isFinite(tab.postNumber)
       ? { postNumber: Math.max(1, Math.floor(tab.postNumber)) }
       : {}),
-    scrollY: clampNumber(tab.scrollY, 0, 10_000_000, 0),
     suspended: tab.suspended === true,
     lastActiveAt: clampNumber(tab.lastActiveAt, 0, Number.MAX_SAFE_INTEGER, 0),
   };
@@ -126,7 +125,6 @@ export function upsertTopicTab(
         url: input.url,
         title: input.title || `主题 ${input.topicId}`,
         ...(input.postNumber ? { postNumber: input.postNumber } : {}),
-        scrollY: 0,
         suspended: false,
         lastActiveAt: now,
       };

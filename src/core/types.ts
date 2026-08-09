@@ -35,7 +35,6 @@ export interface TopicTabState {
   url: string;
   title: string;
   postNumber?: number;
-  scrollY: number;
   suspended: boolean;
   lastActiveAt: number;
 }

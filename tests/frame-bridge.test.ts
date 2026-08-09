@@ -135,6 +135,33 @@ describe("embedded topic preview bridge", () => {
     }, location.origin);
   });
 
+  it("reports changed reading-floor URLs without streaming pixel positions", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-scroll" });
+    window.history.replaceState(null, "", "/t/topic/1/5");
+    const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    bootFrameBridge();
+    vi.runOnlyPendingTimers();
+    postMessage.mockClear();
+
+    window.dispatchEvent(new Event("scroll"));
+    vi.runOnlyPendingTimers();
+    expect(postMessage.mock.calls.some(([message]) => (
+      (message as { type?: string; tabId?: string }).type === "ldu:frame-state"
+      && (message as { tabId?: string }).tabId === "topic-scroll"
+    ))).toBe(false);
+
+    window.history.replaceState(null, "", "/t/topic/1/8");
+    window.dispatchEvent(new Event("scroll"));
+    vi.runOnlyPendingTimers();
+    const state = postMessage.mock.calls.find(([message]) => (
+      (message as { type?: string; tabId?: string }).type === "ldu:frame-state"
+      && (message as { tabId?: string }).tabId === "topic-scroll"
+    ))?.[0];
+    expect(state).toMatchObject({ type: "ldu:frame-state", tabId: "topic-scroll", url: expect.stringContaining("/t/topic/1/8") });
+    expect(state).not.toHaveProperty("scrollY");
+  });
+
   it("pauses the lazy owner runtime when a topic frame is soft-frozen", () => {
     Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
     const controller: OwnerViewController = { setActive: vi.fn(), stop: vi.fn() };

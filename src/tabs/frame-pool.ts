@@ -1,14 +1,11 @@
 import type { TopicTabState } from "../core/types";
 import type { PageToolsConfig } from "../discourse/page-tools-client";
 
-const SCROLL_RESTORE_TIMEOUT_MS = 15_000;
-
 export interface FrameMessage {
   type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:bookmark-result" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open" | "ldu:list-navigate";
   tabId: string;
   url?: string;
   title?: string;
-  scrollY?: number;
   postNumber?: number;
   ok?: boolean;
   message?: string;
@@ -28,9 +25,6 @@ interface FrameRecord {
   softFrozen: boolean;
   commands: FrameCommand[];
   loadListener: () => void;
-  restoreScrollY: number;
-  restoreTimer: number | null;
-  restoreDeadline: number;
   configSentForDocument: boolean;
 }
 
@@ -52,7 +46,7 @@ export class TopicFramePool {
     private readonly container: HTMLElement,
     private readonly maxLiveFrames: number,
     private readonly onMessage: (message: FrameMessage, iframe: HTMLIFrameElement) => void,
-    private readonly onSuspend: (tabId: string, scrollY: number) => void,
+    private readonly onSuspend: (tabId: string) => void,
   ) { this.liveLimit = Math.max(1, maxLiveFrames); }
 
   setMaxLiveFrames(value: number): void {
@@ -80,11 +74,6 @@ export class TopicFramePool {
         this.setFrameActive(current, tabId === tab.id);
       }
       this.activeTabId = tab.id;
-      if (record.loaded) {
-        this.cancelScrollRestore(record);
-        record.restoreScrollY = tab.scrollY;
-        if (tab.scrollY > 0) this.restoreScroll(record);
-      }
     }
     this.suspendOverflow(tab.id);
     return record.iframe;
@@ -110,7 +99,6 @@ export class TopicFramePool {
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
         current.loaded = true;
-        this.restoreScroll(current);
         this.sendLifecycleState(current);
         this.sendInitialConfigs(current);
         this.flushCommands(current);
@@ -126,9 +114,6 @@ export class TopicFramePool {
         softFrozen: true,
         commands: [],
         loadListener,
-        restoreScrollY: tab.scrollY,
-        restoreTimer: null,
-        restoreDeadline: 0,
         configSentForDocument: false,
       };
       this.frames.set(tab.id, record);
@@ -141,7 +126,6 @@ export class TopicFramePool {
         record.reportedUrl = null;
         record.loaded = false;
         record.configSentForDocument = false;
-        record.restoreScrollY = tab.scrollY;
         record.iframe.src = requestedUrl;
       }
     }
@@ -154,10 +138,6 @@ export class TopicFramePool {
     if (!data || !["ldu:frame-state", "ldu:frame-ready", "ldu:frame-interaction", "ldu:bookmark-result", "ldu:preview-open", "ldu:preview-dismiss", "ldu:topic-open", "ldu:list-navigate"].includes(data.type ?? "") || typeof data.tabId !== "string") return;
     const record = this.frames.get(data.tabId);
     if (!record || event.source !== record.iframe.contentWindow) return;
-    if (data.type === "ldu:frame-interaction") {
-      this.cancelScrollRestore(record);
-      record.restoreScrollY = 0;
-    }
     if ((data.type === "ldu:frame-state" || data.type === "ldu:frame-ready") && data.url) {
       try {
         record.reportedUrl = new URL(data.url, document.baseURI).href;
@@ -167,7 +147,6 @@ export class TopicFramePool {
     }
     if (data.type === "ldu:frame-ready") {
       record.loaded = true;
-      this.restoreScroll(record);
       this.sendLifecycleState(record);
       this.sendInitialConfigs(record);
       this.flushCommands(record);
@@ -179,7 +158,6 @@ export class TopicFramePool {
     const record = this.frames.get(tabId);
     if (!record) return;
     record.commands = [];
-    this.cancelScrollRestore(record);
     record.iframe.removeEventListener("load", record.loadListener);
     record.iframe.remove();
     this.frames.delete(tabId);
@@ -217,7 +195,6 @@ export class TopicFramePool {
   detach(tabId: string): FrameTransfer | null {
     const record = this.frames.get(tabId);
     if (!record) return null;
-    this.cancelScrollRestore(record);
     record.iframe.removeEventListener("load", record.loadListener);
     record.iframe.remove();
     this.frames.delete(tabId);
@@ -234,7 +211,6 @@ export class TopicFramePool {
       const current = this.frames.get(tab.id);
       if (!current || current.iframe !== iframe) return;
       current.loaded = true;
-      this.restoreScroll(current);
       this.sendInitialConfigs(current);
       this.flushCommands(current);
       this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
@@ -248,9 +224,6 @@ export class TopicFramePool {
       reportedUrl: null,
       loaded: false,
       loadListener,
-      restoreScrollY: tab.scrollY,
-      restoreTimer: null,
-      restoreDeadline: 0,
       configSentForDocument: false,
     };
     this.frames.set(tab.id, record);
@@ -262,7 +235,6 @@ export class TopicFramePool {
   destroy(): void {
     for (const record of this.frames.values()) {
       record.commands = [];
-      this.cancelScrollRestore(record);
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
     }
@@ -308,37 +280,6 @@ export class TopicFramePool {
     for (const command of commands) record.iframe.contentWindow?.postMessage(command, location.origin);
   }
 
-  private restoreScroll(record: FrameRecord): void {
-    const target = record.restoreScrollY;
-    if (target <= 0 || !record.iframe.contentWindow) return;
-    // A delayed retry can outlive a jsdom/document teardown. In a real page
-    // this also protects navigation cleanup from touching a dead window.
-    if (typeof window === "undefined") {
-      record.restoreTimer = null;
-      record.restoreDeadline = 0;
-      return;
-    }
-    if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-    if (record.restoreDeadline === 0) record.restoreDeadline = Date.now() + SCROLL_RESTORE_TIMEOUT_MS;
-    record.iframe.contentWindow.scrollTo({ top: target, behavior: "instant" });
-    if (Math.abs(record.iframe.contentWindow.scrollY - target) <= 2 || Date.now() >= record.restoreDeadline) {
-      record.restoreScrollY = 0;
-      record.restoreDeadline = 0;
-      record.restoreTimer = null;
-      return;
-    }
-    record.restoreTimer = window.setTimeout(() => {
-      record.restoreTimer = null;
-      if ([...this.frames.values()].includes(record)) this.restoreScroll(record);
-    }, 100);
-  }
-
-  private cancelScrollRestore(record: FrameRecord): void {
-    if (record.restoreTimer !== null) window.clearTimeout(record.restoreTimer);
-    record.restoreTimer = null;
-    record.restoreDeadline = 0;
-  }
-
   private suspendOverflow(activeTabId: string): void {
     while (this.frames.size > this.liveLimit) {
       const candidates = [...this.frames.entries()]
@@ -347,15 +288,12 @@ export class TopicFramePool {
       const candidate = candidates[0];
       if (!candidate) return;
       const [tabId, record] = candidate;
-      // Read the live scroll position before detaching: contentWindow is gone afterwards.
-      const scrollY = record.iframe.contentWindow?.scrollY ?? 0;
       record.commands = [];
-      this.cancelScrollRestore(record);
       record.iframe.removeEventListener("load", record.loadListener);
       record.iframe.remove();
       this.frames.delete(tabId);
       if (this.activeTabId === tabId) this.activeTabId = null;
-      this.onSuspend(tabId, scrollY);
+      this.onSuspend(tabId);
     }
   }
 }

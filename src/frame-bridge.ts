@@ -44,7 +44,6 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
       const payload: Record<string, unknown> = {
         type,
         tabId,
-        scrollY: window.scrollY,
       };
       if (type === "ldu:frame-ready" || lastUrl !== location.href) {
         lastUrl = location.href;
@@ -55,7 +54,9 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
     }, type === "ldu:frame-ready" ? 0 : 120);
   };
 
-  window.addEventListener("scroll", () => send("ldu:frame-state"), { passive: true });
+  window.addEventListener("scroll", () => {
+    if (lastUrl !== location.href) send("ldu:frame-state");
+  }, { passive: true });
   window.addEventListener("load", () => send("ldu:frame-ready"), { once: true });
   document.addEventListener("DOMContentLoaded", () => send("ldu:frame-ready"), { once: true });
   window.addEventListener("popstate", () => send("ldu:frame-state"));

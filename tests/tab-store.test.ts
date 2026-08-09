@@ -25,19 +25,19 @@ describe("topic tab store", () => {
     const store = new TopicTabStore(session, 50, (next) => changes.push(next.activeTabId ?? "none"));
     store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
     const tabId = store.getActive()!.id;
-    store.update(tabId, { scrollY: 240 }, 3);
+    store.update(tabId, { url: "/t/topic/1/5", postNumber: 5 }, 3);
     store.close(tabId, 4);
     expect(store.getTabs()).toHaveLength(0);
     expect(changes).toEqual(["topic-1", "topic-1", "none"]);
   });
 
-  it("marks a tab suspended while preserving its reading position", () => {
+  it("marks a tab suspended while preserving its reading-floor URL", () => {
     const store = new TopicTabStore(createSession("a", "/latest", 1), 50);
     store.open({ topicId: "1", url: "/t/topic/1", title: "One" }, 2);
     const tabId = store.getActive()!.id;
-    store.update(tabId, { scrollY: 320 }, 3);
+    store.update(tabId, { url: "/t/topic/1/12", postNumber: 12 }, 3);
     store.suspend(tabId, 4);
-    expect(store.getTabs()[0]).toMatchObject({ suspended: true, scrollY: 320 });
+    expect(store.getTabs()[0]).toMatchObject({ suspended: true, url: "/t/topic/1/12", postNumber: 12 });
   });
 
   it("clears all tabs with one change notification", () => {

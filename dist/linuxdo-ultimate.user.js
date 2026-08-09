@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.4
+// @version      0.6.5
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -4277,12 +4277,19 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       setDataset(root, "lduLowEnd", this.config.lowEndOptimizationEnabled && this.lowEndDevice);
     }
     wantsOwnerView() {
-      return this.active && this.options.allowOwnerView !== false && this.config.ownerOnlyEnabled && typeof this.options.loadOwnerView === "function";
+      return this.active && this.ownerViewConfigured();
+    }
+    ownerViewConfigured() {
+      return this.options.allowOwnerView !== false && this.config.ownerOnlyEnabled && typeof this.options.loadOwnerView === "function";
     }
     syncOwnerView() {
-      if (!this.wantsOwnerView()) {
-        this.ownerController?.stop();
+      if (!this.ownerViewConfigured()) {
+        this.ownerController?.stop(true);
         this.ownerController = null;
+        return;
+      }
+      if (!this.active) {
+        this.ownerController?.setActive(false);
         return;
       }
       if (this.ownerController) {
@@ -9095,6 +9102,9 @@ ${tab.url}`;
   var OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
   var LEGACY_OWNER_STATE_KEY = "on_off";
   var OWNER_MIGRATION_KEY = "linuxdo-ultimate:owner-view:migrated";
+  var OWNER_FILTER_PARAM = "username_filters";
+  var SUMMARY_FILTER_PARAM = "filter";
+  var SUMMARY_FILTER_VALUE = "summary";
   var MAX_OWNER_TOPICS = 100;
   var LEGACY_OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
   var OWNER_BUTTON_TEXT = "\u53EA\u770B\u697C\u4E3B";
@@ -9105,48 +9115,55 @@ ${tab.url}`;
     started = false;
     active = true;
     lastOwnerTopicId = "";
-    ownerId = null;
-    pendingPosts = /* @__PURE__ */ new Set();
+    ownerUsername = null;
+    documentClickBound = false;
     win;
     doc;
     embedded;
     isSplitHost;
+    navigate;
     constructor(options = {}) {
       this.win = options.window ?? window;
       this.doc = options.document ?? document;
       this.embedded = options.isEmbedded === true;
       this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
+      this.navigate = options.navigate ?? ((url) => this.win.location.assign(url));
     }
     start() {
       if (this.started) return this;
       this.started = true;
-      this.queueApply();
       this.syncObserver();
+      this.queueApply();
       return this;
     }
-    stop() {
+    stop(clearNativeFilter = false) {
       this.disconnectObserver();
+      this.unbindDocumentClick();
       this.started = false;
       this.applyQueued = false;
-      this.pendingPosts.clear();
-      this.clearOwnerFilter();
       this.doc.getElementById("ldu-owner-toggle")?.remove();
+      if (clearNativeFilter) this.clearNativeOwnerFilter();
       this.lastOwnerTopicId = "";
-      this.ownerId = null;
+      this.ownerUsername = null;
     }
     setConfig(patch) {
+      const previous = this.config.ownerOnlyEnabled;
       const next = { ...this.config, ...patch };
-      if (next.ownerOnlyEnabled === this.config.ownerOnlyEnabled) return;
+      if (next.ownerOnlyEnabled === previous) return;
       this.config = next;
       this.syncObserver();
+      if (!next.ownerOnlyEnabled) {
+        this.doc.getElementById("ldu-owner-toggle")?.remove();
+        this.clearNativeOwnerFilter();
+        return;
+      }
       this.queueApply();
     }
     setActive(active) {
       if (this.active === active) return;
       this.active = active;
       this.syncObserver();
-      if (!active) return;
-      this.queueApply();
+      if (active) this.queueApply();
     }
     queueApply() {
       if (this.applyQueued) return;
@@ -9162,29 +9179,35 @@ ${tab.url}`;
     apply() {
       const topicId = this.getTopicId();
       if (topicId !== this.lastOwnerTopicId) {
-        this.clearOwnerFilter();
-        this.pendingPosts.clear();
-        this.ownerId = null;
         this.lastOwnerTopicId = topicId ?? "";
-        this.syncOwnerControl();
-        this.applyOwnerFilter();
-        return;
+        this.ownerUsername = null;
       }
       this.syncOwnerControl();
-      this.applyPendingPosts();
+      if (!topicId || this.isHiddenHostTopic()) return;
+      const ownerUsername = this.findOwnerUsername();
+      if (!ownerUsername) return;
+      const filteredUsername = this.currentUrl().searchParams.get(OWNER_FILTER_PARAM);
+      const nativeFilterActive = filteredUsername === ownerUsername;
+      const remembered = this.readOwnerMode(topicId);
+      if (nativeFilterActive && !remembered) {
+        this.writeOwnerMode(topicId, true);
+        this.updateCurrentButton(true);
+        return;
+      }
+      if (remembered && !nativeFilterActive) {
+        this.navigateWithOwnerFilter(ownerUsername);
+        return;
+      }
+      this.updateCurrentButton(nativeFilterActive);
     }
     syncObserver() {
       const shouldObserve = this.started && this.active && this.config.ownerOnlyEnabled;
       if (!shouldObserve) {
         this.disconnectObserver();
-        if (!this.config.ownerOnlyEnabled) {
-          this.clearOwnerFilter();
-          this.doc.getElementById("ldu-owner-toggle")?.remove();
-          this.lastOwnerTopicId = "";
-          this.ownerId = null;
-        }
+        this.unbindDocumentClick();
         return;
       }
+      this.bindDocumentClick();
       if (this.observer) return;
       const Observer = this.win.MutationObserver;
       const target = this.doc.body ?? this.doc.documentElement;
@@ -9196,31 +9219,51 @@ ${tab.url}`;
       this.observer?.disconnect();
       this.observer = null;
     }
+    bindDocumentClick() {
+      if (this.documentClickBound) return;
+      this.doc.addEventListener("click", this.handleDocumentClick, true);
+      this.documentClickBound = true;
+    }
+    unbindDocumentClick() {
+      if (!this.documentClickBound) return;
+      this.doc.removeEventListener("click", this.handleDocumentClick, true);
+      this.documentClickBound = false;
+    }
+    handleDocumentClick = (event) => {
+      if (!this.active || !this.config.ownerOnlyEnabled || event.button > 0) return;
+      const target = event.target instanceof Element ? event.target.closest(".show-summary, .top-replies") : null;
+      if (!target) return;
+      const ownerUsername = this.findOwnerUsername();
+      if (!ownerUsername || !this.isNativeOwnerFilterActive(ownerUsername)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const url = this.currentUrl();
+      const summaryActive = url.searchParams.get(SUMMARY_FILTER_PARAM) === SUMMARY_FILTER_VALUE || target.textContent?.includes("\u5168\u90E8\u663E\u793A") === true;
+      if (summaryActive) url.searchParams.delete(SUMMARY_FILTER_PARAM);
+      else url.searchParams.set(SUMMARY_FILTER_PARAM, SUMMARY_FILTER_VALUE);
+      this.navigate(url.href);
+    };
     handleMutations(records) {
-      let needsControlSync = false;
+      if (this.getTopicId() !== this.lastOwnerTopicId) {
+        this.queueApply();
+        return;
+      }
       for (const record of records) {
-        for (const node of record.addedNodes) {
+        for (const node of [...record.addedNodes, ...record.removedNodes]) {
           if (!(node instanceof Element)) continue;
-          if (node.id === "ldu-owner-toggle" || node.closest("#ldu-owner-toggle")) continue;
-          if (node.matches(".topic-post")) this.pendingPosts.add(node);
-          for (const post of node.querySelectorAll(".topic-post")) this.pendingPosts.add(post);
-          if (node.matches(".timeline-footer-controls") || node.querySelector(".timeline-footer-controls")) {
-            needsControlSync = true;
-          }
-        }
-        for (const node of record.removedNodes) {
-          if (node instanceof Element && (node.id === "ldu-owner-toggle" || node.querySelector("#ldu-owner-toggle"))) {
-            needsControlSync = true;
+          if (node.id === "ldu-owner-toggle") continue;
+          if (node.matches(".timeline-footer-controls, #data-preloaded") || node.querySelector(".timeline-footer-controls, #data-preloaded, #ldu-owner-toggle")) {
+            this.queueApply();
+            return;
           }
         }
       }
-      if (needsControlSync || this.pendingPosts.size > 0 || this.getTopicId() !== this.lastOwnerTopicId) this.queueApply();
-    }
-    isTopicPage() {
-      return getTopicInfo(this.win.location.href, this.win.location.href) !== null;
     }
     getTopicId() {
       return getTopicInfo(this.win.location.href, this.win.location.href)?.topicId ?? null;
+    }
+    currentUrl() {
+      return new URL(this.win.location.href, this.win.location.href);
     }
     readOwnerMode(topicId) {
       this.migrateOwnerState(topicId);
@@ -9292,21 +9335,32 @@ ${tab.url}`;
       storage.removeItem(LEGACY_OWNER_STATE_KEY);
       storage.setItem(OWNER_MIGRATION_KEY, "1");
     }
-    findOwnerId() {
-      if (this.ownerId) return this.ownerId;
-      const ownerPost = this.doc.querySelector(
-        '.topic-post.topic-owner [data-user-id], .topic-post.post--topic-owner [data-user-id], #post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]'
+    findOwnerUsername() {
+      if (this.ownerUsername) return this.ownerUsername;
+      const ownerLink = this.doc.querySelector(
+        ".topic-post.topic-owner [data-user-card], .topic-post.post--topic-owner [data-user-card], #post_1 [data-user-card]"
       );
-      this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? this.readPreloadedOwnerId();
-      return this.ownerId;
+      this.ownerUsername = ownerLink?.dataset.userCard?.trim() || this.readPreloadedOwnerUsername();
+      return this.ownerUsername;
     }
-    readPreloadedOwnerId() {
+    readPreloadedOwnerUsername() {
       const topicId = this.getTopicId();
       const source = this.doc.getElementById("data-preloaded")?.textContent;
-      if (!topicId || !source?.includes(`"topic_${topicId}"`)) return null;
-      const escaped = source.match(/\\"created_by\\":\{[^}]{0,320}?\\"id\\":(\d+)/);
-      if (escaped?.[1]) return escaped[1];
-      return source.match(/"created_by":\{[^}]{0,320}?"id":(\d+)/)?.[1] ?? null;
+      if (!topicId || !source) return null;
+      try {
+        const preloaded = JSON.parse(source);
+        const rawTopic = preloaded[`topic_${topicId}`];
+        const topic = typeof rawTopic === "string" ? JSON.parse(rawTopic) : rawTopic;
+        if (!topic || typeof topic !== "object") return null;
+        const details = topic.details;
+        if (!details || typeof details !== "object") return null;
+        const createdBy = details.created_by;
+        if (!createdBy || typeof createdBy !== "object") return null;
+        const username = createdBy.username;
+        return typeof username === "string" && username.trim() ? username.trim() : null;
+      } catch {
+        return null;
+      }
     }
     syncOwnerControl() {
       const topicId = this.getTopicId();
@@ -9314,7 +9368,6 @@ ${tab.url}`;
       const existing = this.doc.getElementById("ldu-owner-toggle");
       if (!shouldShow) {
         existing?.remove();
-        this.clearOwnerFilter();
         return;
       }
       if (!topicId) return;
@@ -9324,16 +9377,20 @@ ${tab.url}`;
         button.id = "ldu-owner-toggle";
         button.type = "button";
         button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
           const currentTopicId = this.getTopicId();
-          if (!currentTopicId) return;
-          const next = !this.readOwnerMode(currentTopicId);
+          const ownerUsername2 = this.findOwnerUsername();
+          if (!currentTopicId || !ownerUsername2) return;
+          const next = !this.isNativeOwnerFilterActive(ownerUsername2);
           this.writeOwnerMode(currentTopicId, next);
           this.updateOwnerButton(button, next);
-          this.applyOwnerFilter();
+          if (next) this.navigateWithOwnerFilter(ownerUsername2);
+          else this.navigateWithoutOwnerFilter();
         });
       }
-      const mount = this.findOwnerMount();
+      const mount = this.doc.querySelector(".timeline-footer-controls");
       if (!mount) {
         button.remove();
         return;
@@ -9342,11 +9399,12 @@ ${tab.url}`;
       if (button.parentElement !== mount || button.nextElementSibling !== summaryButton) {
         mount.insertBefore(button, summaryButton ?? mount.firstChild);
       }
-      const mode = this.readOwnerMode(topicId);
-      this.updateOwnerButton(button, mode);
+      const ownerUsername = this.findOwnerUsername();
+      this.updateOwnerButton(button, Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)));
     }
-    findOwnerMount() {
-      return this.doc.querySelector(".timeline-footer-controls");
+    updateCurrentButton(ownerOnly) {
+      const button = this.doc.getElementById("ldu-owner-toggle");
+      if (button instanceof HTMLButtonElement) this.updateOwnerButton(button, ownerOnly);
     }
     updateOwnerButton(button, ownerOnly) {
       const pressed = String(ownerOnly);
@@ -9357,51 +9415,24 @@ ${tab.url}`;
       button.classList.toggle("btn-primary", ownerOnly);
       button.classList.toggle("btn-default", !ownerOnly);
     }
-    applyOwnerFilter() {
-      if (!this.config.ownerOnlyEnabled || !this.isTopicPage()) {
-        this.clearOwnerFilter();
-        return;
-      }
-      const topicId = this.getTopicId();
-      if (!topicId || !this.readOwnerMode(topicId)) {
-        this.clearOwnerFilter();
-        return;
-      }
-      const ownerId = this.findOwnerId();
-      if (!ownerId) return;
-      this.filterPosts(this.doc.querySelectorAll(".topic-post"), ownerId);
+    isNativeOwnerFilterActive(ownerUsername) {
+      return this.currentUrl().searchParams.get(OWNER_FILTER_PARAM) === ownerUsername;
     }
-    applyPendingPosts() {
-      if (this.pendingPosts.size === 0) return;
-      const posts = [...this.pendingPosts];
-      this.pendingPosts.clear();
-      const topicId = this.getTopicId();
-      if (!topicId || !this.readOwnerMode(topicId)) return;
-      const ownerId = this.findOwnerId();
-      if (!ownerId) {
-        if (posts.some((post) => post.dataset.postNumber === "1" || post.querySelector('[data-post-number="1"]'))) {
-          this.ownerId = null;
-          this.applyOwnerFilter();
-        }
-        return;
-      }
-      this.filterPosts(posts, ownerId);
+    navigateWithOwnerFilter(ownerUsername) {
+      const url = this.currentUrl();
+      if (url.searchParams.get(OWNER_FILTER_PARAM) === ownerUsername) return;
+      url.searchParams.set(OWNER_FILTER_PARAM, ownerUsername);
+      this.navigate(url.href);
     }
-    filterPosts(posts, ownerId) {
-      for (const post of posts) {
-        const authorNode = post.matches("[data-user-id]") ? post : post.querySelector("[data-user-id]");
-        const author = post.dataset.userId ?? authorNode?.dataset.userId ?? authorNode?.getAttribute("data-user-id");
-        const hidden = author !== ownerId;
-        if (post.hidden !== hidden) post.hidden = hidden;
-        if (hidden) post.dataset.lduOwnerHidden = "true";
-        else delete post.dataset.lduOwnerHidden;
-      }
+    navigateWithoutOwnerFilter() {
+      const url = this.currentUrl();
+      if (!url.searchParams.has(OWNER_FILTER_PARAM)) return;
+      url.searchParams.delete(OWNER_FILTER_PARAM);
+      this.navigate(url.href);
     }
-    clearOwnerFilter() {
-      for (const post of this.doc.querySelectorAll('.topic-post[data-ldu-owner-hidden="true"]')) {
-        post.hidden = false;
-        delete post.dataset.lduOwnerHidden;
-      }
+    clearNativeOwnerFilter() {
+      const ownerUsername = this.findOwnerUsername();
+      if (ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) this.navigateWithoutOwnerFilter();
     }
     isHiddenHostTopic() {
       return !this.embedded && this.isSplitHost();

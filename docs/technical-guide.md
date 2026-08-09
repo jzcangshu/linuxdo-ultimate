@@ -71,7 +71,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 - `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
-- `ownerOnlyEnabled`：帖子页只看楼主切换工具，按主题保存查看状态，默认关闭。
+- `ownerOnlyEnabled`：帖子页只看楼主切换工具，通过论坛原生 `username_filters`（按用户筛选）参数加载楼主回复，可与热门回复组合，并按主题保存查看状态，默认关闭。
 - `cleanModeEnabled`：清爽模式，统一隐藏列表头像、公告、分类徽章和标签，默认开启。
 - `lowEndOptimizationEnabled`：低端设备动画与过渡降级，默认关闭；只在设备满足低端判定时生效。
 - `maxLiveFrames`：同时保留的活动内嵌页面数量，默认 3，范围 1 到 10。

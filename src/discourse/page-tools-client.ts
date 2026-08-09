@@ -13,7 +13,7 @@ export interface OwnerViewOptions {
 
 export interface OwnerViewController {
   setActive(active: boolean): void;
-  stop(): void;
+  stop(clearNativeFilter?: boolean): void;
 }
 
 export type OwnerViewInstaller = (options?: OwnerViewOptions) => OwnerViewController;
@@ -78,16 +78,23 @@ export class PageToolsClient {
   }
 
   private wantsOwnerView(): boolean {
-    return this.active
-      && this.options.allowOwnerView !== false
+    return this.active && this.ownerViewConfigured();
+  }
+
+  private ownerViewConfigured(): boolean {
+    return this.options.allowOwnerView !== false
       && this.config.ownerOnlyEnabled
       && typeof this.options.loadOwnerView === "function";
   }
 
   private syncOwnerView(): void {
-    if (!this.wantsOwnerView()) {
-      this.ownerController?.stop();
+    if (!this.ownerViewConfigured()) {
+      this.ownerController?.stop(true);
       this.ownerController = null;
+      return;
+    }
+    if (!this.active) {
+      this.ownerController?.setActive(false);
       return;
     }
     if (this.ownerController) {

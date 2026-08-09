@@ -20,7 +20,7 @@ describe("page tools lazy client", () => {
     expect(document.documentElement.dataset.lduLowEnd).toBe("true");
   });
 
-  it("loads owner view once and stops it while inactive", () => {
+  it("loads owner view once and only pauses it while inactive", () => {
     const controller: OwnerViewController = { setActive: vi.fn(), stop: vi.fn() };
     const installer = vi.fn(() => controller);
     const loadOwnerView = vi.fn(() => installer);
@@ -29,9 +29,22 @@ describe("page tools lazy client", () => {
     expect(loadOwnerView).toHaveBeenCalledOnce();
     expect(installer).toHaveBeenCalledOnce();
     client.setActive(false);
-    expect(controller.stop).toHaveBeenCalledOnce();
+    expect(controller.setActive).toHaveBeenLastCalledWith(false);
+    expect(controller.stop).not.toHaveBeenCalled();
     client.setActive(true);
     expect(loadOwnerView).toHaveBeenCalledOnce();
-    expect(installer).toHaveBeenCalledTimes(2);
+    expect(installer).toHaveBeenCalledOnce();
+    expect(controller.setActive).toHaveBeenLastCalledWith(true);
+  });
+
+  it("clears the native filter only when the owner feature is disabled", () => {
+    const controller: OwnerViewController = { setActive: vi.fn(), stop: vi.fn() };
+    const client = new PageToolsClient({ loadOwnerView: () => () => controller });
+    client.setConfig({ ownerOnlyEnabled: true });
+
+    client.setConfig({ ownerOnlyEnabled: false });
+
+    expect(controller.stop).toHaveBeenCalledOnce();
+    expect(controller.stop).toHaveBeenCalledWith(true);
   });
 });

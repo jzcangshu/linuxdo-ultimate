@@ -151,7 +151,8 @@ describe("embedded topic preview bridge", () => {
       origin: location.origin,
       source: window.parent,
     }));
-    expect(controller.stop).toHaveBeenCalledOnce();
+    expect(controller.setActive).toHaveBeenLastCalledWith(false);
+    expect(controller.stop).not.toHaveBeenCalled();
   });
 
   it("forwards a different internal topic to the parent tab manager", () => {

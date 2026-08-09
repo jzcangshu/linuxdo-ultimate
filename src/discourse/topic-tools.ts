@@ -9,6 +9,7 @@ export interface TopicToolsOptions {
   document?: Document;
   isEmbedded?: boolean;
   isSplitHost?: () => boolean;
+  navigate?: (url: string) => void;
 }
 
 const DEFAULT_CONFIG: TopicToolsConfig = {
@@ -19,6 +20,9 @@ const OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
 const OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
 const LEGACY_OWNER_STATE_KEY = "on_off";
 const OWNER_MIGRATION_KEY = "linuxdo-ultimate:owner-view:migrated";
+const OWNER_FILTER_PARAM = "username_filters";
+const SUMMARY_FILTER_PARAM = "filter";
+const SUMMARY_FILTER_VALUE = "summary";
 const MAX_OWNER_TOPICS = 100;
 const LEGACY_OWNER_MODE = "当前只看楼主";
 const OWNER_BUTTON_TEXT = "只看楼主";
@@ -41,44 +45,52 @@ export class TopicToolsController {
   private started = false;
   private active = true;
   private lastOwnerTopicId = "";
-  private ownerId: string | null = null;
-  private pendingPosts = new Set<HTMLElement>();
+  private ownerUsername: string | null = null;
+  private documentClickBound = false;
   private readonly win: Window;
   private readonly doc: Document;
   private readonly embedded: boolean;
   private readonly isSplitHost: () => boolean;
+  private readonly navigate: (url: string) => void;
 
   constructor(options: TopicToolsOptions = {}) {
     this.win = options.window ?? window;
     this.doc = options.document ?? document;
     this.embedded = options.isEmbedded === true;
     this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
+    this.navigate = options.navigate ?? ((url) => this.win.location.assign(url));
   }
 
   start(): this {
     if (this.started) return this;
     this.started = true;
-    this.queueApply();
     this.syncObserver();
+    this.queueApply();
     return this;
   }
 
-  stop(): void {
+  stop(clearNativeFilter = false): void {
     this.disconnectObserver();
+    this.unbindDocumentClick();
     this.started = false;
     this.applyQueued = false;
-    this.pendingPosts.clear();
-    this.clearOwnerFilter();
     this.doc.getElementById("ldu-owner-toggle")?.remove();
+    if (clearNativeFilter) this.clearNativeOwnerFilter();
     this.lastOwnerTopicId = "";
-    this.ownerId = null;
+    this.ownerUsername = null;
   }
 
   setConfig(patch: Partial<TopicToolsConfig>): void {
+    const previous = this.config.ownerOnlyEnabled;
     const next = { ...this.config, ...patch };
-    if (next.ownerOnlyEnabled === this.config.ownerOnlyEnabled) return;
+    if (next.ownerOnlyEnabled === previous) return;
     this.config = next;
     this.syncObserver();
+    if (!next.ownerOnlyEnabled) {
+      this.doc.getElementById("ldu-owner-toggle")?.remove();
+      this.clearNativeOwnerFilter();
+      return;
+    }
     this.queueApply();
   }
 
@@ -86,8 +98,7 @@ export class TopicToolsController {
     if (this.active === active) return;
     this.active = active;
     this.syncObserver();
-    if (!active) return;
-    this.queueApply();
+    if (active) this.queueApply();
   }
 
   private queueApply(): void {
@@ -105,30 +116,37 @@ export class TopicToolsController {
   private apply(): void {
     const topicId = this.getTopicId();
     if (topicId !== this.lastOwnerTopicId) {
-      this.clearOwnerFilter();
-      this.pendingPosts.clear();
-      this.ownerId = null;
       this.lastOwnerTopicId = topicId ?? "";
-      this.syncOwnerControl();
-      this.applyOwnerFilter();
-      return;
+      this.ownerUsername = null;
     }
     this.syncOwnerControl();
-    this.applyPendingPosts();
+    if (!topicId || this.isHiddenHostTopic()) return;
+    const ownerUsername = this.findOwnerUsername();
+    if (!ownerUsername) return;
+
+    const filteredUsername = this.currentUrl().searchParams.get(OWNER_FILTER_PARAM);
+    const nativeFilterActive = filteredUsername === ownerUsername;
+    const remembered = this.readOwnerMode(topicId);
+    if (nativeFilterActive && !remembered) {
+      this.writeOwnerMode(topicId, true);
+      this.updateCurrentButton(true);
+      return;
+    }
+    if (remembered && !nativeFilterActive) {
+      this.navigateWithOwnerFilter(ownerUsername);
+      return;
+    }
+    this.updateCurrentButton(nativeFilterActive);
   }
 
   private syncObserver(): void {
     const shouldObserve = this.started && this.active && this.config.ownerOnlyEnabled;
     if (!shouldObserve) {
       this.disconnectObserver();
-      if (!this.config.ownerOnlyEnabled) {
-        this.clearOwnerFilter();
-        this.doc.getElementById("ldu-owner-toggle")?.remove();
-        this.lastOwnerTopicId = "";
-        this.ownerId = null;
-      }
+      this.unbindDocumentClick();
       return;
     }
+    this.bindDocumentClick();
     if (this.observer) return;
     const Observer = (this.win as Window & typeof globalThis).MutationObserver;
     const target = this.doc.body ?? this.doc.documentElement;
@@ -142,33 +160,59 @@ export class TopicToolsController {
     this.observer = null;
   }
 
+  private bindDocumentClick(): void {
+    if (this.documentClickBound) return;
+    this.doc.addEventListener("click", this.handleDocumentClick, true);
+    this.documentClickBound = true;
+  }
+
+  private unbindDocumentClick(): void {
+    if (!this.documentClickBound) return;
+    this.doc.removeEventListener("click", this.handleDocumentClick, true);
+    this.documentClickBound = false;
+  }
+
+  private readonly handleDocumentClick = (event: MouseEvent): void => {
+    if (!this.active || !this.config.ownerOnlyEnabled || event.button > 0) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".show-summary, .top-replies") : null;
+    if (!target) return;
+    const ownerUsername = this.findOwnerUsername();
+    if (!ownerUsername || !this.isNativeOwnerFilterActive(ownerUsername)) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const url = this.currentUrl();
+    const summaryActive = url.searchParams.get(SUMMARY_FILTER_PARAM) === SUMMARY_FILTER_VALUE
+      || target.textContent?.includes("全部显示") === true;
+    if (summaryActive) url.searchParams.delete(SUMMARY_FILTER_PARAM);
+    else url.searchParams.set(SUMMARY_FILTER_PARAM, SUMMARY_FILTER_VALUE);
+    this.navigate(url.href);
+  };
+
   private handleMutations(records: MutationRecord[]): void {
-    let needsControlSync = false;
+    if (this.getTopicId() !== this.lastOwnerTopicId) {
+      this.queueApply();
+      return;
+    }
     for (const record of records) {
-      for (const node of record.addedNodes) {
+      for (const node of [...record.addedNodes, ...record.removedNodes]) {
         if (!(node instanceof Element)) continue;
-        if (node.id === "ldu-owner-toggle" || node.closest("#ldu-owner-toggle")) continue;
-        if (node.matches(".topic-post")) this.pendingPosts.add(node as HTMLElement);
-        for (const post of node.querySelectorAll<HTMLElement>(".topic-post")) this.pendingPosts.add(post);
-        if (node.matches(".timeline-footer-controls") || node.querySelector(".timeline-footer-controls")) {
-          needsControlSync = true;
-        }
-      }
-      for (const node of record.removedNodes) {
-        if (node instanceof Element && (node.id === "ldu-owner-toggle" || node.querySelector("#ldu-owner-toggle"))) {
-          needsControlSync = true;
+        if (node.id === "ldu-owner-toggle") continue;
+        if (node.matches(".timeline-footer-controls, #data-preloaded")
+          || node.querySelector(".timeline-footer-controls, #data-preloaded, #ldu-owner-toggle")) {
+          this.queueApply();
+          return;
         }
       }
     }
-    if (needsControlSync || this.pendingPosts.size > 0 || this.getTopicId() !== this.lastOwnerTopicId) this.queueApply();
-  }
-
-  private isTopicPage(): boolean {
-    return getTopicInfo(this.win.location.href, this.win.location.href) !== null;
   }
 
   private getTopicId(): string | null {
     return getTopicInfo(this.win.location.href, this.win.location.href)?.topicId ?? null;
+  }
+
+  private currentUrl(): URL {
+    return new URL(this.win.location.href, this.win.location.href);
   }
 
   private readOwnerMode(topicId: string): boolean {
@@ -247,50 +291,64 @@ export class TopicToolsController {
     storage.setItem(OWNER_MIGRATION_KEY, "1");
   }
 
-  private findOwnerId(): string | null {
-    if (this.ownerId) return this.ownerId;
-    const ownerPost = this.doc.querySelector<HTMLElement>(
-      '.topic-post.topic-owner [data-user-id], .topic-post.post--topic-owner [data-user-id], #post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]',
+  private findOwnerUsername(): string | null {
+    if (this.ownerUsername) return this.ownerUsername;
+    const ownerLink = this.doc.querySelector<HTMLElement>(
+      ".topic-post.topic-owner [data-user-card], .topic-post.post--topic-owner [data-user-card], #post_1 [data-user-card]",
     );
-    this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? this.readPreloadedOwnerId();
-    return this.ownerId;
+    this.ownerUsername = ownerLink?.dataset.userCard?.trim() || this.readPreloadedOwnerUsername();
+    return this.ownerUsername;
   }
 
-  private readPreloadedOwnerId(): string | null {
+  private readPreloadedOwnerUsername(): string | null {
     const topicId = this.getTopicId();
     const source = this.doc.getElementById("data-preloaded")?.textContent;
-    if (!topicId || !source?.includes(`\"topic_${topicId}\"`)) return null;
-    const escaped = source.match(/\\"created_by\\":\{[^}]{0,320}?\\"id\\":(\d+)/);
-    if (escaped?.[1]) return escaped[1];
-    return source.match(/"created_by":\{[^}]{0,320}?"id":(\d+)/)?.[1] ?? null;
+    if (!topicId || !source) return null;
+    try {
+      const preloaded = JSON.parse(source) as Record<string, unknown>;
+      const rawTopic = preloaded[`topic_${topicId}`];
+      const topic = typeof rawTopic === "string" ? JSON.parse(rawTopic) as unknown : rawTopic;
+      if (!topic || typeof topic !== "object") return null;
+      const details = (topic as Record<string, unknown>).details;
+      if (!details || typeof details !== "object") return null;
+      const createdBy = (details as Record<string, unknown>).created_by;
+      if (!createdBy || typeof createdBy !== "object") return null;
+      const username = (createdBy as Record<string, unknown>).username;
+      return typeof username === "string" && username.trim() ? username.trim() : null;
+    } catch {
+      return null;
+    }
   }
 
   private syncOwnerControl(): void {
     const topicId = this.getTopicId();
     const shouldShow = this.active && this.config.ownerOnlyEnabled && Boolean(topicId) && !this.isHiddenHostTopic();
-    const existing = this.doc.getElementById("ldu-owner-toggle");
+    const existing = this.doc.getElementById("ldu-owner-toggle") as HTMLButtonElement | null;
     if (!shouldShow) {
       existing?.remove();
-      this.clearOwnerFilter();
       return;
     }
     if (!topicId) return;
-    let button = existing as HTMLButtonElement | null;
+    let button = existing;
     if (!button) {
       button = this.doc.createElement("button");
       button.id = "ldu-owner-toggle";
       button.type = "button";
       button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
         const currentTopicId = this.getTopicId();
-        if (!currentTopicId) return;
-        const next = !this.readOwnerMode(currentTopicId);
+        const ownerUsername = this.findOwnerUsername();
+        if (!currentTopicId || !ownerUsername) return;
+        const next = !this.isNativeOwnerFilterActive(ownerUsername);
         this.writeOwnerMode(currentTopicId, next);
         this.updateOwnerButton(button!, next);
-        this.applyOwnerFilter();
+        if (next) this.navigateWithOwnerFilter(ownerUsername);
+        else this.navigateWithoutOwnerFilter();
       });
     }
-    const mount = this.findOwnerMount();
+    const mount = this.doc.querySelector<HTMLElement>(".timeline-footer-controls");
     if (!mount) {
       button.remove();
       return;
@@ -299,12 +357,13 @@ export class TopicToolsController {
     if (button.parentElement !== mount || button.nextElementSibling !== summaryButton) {
       mount.insertBefore(button, summaryButton ?? mount.firstChild);
     }
-    const mode = this.readOwnerMode(topicId);
-    this.updateOwnerButton(button, mode);
+    const ownerUsername = this.findOwnerUsername();
+    this.updateOwnerButton(button, Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)));
   }
 
-  private findOwnerMount(): HTMLElement | null {
-    return this.doc.querySelector<HTMLElement>(".timeline-footer-controls");
+  private updateCurrentButton(ownerOnly: boolean): void {
+    const button = this.doc.getElementById("ldu-owner-toggle");
+    if (button instanceof HTMLButtonElement) this.updateOwnerButton(button, ownerOnly);
   }
 
   private updateOwnerButton(button: HTMLButtonElement, ownerOnly: boolean): void {
@@ -317,54 +376,27 @@ export class TopicToolsController {
     button.classList.toggle("btn-default", !ownerOnly);
   }
 
-  private applyOwnerFilter(): void {
-    if (!this.config.ownerOnlyEnabled || !this.isTopicPage()) {
-      this.clearOwnerFilter();
-      return;
-    }
-    const topicId = this.getTopicId();
-    if (!topicId || !this.readOwnerMode(topicId)) {
-      this.clearOwnerFilter();
-      return;
-    }
-    const ownerId = this.findOwnerId();
-    if (!ownerId) return;
-    this.filterPosts(this.doc.querySelectorAll<HTMLElement>(".topic-post"), ownerId);
+  private isNativeOwnerFilterActive(ownerUsername: string): boolean {
+    return this.currentUrl().searchParams.get(OWNER_FILTER_PARAM) === ownerUsername;
   }
 
-  private applyPendingPosts(): void {
-    if (this.pendingPosts.size === 0) return;
-    const posts = [...this.pendingPosts];
-    this.pendingPosts.clear();
-    const topicId = this.getTopicId();
-    if (!topicId || !this.readOwnerMode(topicId)) return;
-    const ownerId = this.findOwnerId();
-    if (!ownerId) {
-      if (posts.some((post) => post.dataset.postNumber === "1" || post.querySelector('[data-post-number="1"]'))) {
-        this.ownerId = null;
-        this.applyOwnerFilter();
-      }
-      return;
-    }
-    this.filterPosts(posts, ownerId);
+  private navigateWithOwnerFilter(ownerUsername: string): void {
+    const url = this.currentUrl();
+    if (url.searchParams.get(OWNER_FILTER_PARAM) === ownerUsername) return;
+    url.searchParams.set(OWNER_FILTER_PARAM, ownerUsername);
+    this.navigate(url.href);
   }
 
-  private filterPosts(posts: Iterable<HTMLElement>, ownerId: string): void {
-    for (const post of posts) {
-      const authorNode = post.matches("[data-user-id]") ? post : post.querySelector<HTMLElement>("[data-user-id]");
-      const author = post.dataset.userId ?? authorNode?.dataset.userId ?? authorNode?.getAttribute("data-user-id");
-      const hidden = author !== ownerId;
-      if (post.hidden !== hidden) post.hidden = hidden;
-      if (hidden) post.dataset.lduOwnerHidden = "true";
-      else delete post.dataset.lduOwnerHidden;
-    }
+  private navigateWithoutOwnerFilter(): void {
+    const url = this.currentUrl();
+    if (!url.searchParams.has(OWNER_FILTER_PARAM)) return;
+    url.searchParams.delete(OWNER_FILTER_PARAM);
+    this.navigate(url.href);
   }
 
-  private clearOwnerFilter(): void {
-    for (const post of this.doc.querySelectorAll<HTMLElement>('.topic-post[data-ldu-owner-hidden="true"]')) {
-      post.hidden = false;
-      delete post.dataset.lduOwnerHidden;
-    }
+  private clearNativeOwnerFilter(): void {
+    const ownerUsername = this.findOwnerUsername();
+    if (ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) this.navigateWithoutOwnerFilter();
   }
 
   private isHiddenHostTopic(): boolean {

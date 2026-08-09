@@ -106,12 +106,6 @@ export class SettingsPanel {
             </label>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">隐藏列表头像列</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="hidePosters"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
                 <span class="dc-item-title">只看楼主</span>
                 <span class="dc-item-desc">在帖子页显示切换按钮并按主题记住状态</span>
               </span>
@@ -136,6 +130,7 @@ export class SettingsPanel {
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">清爽模式</span>
+                <span class="dc-item-desc">隐藏列表头像、公告、分类徽章和标签</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
             </label>
@@ -313,7 +308,6 @@ export class SettingsPanel {
     const verticalTabsAutoCollapse = this.panel.querySelector<HTMLInputElement>('[data-setting="verticalTabsAutoCollapse"]');
     const groupVerticalTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="groupVerticalTabs"]');
     const restore = this.panel.querySelector<HTMLInputElement>('[data-setting="restoreSession"]');
-    const posters = this.panel.querySelector<HTMLInputElement>('[data-setting="hidePosters"]');
     const ownerOnly = this.panel.querySelector<HTMLInputElement>('[data-setting="ownerOnlyEnabled"]');
     const colorizeTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="colorizeTabs"]');
     const cleanMode = this.panel.querySelector<HTMLInputElement>('[data-setting="cleanModeEnabled"]');
@@ -326,7 +320,6 @@ export class SettingsPanel {
     if (verticalTabsAutoCollapse) verticalTabsAutoCollapse.checked = this.settings.verticalTabsAutoCollapse;
     if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
     if (restore) restore.checked = this.settings.restoreSession;
-    if (posters) posters.checked = this.settings.hidePosters;
     if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
     if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
     if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;

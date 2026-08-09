@@ -4,7 +4,7 @@
 
 ## 1. 技术栈与构建产物
 
-源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。Chrome 正式产物位于 `dist/extension`，Firefox 正式产物位于 `dist/extension-firefox`；两者都包含顶层 `host.js`、轻量 `bridge.js`、独立过盾模块 `challenge.js`、按需 `preview-runtime.js`、跨域请求 `background.js`、官方 Logo 图标和各自的 `manifest.json`。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
+源码使用 TypeScript（类型脚本语言），测试使用 Vitest（测试框架）与 jsdom（浏览器环境模拟器），构建使用 esbuild（打包工具）。Chrome 正式产物位于 `dist/extension`，Firefox 正式产物位于 `dist/extension-firefox`；两者都包含顶层 `host.js`、极小 iframe（内嵌页面）加载器 `bridge.js`、按受管理页面加载的 `frame-runtime.js`、按功能加载的 `topic-tools-runtime.js` 与 `preview-runtime.js`、独立过盾模块 `challenge.js`、跨域请求 `background.js`、官方 Logo 图标和各自的 `manifest.json`。正式构建统一压缩，源码与测试保持可读。`src/main.ts` 及 `dist/linuxdo-ultimate.user.js` 继续保留为 V0.2 兼容与行为回归基线。
 
 ```powershell
 pnpm install
@@ -32,7 +32,7 @@ pnpm package:extension
 | `src/core/update-checker.ts` | 版本比较、更新清单校验、低频缓存与手动检查 |
 | `updates/latest.json` | 当前正式版本、发布时间、发行页和结构化更新摘要 |
 
-插件运行时保持现有业务模块不变。`host.ts` 只在非 Challenge 顶层页面调用 `startLinuxDoApp`；`bridge.ts` 只在非 Challenge 子页面调用 `bootFrameBridge`；`challenge.ts` 在所有 Linux Do frame 中独立运行过盾检测，并只重定向当前 frame；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心重新静态导入 host、bridge 或 challenge。
+插件运行时保持现有业务模块不变。`host.ts` 只在非 Challenge 顶层页面调用 `startLinuxDoApp`；`bridge.ts` 只识别受管理子页面并加载 `frame-runtime.ts`，加载期间应用最小首屏隐藏样式，失败时撤销以免页面永久异常；`frame-runtime.ts` 才调用 `bootFrameBridge`；`topic-tools-runtime.ts` 单独导出只看楼主工具，只有对应设置开启时加载；`challenge.ts` 在所有 Linux Do frame 中独立运行过盾检测，并只重定向当前 frame；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心或只看楼主实现重新静态导入 host、bridge、frame runtime 或 challenge。
 
 更新检查复用同一个后台请求兼容层，但不调用 GitHub API。顶层应用启动 20 秒后，仅在页面可见时读取仓库 `main` 分支中的 `updates/latest.json`；成功结果按当前插件版本缓存 24 小时，失败尝试在 1 小时内不自动重复。手动检查添加时间参数绕过缓存。发布时必须同步更新 `package.json`、`updates/latest.json`、更新日志和正式 Release；清单只允许指向本仓库对应版本的 GitHub Release 地址。
 
@@ -58,7 +58,7 @@ pnpm package:extension
 
 ## 5. 设置与会话存储
 
-V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存设置和会话，以直接复用现有同步状态模型；兼容用户脚本仍优先使用用户脚本存储接口。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 2，主要字段包括：
+V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存设置和会话，以直接复用现有同步状态模型；兼容用户脚本仍优先使用用户脚本存储接口。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 3，主要字段包括：
 
 - `tabsEnabled`：分屏与页内帖子标签开关。
 - `tabPresentation`：标签栏使用横向或垂直样式，默认横向。
@@ -72,12 +72,12 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
 - `ownerOnlyEnabled`：帖子页只看楼主切换工具，按主题保存查看状态，默认关闭。
-- `cleanModeEnabled`：清爽模式，隐藏公告、提示、分类徽章、标签和头像列，默认关闭。
+- `cleanModeEnabled`：清爽模式，统一隐藏列表头像、公告、分类徽章和标签，默认开启。
 - `lowEndOptimizationEnabled`：低端设备动画与过渡降级，默认关闭；只在设备满足低端判定时生效。
 - `maxLiveFrames`：同时保留的活动内嵌页面数量，默认 3，范围 1 到 10。
 - `maxOpenTabs`：阅读区标签总数上限，默认 50，范围 5 到 50。超出时按最久未活跃顺序淘汰非活动标签；该项没有设置界面入口。
 
-从版本 1 迁移到版本 2 时，`restoreSession` 会被设为关闭，内部旧总开关会恢复为启用；此后版本 2 中用户明确选择的恢复状态会被保留。脚本是否运行由用户脚本管理器控制，设置界面不再暴露重复的总开关。
+从版本 1 迁移到版本 2 时，`restoreSession` 会被设为关闭，内部旧总开关会恢复为启用；版本 3 将旧 `hidePosters`（隐藏列表头像列）并入 `cleanModeEnabled`（清爽模式），只要旧版任一相关选项开启就保持清爽模式开启，并移除重复设置。脚本是否运行由用户脚本管理器控制，设置界面不再暴露重复的总开关。
 
 页面会话以 `sessionStorage`（会话存储）中的编号隔离，并在用户脚本存储中记录列表地址、列表滚动位置、布局比例、帖子标签、主阅读区活动标签、第二阅读区标签编号及其活动标签和各阅读位置。每个帖子标签只能属于一个阅读区；旧版会话缺少第二阅读区字段时自动迁移为空。活动归属记录会识别由浏览器复制出来的会话编号并立即换号，避免两个顶层标签页共同写入一份状态。
 
@@ -101,7 +101,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 | `ldu:frame-state` | 内嵌页到顶层 | 报告地址或滚动变化 |
 | `ldu:frame-interaction` | 帖子内嵌页到顶层 | 通知顶层关闭点击外部应收起的浮层 |
 | `ldu:preview-config` | 顶层到内嵌页 | 下发预览开关和单击、双击模式 |
-| `ldu:topic-tools-config` | 顶层到内嵌页 | 下发只看楼主、清爽模式和低端设备优化开关 |
+| `ldu:page-tools-config` | 顶层到内嵌页 | 下发只看楼主、清爽模式和低端设备优化开关；配置不变时不重复广播 |
 | `ldu:bookmark` | 顶层到帖子内嵌页 | 携带主题编号，请求创建整篇主题书签 |
 | `ldu:bookmark-result` | 帖子内嵌页到顶层 | 报告主题书签成功或论坛返回的失败原因 |
 | `ldu:preview-open` | 内嵌页到顶层 | 请求顶层显示外链预览 |
@@ -115,7 +115,7 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 | `ldu:list-topic-open` | 列表页到顶层 | 将列表中的帖子作为阅读标签打开 |
 | `ldu:list-preview-open` | 列表页到顶层 | 请求顶层显示站外链接预览 |
 
-预览配置采用握手机制：父页在页面加载时发送一次，内嵌页每次报告就绪后父页还会再次回送当前配置。这样可以覆盖脚本启动与页面加载顺序不同造成的时序缺口。
+预览和页面工具配置采用就绪握手机制：每个 iframe（内嵌页面）文档只发送一次初始配置，页面报告就绪后父页按需回送当前状态；运行中只有配置真实变化才广播。这样既覆盖启动时序差异，也避免 `load`（加载）和 `ready`（就绪）阶段的重复消息。
 
 帖子命令由页面池排队：目标 iframe（内嵌页面）尚未就绪时先在后台创建而不切换当前标签，再保存在对应页面记录中，首次加载完成后只发送一次；标签关闭、暂停或页面池销毁时清除未发送命令。主题书签沿用 Discourse（论坛系统）当前原生请求：向 `/bookmarks.json` 提交 `bookmarkable_type=Topic`（书签类型为整篇主题）和稳定的主题编号，并携带页面自身的 CSRF（跨站请求伪造防护）令牌。它不再查找或回退点击任何楼层书签按钮，因此主楼不在当前渲染范围内也不会误收藏某一楼；论坛返回的成功或错误信息会显示在顶层页面。
 

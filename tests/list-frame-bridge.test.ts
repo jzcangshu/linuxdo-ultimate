@@ -77,4 +77,17 @@ describe("embedded list bridge", () => {
       frameId: "session-visual",
     }), location.origin);
   });
+
+  it("does not load owner-view code in the list frame", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-list:session-owner" });
+    const loadOwnerView = vi.fn();
+    bootFrameBridge({ loadOwnerView });
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:page-tools-config", ownerOnlyEnabled: true },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    expect(loadOwnerView).not.toHaveBeenCalled();
+  });
 });

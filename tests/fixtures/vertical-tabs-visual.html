@@ -47,7 +47,7 @@
     const topicId = location.pathname.match(/^\/t\/topic\/(\d+)/)?.[1];
     if (topicId) document.title = topicTitles[topicId] || `主题 ${topicId} - LINUX DO`;
     localStorage.setItem("linuxdo-ultimate:settings", JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       enabled: true,
       layoutPreference: "three",
       tabsEnabled: true,
@@ -55,7 +55,6 @@
       verticalTabsAutoCollapse: true,
       groupVerticalTabs: true,
       restoreSession: false,
-      hidePosters: true,
       colorizeTabs: true,
       previewEnabled: false,
       creditEnabled: false,

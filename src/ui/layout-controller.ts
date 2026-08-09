@@ -23,7 +23,6 @@ interface LayoutControllerOptions {
   preference: LayoutPreference;
   paneSizes: PaneSizes;
   dualPaneSizes?: PaneSizes;
-  hidePosters: boolean;
   tabPresentation?: TabPresentation;
   verticalTabsAutoCollapse?: boolean;
   onPaneSizesChange?: (sizes: PaneSizes, layout: PaneLayout) => void;
@@ -39,7 +38,6 @@ export class LayoutController {
   private preference: LayoutPreference;
   private paneSizes: PaneSizes;
   private dualPaneSizes: PaneSizes;
-  private hidePosters: boolean;
   private tabPresentation: TabPresentation;
   private verticalTabsAutoCollapse: boolean;
   private open = false;
@@ -52,7 +50,6 @@ export class LayoutController {
     this.preference = options.preference;
     this.paneSizes = { ...options.paneSizes };
     this.dualPaneSizes = { ...(options.dualPaneSizes ?? options.paneSizes) };
-    this.hidePosters = options.hidePosters;
     this.tabPresentation = options.tabPresentation ?? "horizontal";
     this.verticalTabsAutoCollapse = options.verticalTabsAutoCollapse !== false;
   }
@@ -81,7 +78,6 @@ export class LayoutController {
     } else if (this.shell.parentElement !== document.body) {
       document.body.append(this.shell);
     }
-    document.body.classList.toggle("ldu-hide-posters", this.hidePosters);
     this.apply();
     return true;
   }
@@ -100,7 +96,7 @@ export class LayoutController {
     this.listContent = null;
     this.open = false;
     this.secondaryOpen = false;
-    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-hide-posters", "ldu-secondary-open", "ldu-tabs-vertical", "ldu-vertical-tabs-static");
+    document.body.classList.remove("ldu-layout-active", "ldu-layout-two", "ldu-layout-three", "ldu-secondary-open", "ldu-tabs-vertical", "ldu-vertical-tabs-static");
     document.documentElement.classList.remove("ldu-layout-two-root");
   }
 
@@ -194,11 +190,6 @@ export class LayoutController {
 
   getPanelElement(): HTMLElement | null { return this.panel; }
   getSecondaryPanelElement(): HTMLElement | null { return this.secondaryPanel; }
-
-  setHidePosters(hide: boolean): void {
-    this.hidePosters = hide;
-    document.body.classList.toggle("ldu-hide-posters", hide);
-  }
 
   getMode(): LayoutMode {
     return this.open ? resolveLayoutMode(this.preference, window.innerWidth) : "native";

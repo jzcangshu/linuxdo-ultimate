@@ -1,5 +1,5 @@
 import type { TopicTabState } from "../core/types";
-import type { TopicToolsConfig } from "../discourse/topic-tools";
+import type { PageToolsConfig } from "../discourse/page-tools-client";
 
 const SCROLL_RESTORE_TIMEOUT_MS = 15_000;
 
@@ -31,6 +31,7 @@ interface FrameRecord {
   restoreScrollY: number;
   restoreTimer: number | null;
   restoreDeadline: number;
+  configSentForDocument: boolean;
 }
 
 export type FrameCommand = { type: "ldu:bookmark"; topicId: string };
@@ -40,7 +41,7 @@ export class TopicFramePool {
   private readonly frames = new Map<string, FrameRecord>();
   private liveLimit: number;
   private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
-  private topicToolsConfig: TopicToolsConfig = {
+  private pageToolsConfig: PageToolsConfig = {
     ownerOnlyEnabled: false,
     cleanModeEnabled: false,
     lowEndOptimizationEnabled: false,
@@ -60,13 +61,15 @@ export class TopicFramePool {
   }
 
   setPreviewConfig(config: FramePreviewConfig): void {
+    if (samePreviewConfig(this.previewConfig, config)) return;
     this.previewConfig = { ...config };
     for (const record of this.frames.values()) this.sendPreviewConfig(record.iframe);
   }
 
-  setTopicToolsConfig(config: TopicToolsConfig): void {
-    this.topicToolsConfig = { ...config };
-    for (const record of this.frames.values()) this.sendTopicToolsConfig(record.iframe);
+  setPageToolsConfig(config: PageToolsConfig): void {
+    if (samePageToolsConfig(this.pageToolsConfig, config)) return;
+    this.pageToolsConfig = { ...config };
+    for (const record of this.frames.values()) this.sendPageToolsConfig(record.iframe);
   }
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
@@ -109,8 +112,7 @@ export class TopicFramePool {
         current.loaded = true;
         this.restoreScroll(current);
         this.sendLifecycleState(current);
-        this.sendPreviewConfig(iframe);
-        this.sendTopicToolsConfig(iframe);
+        this.sendInitialConfigs(current);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
       };
@@ -127,6 +129,7 @@ export class TopicFramePool {
         restoreScrollY: tab.scrollY,
         restoreTimer: null,
         restoreDeadline: 0,
+        configSentForDocument: false,
       };
       this.frames.set(tab.id, record);
       this.container.append(iframe);
@@ -137,6 +140,7 @@ export class TopicFramePool {
       if (record.iframe.src !== requestedUrl && record.reportedUrl !== requestedUrl) {
         record.reportedUrl = null;
         record.loaded = false;
+        record.configSentForDocument = false;
         record.restoreScrollY = tab.scrollY;
         record.iframe.src = requestedUrl;
       }
@@ -165,8 +169,7 @@ export class TopicFramePool {
       record.loaded = true;
       this.restoreScroll(record);
       this.sendLifecycleState(record);
-      this.sendPreviewConfig(record.iframe);
-      this.sendTopicToolsConfig(record.iframe);
+      this.sendInitialConfigs(record);
       this.flushCommands(record);
     }
     this.onMessage(data as FrameMessage, record.iframe);
@@ -202,6 +205,7 @@ export class TopicFramePool {
     if (!record) return false;
     record.loaded = false;
     record.reportedUrl = null;
+    record.configSentForDocument = false;
     try {
       record.iframe.contentWindow?.location.reload();
     } catch {
@@ -231,8 +235,7 @@ export class TopicFramePool {
       if (!current || current.iframe !== iframe) return;
       current.loaded = true;
       this.restoreScroll(current);
-      this.sendPreviewConfig(iframe);
-      this.sendTopicToolsConfig(iframe);
+      this.sendInitialConfigs(current);
       this.flushCommands(current);
       this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
     };
@@ -248,6 +251,7 @@ export class TopicFramePool {
       restoreScrollY: tab.scrollY,
       restoreTimer: null,
       restoreDeadline: 0,
+      configSentForDocument: false,
     };
     this.frames.set(tab.id, record);
     this.container.append(iframe);
@@ -270,8 +274,15 @@ export class TopicFramePool {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.previewConfig }, location.origin);
   }
 
-  private sendTopicToolsConfig(iframe: HTMLIFrameElement): void {
-    iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.topicToolsConfig }, location.origin);
+  private sendPageToolsConfig(iframe: HTMLIFrameElement): void {
+    iframe.contentWindow?.postMessage({ type: "ldu:page-tools-config", ...this.pageToolsConfig }, location.origin);
+  }
+
+  private sendInitialConfigs(record: FrameRecord): void {
+    if (record.configSentForDocument) return;
+    record.configSentForDocument = true;
+    this.sendPreviewConfig(record.iframe);
+    this.sendPageToolsConfig(record.iframe);
   }
 
   private setFrameActive(record: FrameRecord, active: boolean): void {
@@ -347,4 +358,14 @@ export class TopicFramePool {
       this.onSuspend(tabId, scrollY);
     }
   }
+}
+
+function samePreviewConfig(left: FramePreviewConfig, right: FramePreviewConfig): boolean {
+  return left.enabled === right.enabled && left.clickMode === right.clickMode;
+}
+
+function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
+  return left.ownerOnlyEnabled === right.ownerOnlyEnabled
+    && left.cleanModeEnabled === right.cleanModeEnabled
+    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

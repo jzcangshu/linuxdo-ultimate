@@ -577,7 +577,7 @@ export function installLinkHoverPreviewer(options) {
                 grid-template-columns: 58px 52px 48px minmax(0, 1fr) !important;
             }
         }
-    `;
+`;
 
     // 站点定制规则：预览特定网站时自动注入的 CSS (只影响预览显示，绝不改动网站真实状态)
     const SITE_RULES = [

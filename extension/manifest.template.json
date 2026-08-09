@@ -38,7 +38,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["preview-runtime.js"],
+      "resources": ["preview-runtime.js", "frame-runtime.js", "topic-tools-runtime.js"],
       "matches": ["https://linux.do/*"]
     }
   ]

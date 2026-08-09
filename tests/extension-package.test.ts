@@ -13,6 +13,7 @@ describe("extension release archive", () => {
       "background.js",
       "bridge.js",
       "challenge.js",
+      "frame-runtime.js",
       "host.js",
       "icons/icon-128.png",
       "icons/icon-16.png",
@@ -20,6 +21,7 @@ describe("extension release archive", () => {
       "icons/icon-48.png",
       "manifest.json",
       "preview-runtime.js",
+      "topic-tools-runtime.js",
     ]);
     expect(manifest.name).toBe("Linux Do Ultimate");
     expect(manifest.version).toBe(packageJson.version);

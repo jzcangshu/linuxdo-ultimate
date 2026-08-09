@@ -25,16 +25,16 @@ describe("settings panel", () => {
       .toContain("并排浏览帖子列表与正文");
     expect(host.querySelector('[data-setting="tabsEnabled"]')?.closest("section")?.querySelector(".ldu-settings-group-title")?.textContent).toBe("布局");
     expect(host.querySelector('[data-setting="restoreSession"]')?.closest("label")?.textContent).toContain("恢复上次帖子");
-    expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.textContent).toContain("隐藏列表头像列");
+    expect(host.querySelector('[data-setting="hidePosters"]')).toBeNull();
     expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.textContent).toContain("只看楼主");
     expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("清爽模式");
+    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("隐藏列表头像、公告、分类徽章和标签");
     expect(host.querySelector('[data-setting="lowEndOptimizationEnabled"]')?.closest("label")?.textContent).toContain("低端设备性能优化");
     expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.textContent).toContain("标签分类上色");
     expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.textContent).toContain("标签栏样式");
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.textContent).toContain("LDC 收入");
     expect(host.querySelector(".dc-child-row")).toBeNull();
     expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
-    expect(host.querySelector('[data-setting="hidePosters"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-pills-setting="previewClickMode"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
@@ -90,7 +90,7 @@ describe("settings panel", () => {
     expect(host.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]')?.checked).toBe(true);
     expect(host.querySelector(".dc-modal")).not.toBeNull();
     expect(host.querySelector(".dc-item-desc.alert")?.textContent).toContain("运行目标网站脚本");
-    expect(host.querySelectorAll(".dc-label-box").length).toBe(15);
+    expect(host.querySelectorAll(".dc-label-box").length).toBe(14);
   });
 
   it("provides repository and three explicit LDC donation destinations", () => {

@@ -27,7 +27,6 @@ describe("right-detail independent list viewport", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
     });
     controller.setOpen(true);
     controller.mount();

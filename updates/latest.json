@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publishedAt": "2026-08-09",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.2",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.3",
   "changelog": [
-    "新增只看楼主工具，并按主题保存查看状态。",
-    "新增清爽模式，可隐藏公告、提示、分类徽章、标签和列表头像列。",
-    "新增低端设备性能优化开关，不移植黑白灰滤镜。"
+    "iframe 入口改为轻量加载器，仅为受管理页面加载完整通信桥。",
+    "只看楼主改为按需运行和增量处理，修复页面监听循环与跨帖子状态串线。",
+    "清爽模式合并列表头像隐藏，低端设备优化不再建立页面监听。",
+    "正式扩展产物启用压缩，并保持预览与页面工具的独立加载边界。"
   ]
 }

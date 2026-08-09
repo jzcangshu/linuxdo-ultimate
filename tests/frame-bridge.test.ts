@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootFrameBridge } from "../src/frame-bridge";
+import type { OwnerViewController } from "../src/discourse/page-tools-client";
 import { APP_STYLE_ID, EMBEDDED_STYLE_ID } from "../src/ui/styles";
 
 describe("embedded topic preview bridge", () => {
@@ -132,6 +133,25 @@ describe("embedded topic preview bridge", () => {
       type: "ldu:frame-interaction",
       tabId: "topic-1",
     }, location.origin);
+  });
+
+  it("pauses the lazy owner runtime when a topic frame is soft-frozen", () => {
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-1" });
+    const controller: OwnerViewController = { setActive: vi.fn(), stop: vi.fn() };
+    const loader = vi.fn(() => () => controller);
+    bootFrameBridge({ loadOwnerView: loader });
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:page-tools-config", ownerOnlyEnabled: true },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    expect(loader).toHaveBeenCalledOnce();
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "ldu:frame-lifecycle", active: false },
+      origin: location.origin,
+      source: window.parent,
+    }));
+    expect(controller.stop).toHaveBeenCalledOnce();
   });
 
   it("forwards a different internal topic to the parent tab manager", () => {

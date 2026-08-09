@@ -43,7 +43,7 @@ describe("storage", () => {
       verticalTabsAutoCollapse: false,
       groupVerticalTabs: true,
     });
-    expect(settings.schemaVersion).toBe(2);
+    expect(settings.schemaVersion).toBe(3);
     expect(settings.tabPresentation).toBe("vertical");
     expect(settings.verticalTabsAutoCollapse).toBe(false);
     expect(settings.groupVerticalTabs).toBe(true);
@@ -56,7 +56,7 @@ describe("storage", () => {
       restoreSession: true,
       previewEnabled: true,
     });
-    expect(settings.schemaVersion).toBe(2);
+    expect(settings.schemaVersion).toBe(3);
     expect(settings.enabled).toBe(true);
     expect(settings.restoreSession).toBe(false);
     expect(settings.previewEnabled).toBe(true);
@@ -65,6 +65,12 @@ describe("storage", () => {
   it("preserves an explicit restoration choice after schema version 2 migration", () => {
     expect(normalizeSettings({ schemaVersion: 2, restoreSession: true }).restoreSession).toBe(true);
     expect(normalizeSettings({ schemaVersion: 2, restoreSession: false }).restoreSession).toBe(false);
+  });
+
+  it("merges the legacy avatar-column choice into clean mode", () => {
+    expect(normalizeSettings({ schemaVersion: 2, hidePosters: true, cleanModeEnabled: false }).cleanModeEnabled).toBe(true);
+    expect(normalizeSettings({ schemaVersion: 2, hidePosters: false, cleanModeEnabled: false }).cleanModeEnabled).toBe(false);
+    expect(normalizeSettings({ schemaVersion: 3, cleanModeEnabled: false }).cleanModeEnabled).toBe(false);
   });
 
   it("keeps tab category coloring enabled by default and preserves an explicit opt-out", () => {

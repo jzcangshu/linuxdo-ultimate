@@ -16,7 +16,7 @@ await Promise.all(targets.map(async ({ outdir: dirname, manifest, browserTarget 
     bundle: true,
     platform: "browser",
     target: [browserTarget],
-    minify: false,
+    minify: true,
     sourcemap: false,
     legalComments: "none",
   };
@@ -25,6 +25,8 @@ await Promise.all(targets.map(async ({ outdir: dirname, manifest, browserTarget 
   await Promise.all([
     build({ ...shared, entryPoints: [path.join(root, "src/extension/host.ts")], outfile: path.join(outdir, "host.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/bridge.ts")], outfile: path.join(outdir, "bridge.js"), format: "iife" }),
+    build({ ...shared, entryPoints: [path.join(root, "src/extension/frame-runtime.ts")], outfile: path.join(outdir, "frame-runtime.js"), format: "esm" }),
+    build({ ...shared, entryPoints: [path.join(root, "src/extension/topic-tools-runtime.ts")], outfile: path.join(outdir, "topic-tools-runtime.js"), format: "esm" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/challenge.ts")], outfile: path.join(outdir, "challenge.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/background.ts")], outfile: path.join(outdir, "background.js"), format: "iife" }),
     build({ ...shared, entryPoints: [path.join(root, "src/extension/preview-runtime.ts")], outfile: path.join(outdir, "preview-runtime.js"), format: "esm" }),

@@ -1,7 +1,7 @@
 import type { Settings } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   enabled: true,
   layoutPreference: "auto",
   tabsEnabled: true,
@@ -9,10 +9,9 @@ export const DEFAULT_SETTINGS: Settings = {
   verticalTabsAutoCollapse: true,
   groupVerticalTabs: false,
   restoreSession: false,
-  hidePosters: true,
   colorizeTabs: true,
   ownerOnlyEnabled: false,
-  cleanModeEnabled: false,
+  cleanModeEnabled: true,
   lowEndOptimizationEnabled: false,
   previewEnabled: false,
   creditEnabled: true,
@@ -34,8 +33,11 @@ export const LATEST_SESSION_CANDIDATE_KEY = "linuxdo-ultimate:latest-session-can
 
 export function normalizeSettings(value: unknown): Settings {
   if (!value || typeof value !== "object") return structuredClone(DEFAULT_SETTINGS);
-  const source = value as Partial<Settings>;
-  const isCurrentSchema = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+  const source = value as Omit<Partial<Settings>, "schemaVersion"> & { schemaVersion?: number; hidePosters?: unknown };
+  const preservesSessionChoice = source.schemaVersion === 2 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+  const cleanModeEnabled = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion
+    ? source.cleanModeEnabled !== false
+    : source.cleanModeEnabled === true || source.hidePosters !== false;
   const paneSizes = source.paneSizes && typeof source.paneSizes === "object"
     ? source.paneSizes as Partial<Settings["paneSizes"]> & { list?: unknown }
     : {};
@@ -50,11 +52,10 @@ export function normalizeSettings(value: unknown): Settings {
     tabPresentation: source.tabPresentation === "vertical" ? "vertical" : "horizontal",
     verticalTabsAutoCollapse: source.verticalTabsAutoCollapse !== false,
     groupVerticalTabs: source.groupVerticalTabs === true,
-    restoreSession: isCurrentSchema && source.restoreSession === true,
-    hidePosters: source.hidePosters !== false,
+    restoreSession: preservesSessionChoice && source.restoreSession === true,
     colorizeTabs: source.colorizeTabs !== false,
     ownerOnlyEnabled: source.ownerOnlyEnabled === true,
-    cleanModeEnabled: source.cleanModeEnabled === true,
+    cleanModeEnabled,
     lowEndOptimizationEnabled: source.lowEndOptimizationEnabled === true,
     previewEnabled: source.previewEnabled === true,
     creditEnabled: source.creditEnabled !== false,

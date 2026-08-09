@@ -18,6 +18,21 @@ export const APP_STYLES = `
   --ldu-vertical-tabs-collapsed: calc(var(--font-0, 1rem) * 2.75);
 }
 
+html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+  display: none !important;
+}
+
+html[data-ldu-low-end="true"] *,
+html[data-ldu-low-end="true"] *::before,
+html[data-ldu-low-end="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
 body.ldu-layout-active {
   overflow-x: hidden !important;
   overflow-y: hidden !important;
@@ -173,10 +188,6 @@ body.ldu-layout-active #main-outlet {
   max-height: none !important;
   border: 0;
   background: var(--ldu-surface);
-}
-
-body.ldu-hide-posters #main-outlet .topic-list .posters {
-  display: none !important;
 }
 
 @container (max-width: 480px) {
@@ -1111,6 +1122,21 @@ export const EMBEDDED_STYLES = `
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
+html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+  display: none !important;
+}
+
+html[data-ldu-low-end="true"] *,
+html[data-ldu-low-end="true"] *::before,
+html[data-ldu-low-end="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
 html[data-ldu-embedded-topic="true"] #d-sidebar,
 html[data-ldu-embedded-topic="true"] .sidebar-wrapper,
 html[data-ldu-embedded-topic="true"] .d-header,
@@ -1143,10 +1169,6 @@ html[data-ldu-embedded-list="true"] #main-outlet-wrapper {
 html[data-ldu-embedded-list="true"] #main-outlet {
   padding: 0 10px max(12px, env(safe-area-inset-bottom)) !important;
   container-type: inline-size;
-}
-
-html[data-ldu-embedded-list="true"][data-ldu-hide-posters="true"] #main-outlet .topic-list .posters {
-  display: none !important;
 }
 
 html[data-ldu-embedded-topic="true"] #main-container,

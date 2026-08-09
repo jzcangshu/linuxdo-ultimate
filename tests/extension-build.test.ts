@@ -6,11 +6,13 @@ describe("browser extension build", () => {
     ["chrome", "dist/extension"],
     ["firefox", "dist/extension-firefox"],
   ])("isolates host, bridge and lazy preview artifacts for %s", async (_browser, outdir) => {
-    const [manifestSource, packageSource, host, bridge, challenge, preview] = await Promise.all([
+    const [manifestSource, packageSource, host, bridge, frameRuntime, ownerRuntime, challenge, preview] = await Promise.all([
       readFile(`${outdir}/manifest.json`, "utf8"),
       readFile("package.json", "utf8"),
       readFile(`${outdir}/host.js`, "utf8"),
       readFile(`${outdir}/bridge.js`, "utf8"),
+      readFile(`${outdir}/frame-runtime.js`, "utf8"),
+      readFile(`${outdir}/topic-tools-runtime.js`, "utf8"),
       readFile(`${outdir}/challenge.js`, "utf8"),
       readFile(`${outdir}/preview-runtime.js`, "utf8"),
     ]);
@@ -37,13 +39,23 @@ describe("browser extension build", () => {
       expect.objectContaining({ js: ["challenge.js"], all_frames: true }),
     ]));
     expect(manifest.web_accessible_resources[0]?.resources).toContain("preview-runtime.js");
+    expect(manifest.web_accessible_resources[0]?.resources).toEqual(expect.arrayContaining([
+      "frame-runtime.js",
+      "topic-tools-runtime.js",
+    ]));
     expect(host).toContain("preview-runtime.js");
-    expect(host).toContain('location.pathname.startsWith("/challenge")');
+    expect(host).toContain("topic-tools-runtime.js");
     expect(host).not.toContain("agy-preview-container");
-    expect(bridge).toContain("ldu:frame-ready");
-    expect(bridge).toContain('location.pathname.startsWith("/challenge")');
+    expect(host).not.toContain("当前只看楼主");
+    expect(bridge).toContain("frame-runtime.js");
+    expect(bridge).not.toContain("ldu:frame-ready");
+    expect(bridge.length).toBeLessThan(5_000);
     expect(bridge).not.toContain("LinuxDoApp");
     expect(bridge).not.toContain("agy-preview-container");
+    expect(frameRuntime).toContain("ldu:frame-ready");
+    expect(frameRuntime).toContain("topic-tools-runtime.js");
+    expect(frameRuntime).not.toContain("当前只看楼主");
+    expect(ownerRuntime).toContain("ldu-owner-toggle");
     expect(challenge).toContain("linux_do_auto_challenge_nf_guard");
     expect(challenge).toContain("403 error");
     expect(challenge).not.toContain("LinuxDoApp");

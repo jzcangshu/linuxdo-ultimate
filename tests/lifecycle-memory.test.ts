@@ -26,7 +26,7 @@ describe("split runtime lifecycle", () => {
 
   it("clears topic frames and shell listeners on teardown", () => {
     document.body.innerHTML = '<div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"></main></div>';
-    const layout = new LayoutController({ preference: "two", paneSizes: { sidebar: 216, listRatio: 0.35 }, hidePosters: true });
+    const layout = new LayoutController({ preference: "two", paneSizes: { sidebar: 216, listRatio: 0.35 } });
     expect(layout.mount()).toBe(true);
     layout.setOpen(true);
     const content = layout.getContentElement()!;

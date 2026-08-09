@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Linux Do Ultimate",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Linux.do 分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾、链接预览与更新检查。",
   "icons": {
     "16": "icons/icon-16.png",
@@ -37,7 +37,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["preview-runtime.js"],
+      "resources": ["preview-runtime.js", "frame-runtime.js", "topic-tools-runtime.js"],
       "matches": ["https://linux.do/*"]
     }
   ],

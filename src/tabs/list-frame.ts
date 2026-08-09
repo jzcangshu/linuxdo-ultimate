@@ -1,4 +1,4 @@
-import type { TopicToolsConfig } from "../discourse/topic-tools";
+import type { PageToolsConfig } from "../discourse/page-tools-client";
 
 export interface ListFrameMessage {
   type: "ldu:list-ready" | "ldu:list-visual-ready" | "ldu:list-state" | "ldu:list-interaction" | "ldu:list-topic-open" | "ldu:list-navigate" | "ldu:list-preview-open" | "ldu:list-preview-dismiss";
@@ -18,14 +18,13 @@ export class ListFrameController {
   private frameConfig: {
     enabled: boolean;
     clickMode: "double" | "single";
-    hidePosters: boolean;
-    topicTools: TopicToolsConfig;
+    pageTools: PageToolsConfig;
   } = {
     enabled: false,
     clickMode: "double" as "double" | "single",
-    hidePosters: true,
-    topicTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false } satisfies TopicToolsConfig,
+    pageTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false } satisfies PageToolsConfig,
   };
+  private configSentForDocument = false;
   private restoreScrollY = 0;
   private restoreTimer: number | null = null;
   private restoreDeadline = 0;
@@ -44,8 +43,7 @@ export class ListFrameController {
       iframe.title = "帖子列表和站内页面";
       iframe.dataset.frameId = this.frameId;
       iframe.addEventListener("load", () => {
-        this.sendPreviewConfig(iframe);
-        this.sendTopicToolsConfig(iframe);
+        this.sendInitialConfigs(iframe);
         this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
       });
       this.iframe = iframe;
@@ -55,6 +53,7 @@ export class ListFrameController {
     const requested = requestedUrl.href;
     if (this.iframe.src !== requested && this.reportedUrl !== requested) {
       this.reportedUrl = "";
+      this.configSentForDocument = false;
       this.iframe.src = requested;
     }
     if (!this.iframe.src) this.iframe.src = requested;
@@ -71,6 +70,7 @@ export class ListFrameController {
     const requested = target.href;
     if (this.iframe.src === requested || this.reportedUrl === requested) return;
     this.reportedUrl = "";
+    this.configSentForDocument = false;
     this.iframe.src = requested;
   }
 
@@ -86,17 +86,19 @@ export class ListFrameController {
   setConfig(config: {
     enabled: boolean;
     clickMode: "double" | "single";
-    hidePosters: boolean;
-    topicTools?: TopicToolsConfig;
+    pageTools?: PageToolsConfig;
   }): void {
+    const previewChanged = this.frameConfig.enabled !== config.enabled || this.frameConfig.clickMode !== config.clickMode;
+    const pageTools = config.pageTools ? { ...config.pageTools } : this.frameConfig.pageTools;
+    const pageToolsChanged = !samePageToolsConfig(this.frameConfig.pageTools, pageTools);
     this.frameConfig = {
       ...this.frameConfig,
       ...config,
-      topicTools: config.topicTools ? { ...config.topicTools } : this.frameConfig.topicTools,
+      pageTools,
     };
     if (this.iframe) {
-      this.sendPreviewConfig(this.iframe);
-      this.sendTopicToolsConfig(this.iframe);
+      if (previewChanged) this.sendPreviewConfig(this.iframe);
+      if (pageToolsChanged) this.sendPageToolsConfig(this.iframe);
     }
   }
 
@@ -107,6 +109,7 @@ export class ListFrameController {
     if ((data.type === "ldu:list-ready" || data.type === "ldu:list-visual-ready" || data.type === "ldu:list-state") && data.url) {
       try { this.reportedUrl = new URL(data.url, document.baseURI).href; } catch { this.reportedUrl = ""; }
     }
+    if (data.type === "ldu:list-ready") this.sendInitialConfigs(this.iframe);
     this.onMessage(data as ListFrameMessage, this.iframe);
   }
 
@@ -114,8 +117,15 @@ export class ListFrameController {
     iframe.contentWindow?.postMessage({ type: "ldu:preview-config", ...this.frameConfig }, location.origin);
   }
 
-  private sendTopicToolsConfig(iframe: HTMLIFrameElement): void {
-    iframe.contentWindow?.postMessage({ type: "ldu:topic-tools-config", ...this.frameConfig.topicTools }, location.origin);
+  private sendPageToolsConfig(iframe: HTMLIFrameElement): void {
+    iframe.contentWindow?.postMessage({ type: "ldu:page-tools-config", ...this.frameConfig.pageTools }, location.origin);
+  }
+
+  private sendInitialConfigs(iframe: HTMLIFrameElement): void {
+    if (this.configSentForDocument) return;
+    this.configSentForDocument = true;
+    this.sendPreviewConfig(iframe);
+    this.sendPageToolsConfig(iframe);
   }
 
   private resolveSameOrigin(url: string): URL | null {
@@ -153,5 +163,12 @@ export class ListFrameController {
     this.iframe?.remove();
     this.iframe = null;
     this.reportedUrl = "";
+    this.configSentForDocument = false;
   }
+}
+
+function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
+  return left.ownerOnlyEnabled === right.ownerOnlyEnabled
+    && left.cleanModeEnabled === right.cleanModeEnabled
+    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

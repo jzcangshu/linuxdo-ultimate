@@ -32,7 +32,7 @@ import { setIcon } from "./ui/icons";
 import { PreviewController, type PreviewLoader } from "./preview/upstream-preview-controller";
 import { CreditWidget } from "./credit/credit-widget";
 import { UpdateChecker } from "./core/update-checker";
-import { installTopicTools, type TopicToolsConfig } from "./discourse/topic-tools";
+import { PageToolsClient, type OwnerViewLoader, type PageToolsConfig } from "./discourse/page-tools-client";
 
 const ROUTE_DEBOUNCE_MS = 100;
 const SESSION_MAINTENANCE_INTERVAL_MS = 30 * 60_000;
@@ -40,6 +40,7 @@ const LIST_HANDOFF_TIMEOUT_MS = 3_000;
 
 export interface LinuxDoAppOptions {
   loadPreviewer?: PreviewLoader;
+  loadOwnerView?: OwnerViewLoader;
 }
 
 export function startLinuxDoApp(options: LinuxDoAppOptions = {}): void {
@@ -82,20 +83,21 @@ class LinuxDoApp {
   private listHandoffTimer: number | null = null;
   private readonly updateChecker = new UpdateChecker(this.storage);
   private updateCheckTimer: number | null = null;
-  private topicTools!: ReturnType<typeof installTopicTools>;
+  private pageTools!: PageToolsClient;
 
   constructor(private readonly options: LinuxDoAppOptions) {}
 
   start(): void {
     this.settings = loadSettings(this.storage);
     ensureAppStyles();
-    this.topicTools = installTopicTools({
+    this.pageTools = new PageToolsClient({
       isEmbedded: false,
       isSplitHost: () => document.body.classList.contains("ldu-layout-active")
         || isSplitRoute(location.href)
         || Boolean(this.tabStore?.getTabs().length),
+      ...(this.options.loadOwnerView ? { loadOwnerView: this.options.loadOwnerView } : {}),
     });
-    this.topicTools.setConfig(this.getTopicToolsConfig());
+    this.pageTools.setConfig(this.getPageToolsConfig());
     this.preview = new PreviewController({
       isEnabled: () => this.settings.enabled && this.settings.previewEnabled,
       clickMode: () => this.settings.previewClickMode,
@@ -142,7 +144,6 @@ class LinuxDoApp {
       preference: this.settings.layoutPreference,
       paneSizes: this.session.paneSizes,
       dualPaneSizes: this.session.dualPaneSizes,
-      hidePosters: this.settings.hidePosters,
       tabPresentation: this.settings.tabPresentation,
       verticalTabsAutoCollapse: this.settings.verticalTabsAutoCollapse,
       onPaneSizesChange: (paneSizes, layout) => this.persistPaneSizes(paneSizes, layout),
@@ -370,8 +371,7 @@ class LinuxDoApp {
     this.listFrame.setConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
-      hidePosters: this.settings.hidePosters,
-      topicTools: this.getTopicToolsConfig(),
+      pageTools: this.getPageToolsConfig(),
     });
     const storedListUrl = requestedUrl ?? this.tabStore.getSession().listUrl;
     let resolved: URL;
@@ -459,7 +459,7 @@ class LinuxDoApp {
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
     });
-    this.frames.setTopicToolsConfig(this.getTopicToolsConfig());
+    this.frames.setPageToolsConfig(this.getPageToolsConfig());
     this.renderTabs();
   }
 
@@ -479,7 +479,7 @@ class LinuxDoApp {
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
     });
-    this.secondaryFrames.setTopicToolsConfig(this.getTopicToolsConfig());
+    this.secondaryFrames.setPageToolsConfig(this.getPageToolsConfig());
   }
 
   private mountSettings(): void {
@@ -521,7 +521,7 @@ class LinuxDoApp {
     if (this.settingsHost.parentElement !== target) target.append(this.settingsHost);
   }
 
-  private getTopicToolsConfig(): TopicToolsConfig {
+  private getPageToolsConfig(): PageToolsConfig {
     return {
       ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
       cleanModeEnabled: this.settings.enabled && this.settings.cleanModeEnabled,
@@ -551,8 +551,7 @@ class LinuxDoApp {
     }
     this.layout.setPreference(this.settings.layoutPreference);
     this.layout.setTabPresentation(this.settings.tabPresentation, this.settings.verticalTabsAutoCollapse);
-    this.layout.setHidePosters(this.settings.hidePosters);
-    this.topicTools?.setConfig(this.getTopicToolsConfig());
+    this.pageTools?.setConfig(this.getPageToolsConfig());
     if (patch.paneSizes || patch.dualPaneSizes) {
       this.layout.setPaneSizes(this.settings.paneSizes, this.settings.dualPaneSizes);
       this.tabStore.setSessionFields({
@@ -571,13 +570,12 @@ class LinuxDoApp {
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
     });
-    this.frames?.setTopicToolsConfig(this.getTopicToolsConfig());
-    this.secondaryFrames?.setTopicToolsConfig(this.getTopicToolsConfig());
+    this.frames?.setPageToolsConfig(this.getPageToolsConfig());
+    this.secondaryFrames?.setPageToolsConfig(this.getPageToolsConfig());
     this.listFrame?.setConfig({
       enabled: this.settings.enabled && this.settings.previewEnabled,
       clickMode: this.settings.previewClickMode,
-      hidePosters: this.settings.hidePosters,
-      topicTools: this.getTopicToolsConfig(),
+      pageTools: this.getPageToolsConfig(),
     });
     this.settingsPanel?.setSettings(this.settings);
     this.credit?.setEnabled(this.settings.enabled && this.settings.creditEnabled);

@@ -48,24 +48,53 @@ describe("topic tools", () => {
     expect(document.querySelector<HTMLElement>('[data-post-number="2"]')?.hidden).toBe(true);
   });
 
-  it("applies clean mode without importing grayscale filters", () => {
+  it("does not observe character data and pauses with the iframe lifecycle", () => {
     vi.useFakeTimers();
     window.__LDU_TEST_MODE__ = true;
-    Object.defineProperty(window.navigator, "hardwareConcurrency", { configurable: true, value: 2 });
-    window.history.replaceState(null, "", "/latest");
-    document.body.innerHTML = `
-      <div id="global-notice-alert-global-notice"></div>
-      <p>${"希望你喜欢这里。有问题，请提问，或搜索现有帖子。"}</p>
-      <td class="posters topic-list-data"></td>
-    `;
+    window.history.replaceState(null, "", "/t/topic/456/1");
+    document.body.innerHTML = '<div class="topic-footer-main-buttons"></div>';
+    const observe = vi.spyOn(MutationObserver.prototype, "observe");
+    const disconnect = vi.spyOn(MutationObserver.prototype, "disconnect");
     const controller = installTopicTools();
-    controller.setConfig({ cleanModeEnabled: true, lowEndOptimizationEnabled: true });
     vi.runOnlyPendingTimers();
+    expect(observe).toHaveBeenCalledWith(expect.any(Node), { childList: true, subtree: true });
+    controller.setActive(false);
+    expect(disconnect).toHaveBeenCalled();
+    controller.setActive(true);
+    expect(observe).toHaveBeenCalledTimes(2);
+  });
 
-    expect(document.documentElement.dataset.lduCleanMode).toBe("true");
-    expect(document.querySelector("p")?.dataset.lduCleanHidden).toBe("true");
-    expect(document.documentElement.dataset.lduLowEnd).toBe("true");
-    expect(document.getElementById("ldu-topic-tools-style")?.textContent).not.toContain("grayscale");
+  it("uses the current SPA topic id when the reused button is clicked", () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/t/topic-a/111/1");
+    document.body.innerHTML = '<div class="topic-footer-main-buttons"></div>';
+    const controller = installTopicTools();
+    vi.runOnlyPendingTimers();
+    const original = document.querySelector<HTMLButtonElement>("#ldu-owner-toggle")!;
+
+    window.history.replaceState(null, "", "/t/topic-b/222/1");
+    document.body.append(document.createElement("span"));
+    vi.runOnlyPendingTimers();
+    expect(document.querySelector("#ldu-owner-toggle")).toBe(original);
+    original.click();
+
+    const stored = JSON.parse(window.localStorage.getItem("linuxdo-ultimate:owner-view:v2") ?? "null") as { topics: Record<string, number> };
+    expect(stored.topics[222]).toBeTypeOf("number");
+    expect(stored.topics[111]).toBeUndefined();
+    controller.stop();
+  });
+
+  it("consumes the legacy global owner state only once", () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.localStorage.setItem("on_off", "当前只看楼主");
+    window.history.replaceState(null, "", "/t/topic/333/1");
+    document.body.innerHTML = '<div class="topic-footer-main-buttons"></div>';
+    installTopicTools();
+    vi.runOnlyPendingTimers();
+    expect(window.localStorage.getItem("on_off")).toBeNull();
+    expect(window.localStorage.getItem("linuxdo-ultimate:owner-view:migrated")).toBe("1");
   });
 
   it("does not add a duplicate visible owner control in a split host", () => {

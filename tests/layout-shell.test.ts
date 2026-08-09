@@ -16,7 +16,6 @@ describe("stable split shell", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
     });
     controller.setOpen(true);
     expect(controller.mount()).toBe(true);
@@ -33,7 +32,6 @@ describe("stable split shell", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
     });
     controller.setOpen(true);
     controller.mount();
@@ -54,7 +52,6 @@ describe("stable split shell", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
       tabPresentation: "vertical",
       verticalTabsAutoCollapse: true,
     });
@@ -83,7 +80,6 @@ describe("stable split shell", () => {
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
       dualPaneSizes: { sidebar: 216, listRatio: 0.45 },
-      hidePosters: true,
       onPaneSizesChange: (sizes, layout) => changes.push({ ratio: sizes.listRatio, layout }),
     });
     controller.setOpen(true);
@@ -117,7 +113,6 @@ describe("stable split shell", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
     });
     expect(controller.mount()).toBe(true);
 
@@ -142,7 +137,6 @@ describe("stable split shell", () => {
     const controller = new LayoutController({
       preference: "two",
       paneSizes: { sidebar: 216, listRatio: 0.35 },
-      hidePosters: true,
     });
     controller.mount();
     controller.beginListHandoff(120);

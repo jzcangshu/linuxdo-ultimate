@@ -1,20 +1,27 @@
 import { ensureEmbeddedStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
-import { installTopicTools } from "./discourse/topic-tools";
+import { PageToolsClient, type OwnerViewLoader } from "./discourse/page-tools-client";
 
 const DOUBLE_CLICK_DELAY_MS = 300;
 
-export function bootFrameBridge(): void {
+export interface FrameBridgeOptions {
+  loadOwnerView?: OwnerViewLoader;
+}
+
+export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
   const frameName = window.name;
   if (frameName.startsWith("ldu-list:")) {
-    bootListBridge(frameName.slice("ldu-list:".length));
+    bootListBridge(frameName.slice("ldu-list:".length), options);
     return;
   }
   if (!frameName.startsWith("ldu-topic:")) return;
   const tabId = frameName.slice("ldu-topic:".length);
   document.documentElement.dataset.lduEmbeddedTopic = "true";
   ensureEmbeddedStyles(document);
-  const topicTools = installTopicTools({ isEmbedded: true });
+  const pageTools = new PageToolsClient({
+    isEmbedded: true,
+    ...(options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}),
+  });
 
   let timer: number | null = null;
   let pendingSendType: "ldu:frame-state" | "ldu:frame-ready" | null = null;
@@ -97,6 +104,7 @@ export function bootFrameBridge(): void {
   const setSoftFrozen = (frozen: boolean) => {
     if (softFrozen === frozen) return;
     softFrozen = frozen;
+    pageTools.setActive(!frozen);
     if (frozen) {
       document.documentElement.dataset.lduSoftFrozen = "true";
       if (timer !== null && pendingSendType === "ldu:frame-state") {
@@ -170,7 +178,6 @@ export function bootFrameBridge(): void {
       type?: string;
       enabled?: unknown;
       clickMode?: unknown;
-      hidePosters?: unknown;
       topicId?: unknown;
       active?: unknown;
       ownerOnlyEnabled?: unknown;
@@ -232,8 +239,8 @@ export function bootFrameBridge(): void {
       });
       return;
     }
-    if (data?.type === "ldu:topic-tools-config") {
-      topicTools.setConfig({
+    if (data?.type === "ldu:page-tools-config") {
+      pageTools.setConfig({
         ownerOnlyEnabled: data.ownerOnlyEnabled === true,
         cleanModeEnabled: data.cleanModeEnabled === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
@@ -243,7 +250,6 @@ export function bootFrameBridge(): void {
     if (data?.type !== "ldu:preview-config") return;
     previewEnabled = data.enabled === true;
     previewClickMode = data.clickMode === "single" ? "single" : "double";
-    document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
     if (!previewEnabled) cancelPendingClick();
   });
   document.addEventListener("pointerdown", (event) => {
@@ -315,10 +321,14 @@ export function bootFrameBridge(): void {
   send("ldu:frame-ready");
 }
 
-function bootListBridge(frameId: string): void {
+function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
   document.documentElement.dataset.lduEmbeddedList = "true";
   ensureEmbeddedStyles(document);
-  const topicTools = installTopicTools({ isEmbedded: true });
+  const pageTools = new PageToolsClient({
+    isEmbedded: true,
+    allowOwnerView: false,
+    ...(options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}),
+  });
   let timer: number | null = null;
   let clickTimer: number | null = null;
   let visualReadySent = false;
@@ -400,13 +410,12 @@ function bootListBridge(frameId: string): void {
       type?: string;
       enabled?: unknown;
       clickMode?: unknown;
-      hidePosters?: unknown;
       ownerOnlyEnabled?: unknown;
       cleanModeEnabled?: unknown;
       lowEndOptimizationEnabled?: unknown;
     } | null;
-    if (data?.type === "ldu:topic-tools-config") {
-      topicTools.setConfig({
+    if (data?.type === "ldu:page-tools-config") {
+      pageTools.setConfig({
         ownerOnlyEnabled: data.ownerOnlyEnabled === true,
         cleanModeEnabled: data.cleanModeEnabled === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
@@ -416,7 +425,6 @@ function bootListBridge(frameId: string): void {
     if (data?.type !== "ldu:preview-config") return;
     previewEnabled = data.enabled === true;
     previewClickMode = data.clickMode === "single" ? "single" : "double";
-    document.documentElement.dataset.lduHidePosters = String(data.hidePosters !== false);
     if (!previewEnabled) cancelPendingClick();
   });
   window.addEventListener("scroll", () => send("ldu:list-state"), { passive: true });

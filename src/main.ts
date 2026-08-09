@@ -10,6 +10,7 @@ import { startLinuxDoApp } from "./app";
 import { bootChallengeBypass } from "./discourse/challenge-bypass";
 import { bootFrameBridge } from "./frame-bridge";
 import { installLinkHoverPreviewer } from "./preview/link-hover-previewer-upstream";
+import { installTopicTools } from "./discourse/topic-tools";
 
 export function boot(): void {
   if (window.__linuxDoUltimateLoaded) return;
@@ -20,10 +21,13 @@ if (typeof window !== "undefined") {
   bootChallengeBypass({ registerManualCommand: true });
   if (!location.pathname.startsWith("/challenge")) {
     if (window.self !== window.top) {
-      bootFrameBridge();
+      bootFrameBridge({ loadOwnerView: () => installTopicTools });
     } else {
       boot();
-      startLinuxDoApp({ loadPreviewer: () => installLinkHoverPreviewer });
+      startLinuxDoApp({
+        loadPreviewer: () => installLinkHoverPreviewer,
+        loadOwnerView: () => installTopicTools,
+      });
     }
   }
 }

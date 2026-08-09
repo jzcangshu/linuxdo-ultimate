@@ -36,6 +36,7 @@ describe("Cloudflare challenge bypass", () => {
 
   it.each([
     "403 error",
+    "429 error",
     "该响应是很久以前创建的",
     "reaction was created too long ago",
     "我们无法加载该话题",
@@ -64,6 +65,29 @@ describe("Cloudflare challenge bypass", () => {
 
     expect(navigations).toHaveLength(1);
     controller.stop();
+  });
+
+  it("suppresses a repeated automatic challenge redirect for the same page", () => {
+    const { dom, navigations } = createPage("https://linux.do/t/topic/123");
+    dom.window.document.body.innerHTML = '<div class="dialog-body">429 error</div>';
+    const now = 10_000;
+    const first = new ChallengeBypassController({
+      window: dom.window as unknown as Window,
+      document: dom.window.document,
+      navigate: (url, mode) => navigations.push({ url, mode }),
+      now: () => now,
+    });
+    const repeated = new ChallengeBypassController({
+      window: dom.window as unknown as Window,
+      document: dom.window.document,
+      navigate: (url, mode) => navigations.push({ url, mode }),
+      now: () => now + 1_000,
+    });
+
+    first.start();
+    repeated.start();
+
+    expect(navigations).toHaveLength(1);
   });
 
   it("returns from a missing challenge page to its safe redirect", () => {

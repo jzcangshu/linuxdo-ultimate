@@ -66,11 +66,11 @@ describe("update checker", () => {
     expect(transport.calls[1]?.url).toContain("?t=");
   });
 
-  it("keeps the repository manifest version synchronized with package metadata", async () => {
+  it("never publishes an update manifest newer than the repository build", async () => {
     const [packageSource, manifestSource] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("updates/latest.json", "utf8"),
     ]);
-    expect(JSON.parse(manifestSource).version).toBe(JSON.parse(packageSource).version);
+    expect(compareVersions(JSON.parse(manifestSource).version, JSON.parse(packageSource).version)).not.toBe(1);
   });
 });

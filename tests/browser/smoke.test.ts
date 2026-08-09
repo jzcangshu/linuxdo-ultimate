@@ -74,6 +74,30 @@ describe("browser smoke", () => {
     expect(getComputedStyle(document.querySelector<HTMLElement>(".posters")!).display).toBe("none");
     expect(document.querySelector(".d-header-icons > .ldu-settings-host")).not.toBeNull();
 
+    const dismissMenu = vi.fn(() => document.querySelector(".user-menu")?.remove());
+    document.body.addEventListener("pointerdown", dismissMenu, { once: true });
+    document.body.insertAdjacentHTML("beforeend", `
+      <div class="user-menu">
+        <a class="notification-link" href="/t/topic/99">A notification</a>
+      </div>
+    `);
+    const notificationClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    document.querySelector<HTMLAnchorElement>(".notification-link")!.dispatchEvent(notificationClick);
+    expect(notificationClick.defaultPrevented).toBe(true);
+    expect(dismissMenu).toHaveBeenCalledOnce();
+    expect(document.querySelector(".user-menu")).toBeNull();
+    expect(document.querySelector<HTMLIFrameElement>('.ldu-topic-frame[src*="/t/topic/99"]')).not.toBeNull();
+
+    document.body.insertAdjacentHTML("beforeend", `
+      <div class="user-menu"><a class="btn show-all" href="/u/test/notifications">All notifications</a></div>
+    `);
+    const showAllClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    document.querySelector<HTMLAnchorElement>(".show-all")!.dispatchEvent(showAllClick);
+    expect(showAllClick.defaultPrevented).toBe(true);
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src).toContain("/u/test/notifications");
+    document.querySelector<HTMLButtonElement>("#ldu-topic-panel .ldu-tab-item.is-active .ldu-tab-close")!.click();
+    expect(document.querySelectorAll("#ldu-topic-panel .ldu-tab-item")).toHaveLength(1);
+
     const contextEvent = new MouseEvent("contextmenu", {
       bubbles: true, cancelable: true, clientX: 180, clientY: 80,
     });

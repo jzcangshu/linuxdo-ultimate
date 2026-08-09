@@ -1,5 +1,6 @@
 const ERROR_TEXTS = [
   "403 error",
+  "429 error",
   "该响应是很久以前创建的",
   "reaction was created too long ago",
   "我们无法加载该话题",
@@ -10,6 +11,8 @@ const DIALOG_SELECTOR = ".dialog-body";
 const CHALLENGE_PATH = "/challenge";
 const NOT_FOUND_REDIRECT_GUARD_KEY = "linux_do_auto_challenge_nf_guard";
 const NOT_FOUND_REDIRECT_GUARD_MS = 5_000;
+const FAILURE_REDIRECT_GUARD_KEY = "linux_do_auto_challenge_failure_guard";
+const FAILURE_REDIRECT_GUARD_MS = 30_000;
 const MANUAL_MENU_TEXT = "手动触发 Challenge 跳转";
 
 type NavigationMode = "assign" | "replace";
@@ -112,14 +115,46 @@ export class ChallengeBypassController {
 
   private checkAndRedirect(): boolean {
     if (!this.isChallengeFailure()) return false;
-    this.redirectToChallenge();
+    this.redirectToChallenge(false);
     return true;
   }
 
-  private redirectToChallenge(): void {
+  private redirectToChallenge(manual = true): void {
     if (this.isChallengePage()) return;
     this.stop();
+    if (!manual && this.isRecentFailureRedirect()) return;
+    if (!manual) this.setFailureRedirectGuard();
     this.navigate(buildChallengeUrl(this.options.window.location.href), "assign");
+  }
+
+  private isRecentFailureRedirect(): boolean {
+    try {
+      const stored = JSON.parse(this.options.window.sessionStorage.getItem(this.getFailureGuardKey()) ?? "null") as {
+        url?: unknown;
+        timestamp?: unknown;
+      } | null;
+      return stored?.url === this.options.window.location.href
+        && typeof stored.timestamp === "number"
+        && this.now() - stored.timestamp < FAILURE_REDIRECT_GUARD_MS;
+    } catch {
+      return false;
+    }
+  }
+
+  private setFailureRedirectGuard(): void {
+    try {
+      this.options.window.sessionStorage.setItem(this.getFailureGuardKey(), JSON.stringify({
+        url: this.options.window.location.href,
+        timestamp: this.now(),
+      }));
+    } catch {
+      // Automatic redirection still works when session storage is unavailable.
+    }
+  }
+
+  private getFailureGuardKey(): string {
+    const frameName = this.options.window.name;
+    return frameName ? `${FAILURE_REDIRECT_GUARD_KEY}:${frameName}` : FAILURE_REDIRECT_GUARD_KEY;
   }
 
   private redirectFromNotFoundPage(): void {

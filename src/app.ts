@@ -92,9 +92,7 @@ class LinuxDoApp {
     ensureAppStyles();
     this.pageTools = new PageToolsClient({
       isEmbedded: false,
-      isSplitHost: () => document.body.classList.contains("ldu-layout-active")
-        || isSplitRoute(location.href)
-        || Boolean(this.tabStore?.getTabs().length),
+      isSplitHost: () => document.body.classList.contains("ldu-layout-active"),
       ...(this.options.loadOwnerView ? { loadOwnerView: this.options.loadOwnerView } : {}),
     });
     this.pageTools.setConfig(this.getPageToolsConfig());
@@ -192,12 +190,41 @@ class LinuxDoApp {
     }).observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  private dismissHostOverlays(): void {
+    document.body.dispatchEvent(new MouseEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    }));
+  }
+
+  private handleUserMenuLink(event: MouseEvent, link: HTMLAnchorElement): boolean {
+    if (!link.closest(".user-menu") || link.matches(".user-menu-tab, [role=tab]")) return false;
+    let targetUrl: URL;
+    try { targetUrl = new URL(link.href, location.href); } catch { return false; }
+    if (targetUrl.origin !== location.origin || link.target === "_blank" || link.hasAttribute("download")) return false;
+    const topic = getTopicInfo(targetUrl.href, location.href);
+    const splitActive = Boolean(this.layout.getShellElement()) && this.layout.getMode() !== "native";
+    if (!topic && !splitActive) return false;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.dismissHostOverlays();
+    if (topic) {
+      this.openTopic(topic.topicId, topic.url.href, link.textContent?.trim() || `主题 ${topic.topicId}`, topic.postNumber);
+    } else {
+      this.navigateList(targetUrl.href);
+    }
+    return true;
+  }
+
   private handleTopicLinkClick(event: Event): void {
     if (!(event instanceof MouseEvent) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     if (!this.settings.enabled || !this.settings.tabsEnabled) return;
     const target = event.target;
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link) return;
+    if (this.handleUserMenuLink(event, link)) return;
     if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
     if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
       this.promoteDirectTopicNavigation(event, link);
@@ -395,11 +422,7 @@ class LinuxDoApp {
 
   private handleListFrameMessage(message: ListFrameMessage, iframe: HTMLIFrameElement): void {
     if (message.type === "ldu:list-interaction") {
-      document.body.dispatchEvent(new MouseEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      }));
+      this.dismissHostOverlays();
       return;
     }
     if (message.type === "ldu:list-preview-open") {
@@ -655,11 +678,7 @@ class LinuxDoApp {
     const tab = this.tabStore.get(message.tabId);
     if (!tab) return;
     if (message.type === "ldu:frame-interaction") {
-      document.body.dispatchEvent(new MouseEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      }));
+      this.dismissHostOverlays();
       return;
     }
     if (message.type === "ldu:bookmark-result") {

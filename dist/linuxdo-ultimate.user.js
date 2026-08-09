@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.3
+// @version      0.6.4
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -4391,7 +4391,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       ensureAppStyles();
       this.pageTools = new PageToolsClient({
         isEmbedded: false,
-        isSplitHost: () => document.body.classList.contains("ldu-layout-active") || isSplitRoute(location.href) || Boolean(this.tabStore?.getTabs().length),
+        isSplitHost: () => document.body.classList.contains("ldu-layout-active"),
         ...this.options.loadOwnerView ? { loadOwnerView: this.options.loadOwnerView } : {}
       });
       this.pageTools.setConfig(this.getPageToolsConfig());
@@ -4483,12 +4483,42 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         if (this.lastRoute !== location.href) this.scheduleRouteSync();
       }).observe(document.documentElement, { childList: true, subtree: true });
     }
+    dismissHostOverlays() {
+      document.body.dispatchEvent(new MouseEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0
+      }));
+    }
+    handleUserMenuLink(event, link) {
+      if (!link.closest(".user-menu") || link.matches(".user-menu-tab, [role=tab]")) return false;
+      let targetUrl;
+      try {
+        targetUrl = new URL(link.href, location.href);
+      } catch {
+        return false;
+      }
+      if (targetUrl.origin !== location.origin || link.target === "_blank" || link.hasAttribute("download")) return false;
+      const topic = getTopicInfo(targetUrl.href, location.href);
+      const splitActive = Boolean(this.layout.getShellElement()) && this.layout.getMode() !== "native";
+      if (!topic && !splitActive) return false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.dismissHostOverlays();
+      if (topic) {
+        this.openTopic(topic.topicId, topic.url.href, link.textContent?.trim() || `\u4E3B\u9898 ${topic.topicId}`, topic.postNumber);
+      } else {
+        this.navigateList(targetUrl.href);
+      }
+      return true;
+    }
     handleTopicLinkClick(event) {
       if (!(event instanceof MouseEvent) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       if (!this.settings.enabled || !this.settings.tabsEnabled) return;
       const target = event.target;
       const link = target instanceof Element ? target.closest("a[href]") : null;
       if (!link) return;
+      if (this.handleUserMenuLink(event, link)) return;
       if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
       if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
         this.promoteDirectTopicNavigation(event, link);
@@ -4673,11 +4703,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     handleListFrameMessage(message, iframe) {
       if (message.type === "ldu:list-interaction") {
-        document.body.dispatchEvent(new MouseEvent("pointerdown", {
-          bubbles: true,
-          cancelable: true,
-          button: 0
-        }));
+        this.dismissHostOverlays();
         return;
       }
       if (message.type === "ldu:list-preview-open") {
@@ -4909,11 +4935,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const tab = this.tabStore.get(message.tabId);
       if (!tab) return;
       if (message.type === "ldu:frame-interaction") {
-        document.body.dispatchEvent(new MouseEvent("pointerdown", {
-          bubbles: true,
-          cancelable: true,
-          button: 0
-        }));
+        this.dismissHostOverlays();
         return;
       }
       if (message.type === "ldu:bookmark-result") {
@@ -5219,6 +5241,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   // src/discourse/challenge-bypass.ts
   var ERROR_TEXTS = [
     "403 error",
+    "429 error",
     "\u8BE5\u54CD\u5E94\u662F\u5F88\u4E45\u4EE5\u524D\u521B\u5EFA\u7684",
     "reaction was created too long ago",
     "\u6211\u4EEC\u65E0\u6CD5\u52A0\u8F7D\u8BE5\u8BDD\u9898",
@@ -5228,6 +5251,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   var CHALLENGE_PATH = "/challenge";
   var NOT_FOUND_REDIRECT_GUARD_KEY = "linux_do_auto_challenge_nf_guard";
   var NOT_FOUND_REDIRECT_GUARD_MS = 5e3;
+  var FAILURE_REDIRECT_GUARD_KEY = "linux_do_auto_challenge_failure_guard";
+  var FAILURE_REDIRECT_GUARD_MS = 3e4;
   var MANUAL_MENU_TEXT = "\u624B\u52A8\u89E6\u53D1 Challenge \u8DF3\u8F6C";
   function buildChallengeUrl(currentHref) {
     return `${CHALLENGE_PATH}?redirect=${encodeURIComponent(currentHref)}`;
@@ -5301,13 +5326,36 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
     checkAndRedirect() {
       if (!this.isChallengeFailure()) return false;
-      this.redirectToChallenge();
+      this.redirectToChallenge(false);
       return true;
     }
-    redirectToChallenge() {
+    redirectToChallenge(manual = true) {
       if (this.isChallengePage()) return;
       this.stop();
+      if (!manual && this.isRecentFailureRedirect()) return;
+      if (!manual) this.setFailureRedirectGuard();
       this.navigate(buildChallengeUrl(this.options.window.location.href), "assign");
+    }
+    isRecentFailureRedirect() {
+      try {
+        const stored = JSON.parse(this.options.window.sessionStorage.getItem(this.getFailureGuardKey()) ?? "null");
+        return stored?.url === this.options.window.location.href && typeof stored.timestamp === "number" && this.now() - stored.timestamp < FAILURE_REDIRECT_GUARD_MS;
+      } catch {
+        return false;
+      }
+    }
+    setFailureRedirectGuard() {
+      try {
+        this.options.window.sessionStorage.setItem(this.getFailureGuardKey(), JSON.stringify({
+          url: this.options.window.location.href,
+          timestamp: this.now()
+        }));
+      } catch {
+      }
+    }
+    getFailureGuardKey() {
+      const frameName = this.options.window.name;
+      return frameName ? `${FAILURE_REDIRECT_GUARD_KEY}:${frameName}` : FAILURE_REDIRECT_GUARD_KEY;
     }
     redirectFromNotFoundPage() {
       const { location: location2 } = this.options.window;
@@ -9043,14 +9091,13 @@ ${tab.url}`;
   var DEFAULT_CONFIG2 = {
     ownerOnlyEnabled: true
   };
-  var STYLE_ID = "ldu-topic-tools-style";
   var OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
   var OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
   var LEGACY_OWNER_STATE_KEY = "on_off";
   var OWNER_MIGRATION_KEY = "linuxdo-ultimate:owner-view:migrated";
   var MAX_OWNER_TOPICS = 100;
-  var OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
-  var ALL_MODE = "\u5F53\u524D\u67E5\u770B\u5168\u90E8";
+  var LEGACY_OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
+  var OWNER_BUTTON_TEXT = "\u53EA\u770B\u697C\u4E3B";
   var TopicToolsController = class {
     config = { ...DEFAULT_CONFIG2 };
     observer = null;
@@ -9073,7 +9120,6 @@ ${tab.url}`;
     start() {
       if (this.started) return this;
       this.started = true;
-      ensureStyles(this.doc);
       this.queueApply();
       this.syncObserver();
       return this;
@@ -9092,7 +9138,6 @@ ${tab.url}`;
       const next = { ...this.config, ...patch };
       if (next.ownerOnlyEnabled === this.config.ownerOnlyEnabled) return;
       this.config = next;
-      ensureStyles(this.doc);
       this.syncObserver();
       this.queueApply();
     }
@@ -9159,7 +9204,7 @@ ${tab.url}`;
           if (node.id === "ldu-owner-toggle" || node.closest("#ldu-owner-toggle")) continue;
           if (node.matches(".topic-post")) this.pendingPosts.add(node);
           for (const post of node.querySelectorAll(".topic-post")) this.pendingPosts.add(post);
-          if (node.matches(".topic-footer-main-buttons, .timeline-footer-controls, .topic-controls, #topic-title, .topic-category, .post-stream") || node.querySelector(".topic-footer-main-buttons, .timeline-footer-controls, .topic-controls, #topic-title, .topic-category, .post-stream")) {
+          if (node.matches(".timeline-footer-controls") || node.querySelector(".timeline-footer-controls")) {
             needsControlSync = true;
           }
         }
@@ -9231,7 +9276,7 @@ ${tab.url}`;
       }
       const state = this.readOwnerState(storage);
       const legacyMode = storage.getItem(LEGACY_OWNER_STATE_KEY);
-      if (legacyMode === OWNER_MODE) state.topics[currentTopicId] = Date.now();
+      if (legacyMode === LEGACY_OWNER_MODE) state.topics[currentTopicId] = Date.now();
       const staleKeys = [];
       for (let index = 0; index < storage.length; index += 1) {
         const key = storage.key(index);
@@ -9239,7 +9284,7 @@ ${tab.url}`;
         staleKeys.push(key);
         const topicId = key.slice(OWNER_STATE_PREFIX.length);
         const value = storage.getItem(key);
-        if (/^\d+$/.test(topicId) && (value === "owner" || value === OWNER_MODE)) state.topics[topicId] = Date.now();
+        if (/^\d+$/.test(topicId) && (value === "owner" || value === LEGACY_OWNER_MODE)) state.topics[topicId] = Date.now();
       }
       const retained = Object.entries(state.topics).sort(([, left], [, right]) => right - left).slice(0, MAX_OWNER_TOPICS);
       storage.setItem(OWNER_STATE_KEY, JSON.stringify({ version: 1, topics: Object.fromEntries(retained) }));
@@ -9250,10 +9295,18 @@ ${tab.url}`;
     findOwnerId() {
       if (this.ownerId) return this.ownerId;
       const ownerPost = this.doc.querySelector(
-        '#post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]'
+        '.topic-post.topic-owner [data-user-id], .topic-post.post--topic-owner [data-user-id], #post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]'
       );
-      this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? null;
+      this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? this.readPreloadedOwnerId();
       return this.ownerId;
+    }
+    readPreloadedOwnerId() {
+      const topicId = this.getTopicId();
+      const source = this.doc.getElementById("data-preloaded")?.textContent;
+      if (!topicId || !source?.includes(`"topic_${topicId}"`)) return null;
+      const escaped = source.match(/\\"created_by\\":\{[^}]{0,320}?\\"id\\":(\d+)/);
+      if (escaped?.[1]) return escaped[1];
+      return source.match(/"created_by":\{[^}]{0,320}?"id":(\d+)/)?.[1] ?? null;
     }
     syncOwnerControl() {
       const topicId = this.getTopicId();
@@ -9270,7 +9323,7 @@ ${tab.url}`;
         button = this.doc.createElement("button");
         button.id = "ldu-owner-toggle";
         button.type = "button";
-        button.className = "ldu-owner-toggle";
+        button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
         button.addEventListener("click", () => {
           const currentTopicId = this.getTopicId();
           if (!currentTopicId) return;
@@ -9281,32 +9334,28 @@ ${tab.url}`;
         });
       }
       const mount = this.findOwnerMount();
-      if (mount && button.parentElement !== mount) mount.append(button);
+      if (!mount) {
+        button.remove();
+        return;
+      }
+      const summaryButton = mount.querySelector(".show-summary, .top-replies");
+      if (button.parentElement !== mount || button.nextElementSibling !== summaryButton) {
+        mount.insertBefore(button, summaryButton ?? mount.firstChild);
+      }
       const mode = this.readOwnerMode(topicId);
       this.updateOwnerButton(button, mode);
     }
     findOwnerMount() {
-      const candidates = [
-        ".topic-footer-main-buttons",
-        ".timeline-footer-controls",
-        ".topic-controls",
-        "#topic-title",
-        ".topic-category",
-        ".post-stream"
-      ];
-      for (const selector of candidates) {
-        const node = this.doc.querySelector(selector);
-        if (node) return node;
-      }
-      return this.doc.body;
+      return this.doc.querySelector(".timeline-footer-controls");
     }
     updateOwnerButton(button, ownerOnly) {
-      const text = ownerOnly ? OWNER_MODE : ALL_MODE;
       const pressed = String(ownerOnly);
-      const title = ownerOnly ? "\u663E\u793A\u5168\u90E8\u56DE\u590D" : "\u53EA\u770B\u697C\u4E3B";
-      if (button.textContent !== text) button.textContent = text;
+      const title = ownerOnly ? "\u5173\u95ED\u53EA\u770B\u697C\u4E3B" : OWNER_BUTTON_TEXT;
+      if (button.textContent !== OWNER_BUTTON_TEXT) button.textContent = OWNER_BUTTON_TEXT;
       if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
       if (button.title !== title) button.title = title;
+      button.classList.toggle("btn-primary", ownerOnly);
+      button.classList.toggle("btn-default", !ownerOnly);
     }
     applyOwnerFilter() {
       if (!this.config.ownerOnlyEnabled || !this.isTopicPage()) {
@@ -9368,34 +9417,6 @@ ${tab.url}`;
     win.__LDU_TOPIC_TOOLS__ = controller;
     controller.start();
     return controller;
-  }
-  function ensureStyles(doc) {
-    const existing = doc.getElementById(STYLE_ID);
-    if (existing instanceof HTMLStyleElement) return existing;
-    const style = doc.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = `
-    .ldu-owner-toggle {
-      display: inline-flex;
-      min-height: 28px;
-      align-items: center;
-      justify-content: center;
-      margin: 4px 6px 4px 0;
-      padding: 4px 9px;
-      border: 1px solid var(--primary-low, #d9d9d9);
-      border-radius: 5px;
-      background: var(--secondary, #fff);
-      color: var(--primary, #222);
-      cursor: pointer;
-      font: inherit;
-      font-size: var(--font-down-1, .875rem);
-      line-height: 1.2;
-    }
-    .ldu-owner-toggle:hover { background: var(--primary-very-low, #f5f5f5); }
-    .ldu-owner-toggle[aria-pressed="true"] { border-color: var(--tertiary, #0088cc); color: var(--tertiary, #0088cc); }
-  `;
-    (doc.head ?? doc.documentElement).append(style);
-    return style;
   }
 
   // src/main.ts

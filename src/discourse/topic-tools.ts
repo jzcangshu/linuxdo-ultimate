@@ -15,14 +15,13 @@ const DEFAULT_CONFIG: TopicToolsConfig = {
   ownerOnlyEnabled: true,
 };
 
-const STYLE_ID = "ldu-topic-tools-style";
 const OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
 const OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
 const LEGACY_OWNER_STATE_KEY = "on_off";
 const OWNER_MIGRATION_KEY = "linuxdo-ultimate:owner-view:migrated";
 const MAX_OWNER_TOPICS = 100;
-const OWNER_MODE = "当前只看楼主";
-const ALL_MODE = "当前查看全部";
+const LEGACY_OWNER_MODE = "当前只看楼主";
+const OWNER_BUTTON_TEXT = "只看楼主";
 
 interface OwnerState {
   version: 1;
@@ -59,7 +58,6 @@ export class TopicToolsController {
   start(): this {
     if (this.started) return this;
     this.started = true;
-    ensureStyles(this.doc);
     this.queueApply();
     this.syncObserver();
     return this;
@@ -80,7 +78,6 @@ export class TopicToolsController {
     const next = { ...this.config, ...patch };
     if (next.ownerOnlyEnabled === this.config.ownerOnlyEnabled) return;
     this.config = next;
-    ensureStyles(this.doc);
     this.syncObserver();
     this.queueApply();
   }
@@ -153,8 +150,7 @@ export class TopicToolsController {
         if (node.id === "ldu-owner-toggle" || node.closest("#ldu-owner-toggle")) continue;
         if (node.matches(".topic-post")) this.pendingPosts.add(node as HTMLElement);
         for (const post of node.querySelectorAll<HTMLElement>(".topic-post")) this.pendingPosts.add(post);
-        if (node.matches(".topic-footer-main-buttons, .timeline-footer-controls, .topic-controls, #topic-title, .topic-category, .post-stream")
-          || node.querySelector(".topic-footer-main-buttons, .timeline-footer-controls, .topic-controls, #topic-title, .topic-category, .post-stream")) {
+        if (node.matches(".timeline-footer-controls") || node.querySelector(".timeline-footer-controls")) {
           needsControlSync = true;
         }
       }
@@ -232,7 +228,7 @@ export class TopicToolsController {
     }
     const state = this.readOwnerState(storage);
     const legacyMode = storage.getItem(LEGACY_OWNER_STATE_KEY);
-    if (legacyMode === OWNER_MODE) state.topics[currentTopicId] = Date.now();
+    if (legacyMode === LEGACY_OWNER_MODE) state.topics[currentTopicId] = Date.now();
     const staleKeys: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
@@ -240,7 +236,7 @@ export class TopicToolsController {
       staleKeys.push(key);
       const topicId = key.slice(OWNER_STATE_PREFIX.length);
       const value = storage.getItem(key);
-      if (/^\d+$/.test(topicId) && (value === "owner" || value === OWNER_MODE)) state.topics[topicId] = Date.now();
+      if (/^\d+$/.test(topicId) && (value === "owner" || value === LEGACY_OWNER_MODE)) state.topics[topicId] = Date.now();
     }
     const retained = Object.entries(state.topics)
       .sort(([, left], [, right]) => right - left)
@@ -254,10 +250,19 @@ export class TopicToolsController {
   private findOwnerId(): string | null {
     if (this.ownerId) return this.ownerId;
     const ownerPost = this.doc.querySelector<HTMLElement>(
-      '#post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]',
+      '.topic-post.topic-owner [data-user-id], .topic-post.post--topic-owner [data-user-id], #post_1[data-user-id], #post_1 [data-user-id], article[data-post-number="1"][data-user-id], .topic-post[data-post-number="1"] [data-user-id]',
     );
-    this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? null;
+    this.ownerId = ownerPost?.dataset.userId ?? ownerPost?.getAttribute("data-user-id") ?? this.readPreloadedOwnerId();
     return this.ownerId;
+  }
+
+  private readPreloadedOwnerId(): string | null {
+    const topicId = this.getTopicId();
+    const source = this.doc.getElementById("data-preloaded")?.textContent;
+    if (!topicId || !source?.includes(`\"topic_${topicId}\"`)) return null;
+    const escaped = source.match(/\\"created_by\\":\{[^}]{0,320}?\\"id\\":(\d+)/);
+    if (escaped?.[1]) return escaped[1];
+    return source.match(/"created_by":\{[^}]{0,320}?"id":(\d+)/)?.[1] ?? null;
   }
 
   private syncOwnerControl(): void {
@@ -275,7 +280,7 @@ export class TopicToolsController {
       button = this.doc.createElement("button");
       button.id = "ldu-owner-toggle";
       button.type = "button";
-      button.className = "ldu-owner-toggle";
+      button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
       button.addEventListener("click", () => {
         const currentTopicId = this.getTopicId();
         if (!currentTopicId) return;
@@ -286,34 +291,30 @@ export class TopicToolsController {
       });
     }
     const mount = this.findOwnerMount();
-    if (mount && button.parentElement !== mount) mount.append(button);
+    if (!mount) {
+      button.remove();
+      return;
+    }
+    const summaryButton = mount.querySelector(".show-summary, .top-replies");
+    if (button.parentElement !== mount || button.nextElementSibling !== summaryButton) {
+      mount.insertBefore(button, summaryButton ?? mount.firstChild);
+    }
     const mode = this.readOwnerMode(topicId);
     this.updateOwnerButton(button, mode);
   }
 
   private findOwnerMount(): HTMLElement | null {
-    const candidates = [
-      ".topic-footer-main-buttons",
-      ".timeline-footer-controls",
-      ".topic-controls",
-      "#topic-title",
-      ".topic-category",
-      ".post-stream",
-    ];
-    for (const selector of candidates) {
-      const node = this.doc.querySelector<HTMLElement>(selector);
-      if (node) return node;
-    }
-    return this.doc.body;
+    return this.doc.querySelector<HTMLElement>(".timeline-footer-controls");
   }
 
   private updateOwnerButton(button: HTMLButtonElement, ownerOnly: boolean): void {
-    const text = ownerOnly ? OWNER_MODE : ALL_MODE;
     const pressed = String(ownerOnly);
-    const title = ownerOnly ? "显示全部回复" : "只看楼主";
-    if (button.textContent !== text) button.textContent = text;
+    const title = ownerOnly ? "关闭只看楼主" : OWNER_BUTTON_TEXT;
+    if (button.textContent !== OWNER_BUTTON_TEXT) button.textContent = OWNER_BUTTON_TEXT;
     if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
     if (button.title !== title) button.title = title;
+    button.classList.toggle("btn-primary", ownerOnly);
+    button.classList.toggle("btn-default", !ownerOnly);
   }
 
   private applyOwnerFilter(): void {
@@ -381,33 +382,4 @@ export function installTopicTools(options: TopicToolsOptions = {}): TopicToolsCo
   win.__LDU_TOPIC_TOOLS__ = controller;
   controller.start();
   return controller;
-}
-
-function ensureStyles(doc: Document): HTMLStyleElement {
-  const existing = doc.getElementById(STYLE_ID);
-  if (existing instanceof HTMLStyleElement) return existing;
-  const style = doc.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    .ldu-owner-toggle {
-      display: inline-flex;
-      min-height: 28px;
-      align-items: center;
-      justify-content: center;
-      margin: 4px 6px 4px 0;
-      padding: 4px 9px;
-      border: 1px solid var(--primary-low, #d9d9d9);
-      border-radius: 5px;
-      background: var(--secondary, #fff);
-      color: var(--primary, #222);
-      cursor: pointer;
-      font: inherit;
-      font-size: var(--font-down-1, .875rem);
-      line-height: 1.2;
-    }
-    .ldu-owner-toggle:hover { background: var(--primary-very-low, #f5f5f5); }
-    .ldu-owner-toggle[aria-pressed="true"] { border-color: var(--tertiary, #0088cc); color: var(--tertiary, #0088cc); }
-  `;
-  (doc.head ?? doc.documentElement).append(style);
-  return style;
 }

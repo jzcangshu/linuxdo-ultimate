@@ -27,6 +27,7 @@ describe("settings panel", () => {
     expect(host.querySelector('[data-setting="restoreSession"]')?.closest("label")?.textContent).toContain("恢复上次帖子");
     expect(host.querySelector('[data-setting="hidePosters"]')).toBeNull();
     expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.textContent).toContain("只看楼主");
+    expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.hasAttribute("data-depends-on")).toBe(false);
     expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("清爽模式");
     expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("隐藏列表头像、公告、分类徽章和标签");
     expect(host.querySelector('[data-setting="lowEndOptimizationEnabled"]')?.closest("label")?.textContent).toContain("低端设备性能优化");
@@ -59,6 +60,7 @@ describe("settings panel", () => {
     expect(layoutRow.hidden).toBe(true);
     expect(colorizeTabsRow.hidden).toBe(true);
     expect(autoCollapseRow.hidden).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.hidden).toBe(false);
 
     const preview = host.querySelector<HTMLInputElement>('[data-setting="previewEnabled"]')!;
     preview.checked = true;

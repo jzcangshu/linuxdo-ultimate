@@ -113,7 +113,9 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls {
   align-items: stretch !important;
 }
 
-html[data-ldu-embedded-topic="true"] .timeline-footer-controls .show-summary {
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .ldu-owner-toggle,
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .show-summary,
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .top-replies {
   grid-column: 1 / -1 !important;
   width: 100% !important;
 }

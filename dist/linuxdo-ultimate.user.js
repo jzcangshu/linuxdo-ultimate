@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.6
+// @version      0.6.7
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -2864,7 +2864,9 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls {
   align-items: stretch !important;
 }
 
-html[data-ldu-embedded-topic="true"] .timeline-footer-controls .show-summary {
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .ldu-owner-toggle,
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .show-summary,
+html[data-ldu-embedded-topic="true"] .timeline-footer-controls .top-replies {
   grid-column: 1 / -1 !important;
   width: 100% !important;
 }
@@ -9047,6 +9049,15 @@ ${tab.url}`;
   var MAX_OWNER_TOPICS = 100;
   var LEGACY_OWNER_MODE = "\u5F53\u524D\u53EA\u770B\u697C\u4E3B";
   var OWNER_BUTTON_TEXT = "\u53EA\u770B\u697C\u4E3B";
+  var OWNER_CONTROL_MUTATION_SELECTOR = [
+    ".timeline-footer-controls",
+    "#data-preloaded",
+    ".show-summary",
+    ".top-replies",
+    ".posts-filtered-notice",
+    ".filtered-replies-show-all"
+  ].join(", ");
+  var SVG_NAMESPACE = "http://www.w3.org/2000/svg";
   var TopicToolsController = class {
     config = { ...DEFAULT_CONFIG2 };
     observer = null;
@@ -9170,6 +9181,16 @@ ${tab.url}`;
     }
     handleDocumentClick = (event) => {
       if (!this.active || !this.config.ownerOnlyEnabled || event.button > 0) return;
+      const filterClear = event.target instanceof Element ? event.target.closest(".filtered-replies-show-all") : null;
+      if (filterClear) {
+        const topicId = this.getTopicId();
+        const ownerUsername2 = this.findOwnerUsername();
+        if (topicId && ownerUsername2 && this.isNativeOwnerFilterActive(ownerUsername2)) {
+          this.writeOwnerMode(topicId, false);
+          this.updateCurrentButton(false);
+        }
+        return;
+      }
       const target = event.target instanceof Element ? event.target.closest(".show-summary, .top-replies") : null;
       if (!target) return;
       const ownerUsername = this.findOwnerUsername();
@@ -9190,8 +9211,11 @@ ${tab.url}`;
       for (const record of records) {
         for (const node of [...record.addedNodes, ...record.removedNodes]) {
           if (!(node instanceof Element)) continue;
-          if (node.id === "ldu-owner-toggle") continue;
-          if (node.matches(".timeline-footer-controls, #data-preloaded") || node.querySelector(".timeline-footer-controls, #data-preloaded, #ldu-owner-toggle")) {
+          if (node.id === "ldu-owner-toggle") {
+            if (!node.isConnected) this.queueApply();
+            continue;
+          }
+          if (node.matches(OWNER_CONTROL_MUTATION_SELECTOR) || node.querySelector(`${OWNER_CONTROL_MUTATION_SELECTOR}, #ldu-owner-toggle`)) {
             this.queueApply();
             return;
           }
@@ -9316,6 +9340,18 @@ ${tab.url}`;
         button.id = "ldu-owner-toggle";
         button.type = "button";
         button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
+        const icon = this.doc.createElementNS(SVG_NAMESPACE, "svg");
+        icon.setAttribute("class", "fa d-icon d-icon-user-check svg-icon fa-width-auto svg-string");
+        icon.setAttribute("width", "1em");
+        icon.setAttribute("height", "1em");
+        icon.setAttribute("aria-hidden", "true");
+        const use = this.doc.createElementNS(SVG_NAMESPACE, "use");
+        use.setAttribute("href", "#user-check");
+        icon.append(use);
+        const label = this.doc.createElement("span");
+        label.className = "d-button-label";
+        label.textContent = OWNER_BUTTON_TEXT;
+        button.append(icon, label);
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -9348,7 +9384,8 @@ ${tab.url}`;
     updateOwnerButton(button, ownerOnly) {
       const pressed = String(ownerOnly);
       const title = ownerOnly ? "\u5173\u95ED\u53EA\u770B\u697C\u4E3B" : OWNER_BUTTON_TEXT;
-      if (button.textContent !== OWNER_BUTTON_TEXT) button.textContent = OWNER_BUTTON_TEXT;
+      const label = button.querySelector(".d-button-label");
+      if (label && label.textContent !== OWNER_BUTTON_TEXT) label.textContent = OWNER_BUTTON_TEXT;
       if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
       if (button.title !== title) button.title = title;
       button.classList.toggle("btn-primary", ownerOnly);

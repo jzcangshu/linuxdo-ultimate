@@ -41,6 +41,9 @@ describe("topic tools", () => {
 
     expect(button.textContent).toBe("只看楼主");
     expect(button.classList.contains("btn-primary")).toBe(true);
+    expect(button.classList.contains("btn-icon-text")).toBe(true);
+    expect(button.querySelector("svg.d-icon-user-check use")?.getAttribute("href")).toBe("#user-check");
+    expect(button.querySelector(".d-button-label")?.textContent).toBe("只看楼主");
     expect(document.querySelector<HTMLElement>('[data-post-number="3858"]')?.hidden).toBe(false);
     expect(document.querySelector("[data-ldu-owner-hidden]")).toBeNull();
     expect(navigate).toHaveBeenCalledWith(new URL("/t/topic/123/3858?username_filters=neo", window.location.href).href);
@@ -101,6 +104,49 @@ describe("topic tools", () => {
     document.querySelector<HTMLButtonElement>(".show-summary")!.textContent = "全部显示";
     document.querySelector<HTMLButtonElement>(".show-summary")!.click();
     expect(navigate).toHaveBeenLastCalledWith(new URL("/t/topic/123/108?username_filters=neo", window.location.href).href);
+  });
+
+  it("recreates the owner control after Discourse rerenders the timeline controls", async () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/t/topic/123/108?username_filters=neo");
+    document.body.innerHTML = topicMarkup();
+    const controller = installTopicTools({ navigate: vi.fn() });
+    controller.setConfig({ ownerOnlyEnabled: true });
+    await vi.runOnlyPendingTimersAsync();
+
+    const mount = document.querySelector<HTMLElement>(".timeline-footer-controls")!;
+    const replacement = document.createElement("button");
+    replacement.className = "show-summary";
+    replacement.textContent = "热门回复";
+    mount.replaceChildren(replacement);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(mount.firstElementChild?.id).toBe("ldu-owner-toggle");
+    expect(mount.querySelector(".show-summary")).toBe(replacement);
+  });
+
+  it("turns off remembered owner mode when the native filtered notice shows all posts", async () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/t/topic/123/108?username_filters=neo");
+    document.body.innerHTML = `${topicMarkup()}<button class="filtered-replies-show-all">显示全部</button>`;
+    const controller = installTopicTools({ navigate: vi.fn() });
+    controller.setConfig({ ownerOnlyEnabled: true });
+    await vi.runOnlyPendingTimersAsync();
+
+    const showAll = document.querySelector<HTMLButtonElement>(".filtered-replies-show-all")!;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    showAll.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    const stored = JSON.parse(window.localStorage.getItem("linuxdo-ultimate:owner-view:v2") ?? "null") as { topics: Record<string, number> };
+    expect(stored.topics[123]).toBeUndefined();
+
+    window.history.replaceState(null, "", "/t/topic/123/108");
+    const mount = document.querySelector<HTMLElement>(".timeline-footer-controls")!;
+    mount.replaceChildren(Object.assign(document.createElement("button"), { className: "show-summary", textContent: "热门回复" }));
+    await vi.runOnlyPendingTimersAsync();
+    expect(document.querySelector<HTMLButtonElement>("#ldu-owner-toggle")?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("restores a remembered topic through the native route", () => {

@@ -26,6 +26,15 @@ const SUMMARY_FILTER_VALUE = "summary";
 const MAX_OWNER_TOPICS = 100;
 const LEGACY_OWNER_MODE = "当前只看楼主";
 const OWNER_BUTTON_TEXT = "只看楼主";
+const OWNER_CONTROL_MUTATION_SELECTOR = [
+  ".timeline-footer-controls",
+  "#data-preloaded",
+  ".show-summary",
+  ".top-replies",
+  ".posts-filtered-notice",
+  ".filtered-replies-show-all",
+].join(", ");
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 interface OwnerState {
   version: 1;
@@ -174,6 +183,18 @@ export class TopicToolsController {
 
   private readonly handleDocumentClick = (event: MouseEvent): void => {
     if (!this.active || !this.config.ownerOnlyEnabled || event.button > 0) return;
+    const filterClear = event.target instanceof Element
+      ? event.target.closest<HTMLElement>(".filtered-replies-show-all")
+      : null;
+    if (filterClear) {
+      const topicId = this.getTopicId();
+      const ownerUsername = this.findOwnerUsername();
+      if (topicId && ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) {
+        this.writeOwnerMode(topicId, false);
+        this.updateCurrentButton(false);
+      }
+      return;
+    }
     const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".show-summary, .top-replies") : null;
     if (!target) return;
     const ownerUsername = this.findOwnerUsername();
@@ -197,9 +218,12 @@ export class TopicToolsController {
     for (const record of records) {
       for (const node of [...record.addedNodes, ...record.removedNodes]) {
         if (!(node instanceof Element)) continue;
-        if (node.id === "ldu-owner-toggle") continue;
-        if (node.matches(".timeline-footer-controls, #data-preloaded")
-          || node.querySelector(".timeline-footer-controls, #data-preloaded, #ldu-owner-toggle")) {
+        if (node.id === "ldu-owner-toggle") {
+          if (!node.isConnected) this.queueApply();
+          continue;
+        }
+        if (node.matches(OWNER_CONTROL_MUTATION_SELECTOR)
+          || node.querySelector(`${OWNER_CONTROL_MUTATION_SELECTOR}, #ldu-owner-toggle`)) {
           this.queueApply();
           return;
         }
@@ -335,6 +359,18 @@ export class TopicToolsController {
       button.id = "ldu-owner-toggle";
       button.type = "button";
       button.className = "btn btn-icon-text btn-default btn-small ldu-owner-toggle";
+      const icon = this.doc.createElementNS(SVG_NAMESPACE, "svg");
+      icon.setAttribute("class", "fa d-icon d-icon-user-check svg-icon fa-width-auto svg-string");
+      icon.setAttribute("width", "1em");
+      icon.setAttribute("height", "1em");
+      icon.setAttribute("aria-hidden", "true");
+      const use = this.doc.createElementNS(SVG_NAMESPACE, "use");
+      use.setAttribute("href", "#user-check");
+      icon.append(use);
+      const label = this.doc.createElement("span");
+      label.className = "d-button-label";
+      label.textContent = OWNER_BUTTON_TEXT;
+      button.append(icon, label);
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -369,7 +405,8 @@ export class TopicToolsController {
   private updateOwnerButton(button: HTMLButtonElement, ownerOnly: boolean): void {
     const pressed = String(ownerOnly);
     const title = ownerOnly ? "关闭只看楼主" : OWNER_BUTTON_TEXT;
-    if (button.textContent !== OWNER_BUTTON_TEXT) button.textContent = OWNER_BUTTON_TEXT;
+    const label = button.querySelector<HTMLElement>(".d-button-label");
+    if (label && label.textContent !== OWNER_BUTTON_TEXT) label.textContent = OWNER_BUTTON_TEXT;
     if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
     if (button.title !== title) button.title = title;
     button.classList.toggle("btn-primary", ownerOnly);

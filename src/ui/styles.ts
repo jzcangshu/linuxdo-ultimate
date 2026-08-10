@@ -910,18 +910,23 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-row:last-child { border-bottom: 0; }
 .ldu-settings-panel .dc-dependent-row[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-parent-group {
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
+}
+.ldu-settings-panel .ldu-settings-parent-group > .dc-row,
+.ldu-settings-panel .ldu-settings-parent-group .ldu-settings-tree,
+.ldu-settings-panel .ldu-settings-parent-group .ldu-settings-tree-row { border-bottom: 0; }
 .ldu-settings-panel .ldu-settings-tree {
   position: relative;
   margin-left: 10px;
   padding-left: 22px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
 }
 .ldu-settings-panel .ldu-settings-tree::before {
   position: absolute;
-  top: -7px;
+  top: -12px;
   left: 0;
-  height: 7px;
-  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  height: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row { position: relative; }
@@ -930,7 +935,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   top: -1px;
   bottom: -1px;
   left: -22px;
-  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row::after {
@@ -938,13 +943,13 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   top: 50%;
   left: -22px;
   width: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row:last-child::before {
   width: 12px;
   bottom: 50%;
-  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   border-bottom-left-radius: 4px;
 }
 .ldu-settings-panel .ldu-settings-tree-row:last-child::after { display: none; }

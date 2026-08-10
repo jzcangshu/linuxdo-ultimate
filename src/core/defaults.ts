@@ -1,7 +1,7 @@
 import type { Settings } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   enabled: true,
   layoutPreference: "auto",
   tabsEnabled: true,
@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS: Settings = {
   groupVerticalTabs: false,
   restoreSession: false,
   colorizeTabs: true,
-  ownerOnlyEnabled: false,
   cleanModeEnabled: true,
   minimalHidePosters: true,
   minimalHideNotices: true,
@@ -40,11 +39,14 @@ export function normalizeSettings(value: unknown): Settings {
   const source = value as Omit<Partial<Settings>, "schemaVersion"> & { schemaVersion?: number; hidePosters?: unknown };
   const preservesSessionChoice = source.schemaVersion === 2
     || source.schemaVersion === 3
+    || source.schemaVersion === 4
     || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
-  const cleanModeEnabled = source.schemaVersion === 3 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion
+  const cleanModeEnabled = source.schemaVersion === 3
+    || source.schemaVersion === 4
+    || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion
     ? source.cleanModeEnabled !== false
     : source.cleanModeEnabled === true || source.hidePosters !== false;
-  const hasMinimalOptions = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+  const hasMinimalOptions = source.schemaVersion === 4 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
   const paneSizes = source.paneSizes && typeof source.paneSizes === "object"
     ? source.paneSizes as Partial<Settings["paneSizes"]> & { list?: unknown }
     : {};
@@ -61,7 +63,6 @@ export function normalizeSettings(value: unknown): Settings {
     groupVerticalTabs: source.groupVerticalTabs === true,
     restoreSession: preservesSessionChoice && source.restoreSession === true,
     colorizeTabs: source.colorizeTabs !== false,
-    ownerOnlyEnabled: source.ownerOnlyEnabled === true,
     cleanModeEnabled,
     minimalHidePosters: hasMinimalOptions ? source.minimalHidePosters !== false : true,
     minimalHideNotices: hasMinimalOptions ? source.minimalHideNotices !== false : true,

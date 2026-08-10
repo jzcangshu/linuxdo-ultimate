@@ -56,14 +56,12 @@ export class SettingsPanel {
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">启用分屏模式</span>
-                <span class="dc-item-desc">在当前页面并排浏览帖子列表与正文</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="tabsEnabled"><span class="dc-slider"></span></span>
             </label>
             <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">详情页位置</span>
-                <span class="dc-item-desc">“自动”会根据窗口宽度选择</span>
+                <span class="dc-item-title">帖子正文展示位置</span>
               </span>
               <div class="dc-pills" data-pills-setting="layoutPreference">
                 <button type="button" class="dc-pill-btn" data-val="auto">自动</button>
@@ -74,44 +72,44 @@ export class SettingsPanel {
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-reading-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-reading-heading">阅读与标签</div>
-            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">标签栏样式</span>
-              </span>
-              <div class="dc-pills" data-pills-setting="tabPresentation">
-                <button type="button" class="dc-pill-btn" data-val="horizontal">横向</button>
-                <button type="button" class="dc-pill-btn" data-val="vertical">垂直</button>
+            <div class="ldu-settings-parent-group dc-dependent-row" data-depends-on="tabsEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-parent-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">标签页样式</span>
+                </span>
+                <div class="dc-pills" data-pills-setting="tabPresentation">
+                  <button type="button" class="dc-pill-btn" data-val="horizontal">横向</button>
+                  <button type="button" class="dc-pill-btn" data-val="vertical">垂直</button>
+                </div>
               </div>
-            </div>
-            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
-                <span class="dc-label-box">
-                  <span class="dc-item-title">自动收起</span>
-                  <span class="dc-item-desc">移开鼠标后收起为图标栏</span>
-                </span>
-                <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
-              </label>
-              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
-                <span class="dc-label-box">
-                  <span class="dc-item-title">按分区分组</span>
-                  <span class="dc-item-desc">按帖子主分类整理垂直标签</span>
-                </span>
-                <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
-              </label>
+              <div class="ldu-settings-tree">
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row dc-dependent-row" data-depends-on="tabPresentation" data-depends-value="vertical">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">自动收起标签栏</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+                </label>
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row dc-dependent-row" data-depends-on="tabPresentation" data-depends-value="vertical">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">自动按帖子分类整理标签页</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+                </label>
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">标签页上色</span>
+                    <span class="dc-item-desc">自动按帖子分类为标签页上色</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
+                </label>
+              </div>
             </div>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">恢复上次帖子</span>
+                <span class="dc-item-title">恢复上次关闭前打开的帖子</span>
                 <span class="dc-item-desc">下次访问时恢复最后关闭的浏览器标签页会话</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="restoreSession"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">只看楼主</span>
-                <span class="dc-item-desc">在帖子页显示切换按钮并按主题记住状态</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="ownerOnlyEnabled"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
@@ -123,55 +121,52 @@ export class SettingsPanel {
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">论坛美化</div>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">标签分类上色</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">极简模式</span>
-                <span class="dc-item-desc">按需隐藏论坛中的次要信息</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
-            </label>
-            <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
-              <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
-                <span class="dc-item-title">隐藏内容</span>
-                <div class="ldu-settings-check-grid" role="group" aria-label="极简模式隐藏内容">
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>列表头像</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>公告</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>分类徽章</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>话题标签</span></label>
+            <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control ldu-settings-parent-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">极简模式</span>
+                  <span class="dc-item-desc">按需隐藏论坛中的次要信息</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
+              </label>
+              <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
+                <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
+                  <span class="dc-item-title">隐藏内容</span>
+                  <div class="ldu-settings-check-grid" role="group" aria-label="极简模式隐藏内容">
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>列表头像</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>公告</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>分类徽章</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>话题标签</span></label>
+                  </div>
                 </div>
               </div>
             </div>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">低端设备性能优化</span>
-                <span class="dc-item-desc">减少动画和过渡效果，降低设备负担</span>
+                <span class="dc-item-title">减少动画与过渡效果</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="lowEndOptimizationEnabled"><span class="dc-slider"></span></span>
             </label>
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-tools-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-tools-heading">实用工具</div>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">链接悬浮预览</span>
-                <span class="dc-item-desc alert ldu-settings-risk" data-depends-on="previewEnabled" role="note">预览页面会运行目标网站脚本，请只预览可信链接。</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
-            </label>
-            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
-              <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+            <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control ldu-settings-parent-row">
                 <span class="dc-label-box">
-                  <span class="dc-item-title">触发方式</span>
+                  <span class="dc-item-title">链接悬浮预览</span>
+                  <span class="dc-item-desc alert ldu-settings-risk" data-depends-on="previewEnabled" role="note">预览页面会运行目标网站脚本，请只预览可信链接。</span>
                 </span>
-                <div class="dc-pills" data-pills-setting="previewClickMode">
-                  <button type="button" class="dc-pill-btn" data-val="double">双击</button>
-                  <button type="button" class="dc-pill-btn" data-val="single">单击</button>
+                <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
+              </label>
+              <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
+                <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">触发方式</span>
+                  </span>
+                  <div class="dc-pills" data-pills-setting="previewClickMode">
+                    <button type="button" class="dc-pill-btn" data-val="double">双击</button>
+                    <button type="button" class="dc-pill-btn" data-val="single">单击</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -323,7 +318,6 @@ export class SettingsPanel {
     const verticalTabsAutoCollapse = this.panel.querySelector<HTMLInputElement>('[data-setting="verticalTabsAutoCollapse"]');
     const groupVerticalTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="groupVerticalTabs"]');
     const restore = this.panel.querySelector<HTMLInputElement>('[data-setting="restoreSession"]');
-    const ownerOnly = this.panel.querySelector<HTMLInputElement>('[data-setting="ownerOnlyEnabled"]');
     const colorizeTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="colorizeTabs"]');
     const cleanMode = this.panel.querySelector<HTMLInputElement>('[data-setting="cleanModeEnabled"]');
     const minimalHidePosters = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHidePosters"]');
@@ -339,7 +333,6 @@ export class SettingsPanel {
     if (verticalTabsAutoCollapse) verticalTabsAutoCollapse.checked = this.settings.verticalTabsAutoCollapse;
     if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
     if (restore) restore.checked = this.settings.restoreSession;
-    if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
     if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
     if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;
     if (minimalHidePosters) minimalHidePosters.checked = this.settings.minimalHidePosters;
@@ -399,11 +392,7 @@ export class SettingsPanel {
       const dependencyMatches = Boolean(key) && (expected === undefined
         ? this.settings[key!] === true
         : String(this.settings[key!]) === expected);
-      const requiredKey = row.dataset.requiresSetting as keyof Settings | undefined;
-      const requiredValue = row.dataset.requiresValue;
-      const requirementMatches = !requiredKey || requiredValue === undefined
-        || String(this.settings[requiredKey]) === requiredValue;
-      row.hidden = !dependencyMatches || !requirementMatches;
+      row.hidden = !dependencyMatches;
     });
   }
 

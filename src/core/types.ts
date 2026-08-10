@@ -8,7 +8,7 @@ export interface PaneSizes {
 }
 
 export interface Settings {
-  schemaVersion: 4;
+  schemaVersion: 5;
   enabled: boolean;
   layoutPreference: LayoutPreference;
   tabsEnabled: boolean;
@@ -17,7 +17,6 @@ export interface Settings {
   groupVerticalTabs: boolean;
   restoreSession: boolean;
   colorizeTabs: boolean;
-  ownerOnlyEnabled: boolean;
   cleanModeEnabled: boolean;
   minimalHidePosters: boolean;
   minimalHideNotices: boolean;

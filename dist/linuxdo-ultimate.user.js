@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.9
+// @version      0.6.10
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -22,7 +22,7 @@
 (() => {
   // src/core/defaults.ts
   var DEFAULT_SETTINGS = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     enabled: true,
     layoutPreference: "auto",
     tabsEnabled: true,
@@ -31,7 +31,6 @@
     groupVerticalTabs: false,
     restoreSession: false,
     colorizeTabs: true,
-    ownerOnlyEnabled: false,
     cleanModeEnabled: true,
     minimalHidePosters: true,
     minimalHideNotices: true,
@@ -57,9 +56,9 @@
   function normalizeSettings(value) {
     if (!value || typeof value !== "object") return structuredClone(DEFAULT_SETTINGS);
     const source = value;
-    const preservesSessionChoice = source.schemaVersion === 2 || source.schemaVersion === 3 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
-    const cleanModeEnabled = source.schemaVersion === 3 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion ? source.cleanModeEnabled !== false : source.cleanModeEnabled === true || source.hidePosters !== false;
-    const hasMinimalOptions = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+    const preservesSessionChoice = source.schemaVersion === 2 || source.schemaVersion === 3 || source.schemaVersion === 4 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+    const cleanModeEnabled = source.schemaVersion === 3 || source.schemaVersion === 4 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion ? source.cleanModeEnabled !== false : source.cleanModeEnabled === true || source.hidePosters !== false;
+    const hasMinimalOptions = source.schemaVersion === 4 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
     const paneSizes = source.paneSizes && typeof source.paneSizes === "object" ? source.paneSizes : {};
     const dualPaneSizes = source.dualPaneSizes && typeof source.dualPaneSizes === "object" ? source.dualPaneSizes : {};
     return {
@@ -72,7 +71,6 @@
       groupVerticalTabs: source.groupVerticalTabs === true,
       restoreSession: preservesSessionChoice && source.restoreSession === true,
       colorizeTabs: source.colorizeTabs !== false,
-      ownerOnlyEnabled: source.ownerOnlyEnabled === true,
       cleanModeEnabled,
       minimalHidePosters: hasMinimalOptions ? source.minimalHidePosters !== false : true,
       minimalHideNotices: hasMinimalOptions ? source.minimalHideNotices !== false : true,
@@ -2575,18 +2573,23 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-row:last-child { border-bottom: 0; }
 .ldu-settings-panel .dc-dependent-row[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-parent-group {
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
+}
+.ldu-settings-panel .ldu-settings-parent-group > .dc-row,
+.ldu-settings-panel .ldu-settings-parent-group .ldu-settings-tree,
+.ldu-settings-panel .ldu-settings-parent-group .ldu-settings-tree-row { border-bottom: 0; }
 .ldu-settings-panel .ldu-settings-tree {
   position: relative;
   margin-left: 10px;
   padding-left: 22px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
 }
 .ldu-settings-panel .ldu-settings-tree::before {
   position: absolute;
-  top: -7px;
+  top: -12px;
   left: 0;
-  height: 7px;
-  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  height: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row { position: relative; }
@@ -2595,7 +2598,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   top: -1px;
   bottom: -1px;
   left: -22px;
-  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row::after {
@@ -2603,13 +2606,13 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   top: 50%;
   left: -22px;
   width: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   content: "";
 }
 .ldu-settings-panel .ldu-settings-tree-row:last-child::before {
   width: 12px;
   bottom: 50%;
-  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-medium, #777) 38%, transparent);
   border-bottom-left-radius: 4px;
 }
 .ldu-settings-panel .ldu-settings-tree-row:last-child::after { display: none; }
@@ -3428,14 +3431,12 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u542F\u7528\u5206\u5C4F\u6A21\u5F0F</span>
-                <span class="dc-item-desc">\u5728\u5F53\u524D\u9875\u9762\u5E76\u6392\u6D4F\u89C8\u5E16\u5B50\u5217\u8868\u4E0E\u6B63\u6587</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="tabsEnabled"><span class="dc-slider"></span></span>
             </label>
             <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u8BE6\u60C5\u9875\u4F4D\u7F6E</span>
-                <span class="dc-item-desc">\u201C\u81EA\u52A8\u201D\u4F1A\u6839\u636E\u7A97\u53E3\u5BBD\u5EA6\u9009\u62E9</span>
+                <span class="dc-item-title">\u5E16\u5B50\u6B63\u6587\u5C55\u793A\u4F4D\u7F6E</span>
               </span>
               <div class="dc-pills" data-pills-setting="layoutPreference">
                 <button type="button" class="dc-pill-btn" data-val="auto">\u81EA\u52A8</button>
@@ -3446,44 +3447,44 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-reading-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-reading-heading">\u9605\u8BFB\u4E0E\u6807\u7B7E</div>
-            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u6807\u7B7E\u680F\u6837\u5F0F</span>
-              </span>
-              <div class="dc-pills" data-pills-setting="tabPresentation">
-                <button type="button" class="dc-pill-btn" data-val="horizontal">\u6A2A\u5411</button>
-                <button type="button" class="dc-pill-btn" data-val="vertical">\u5782\u76F4</button>
+            <div class="ldu-settings-parent-group dc-dependent-row" data-depends-on="tabsEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-parent-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u6807\u7B7E\u9875\u6837\u5F0F</span>
+                </span>
+                <div class="dc-pills" data-pills-setting="tabPresentation">
+                  <button type="button" class="dc-pill-btn" data-val="horizontal">\u6A2A\u5411</button>
+                  <button type="button" class="dc-pill-btn" data-val="vertical">\u5782\u76F4</button>
+                </div>
               </div>
-            </div>
-            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
-                <span class="dc-label-box">
-                  <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77</span>
-                  <span class="dc-item-desc">\u79FB\u5F00\u9F20\u6807\u540E\u6536\u8D77\u4E3A\u56FE\u6807\u680F</span>
-                </span>
-                <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
-              </label>
-              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
-                <span class="dc-label-box">
-                  <span class="dc-item-title">\u6309\u5206\u533A\u5206\u7EC4</span>
-                  <span class="dc-item-desc">\u6309\u5E16\u5B50\u4E3B\u5206\u7C7B\u6574\u7406\u5782\u76F4\u6807\u7B7E</span>
-                </span>
-                <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
-              </label>
+              <div class="ldu-settings-tree">
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row dc-dependent-row" data-depends-on="tabPresentation" data-depends-value="vertical">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77\u6807\u7B7E\u680F</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+                </label>
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row dc-dependent-row" data-depends-on="tabPresentation" data-depends-value="vertical">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">\u81EA\u52A8\u6309\u5E16\u5B50\u5206\u7C7B\u6574\u7406\u6807\u7B7E\u9875</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+                </label>
+                <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">\u6807\u7B7E\u9875\u4E0A\u8272</span>
+                    <span class="dc-item-desc">\u81EA\u52A8\u6309\u5E16\u5B50\u5206\u7C7B\u4E3A\u6807\u7B7E\u9875\u4E0A\u8272</span>
+                  </span>
+                  <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
+                </label>
+              </div>
             </div>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6062\u590D\u4E0A\u6B21\u5E16\u5B50</span>
+                <span class="dc-item-title">\u6062\u590D\u4E0A\u6B21\u5173\u95ED\u524D\u6253\u5F00\u7684\u5E16\u5B50</span>
                 <span class="dc-item-desc">\u4E0B\u6B21\u8BBF\u95EE\u65F6\u6062\u590D\u6700\u540E\u5173\u95ED\u7684\u6D4F\u89C8\u5668\u6807\u7B7E\u9875\u4F1A\u8BDD</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="restoreSession"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u53EA\u770B\u697C\u4E3B</span>
-                <span class="dc-item-desc">\u5728\u5E16\u5B50\u9875\u663E\u793A\u5207\u6362\u6309\u94AE\u5E76\u6309\u4E3B\u9898\u8BB0\u4F4F\u72B6\u6001</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="ownerOnlyEnabled"><span class="dc-slider"></span></span>
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
@@ -3495,55 +3496,52 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">\u8BBA\u575B\u7F8E\u5316</div>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u6807\u7B7E\u5206\u7C7B\u4E0A\u8272</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u6781\u7B80\u6A21\u5F0F</span>
-                <span class="dc-item-desc">\u6309\u9700\u9690\u85CF\u8BBA\u575B\u4E2D\u7684\u6B21\u8981\u4FE1\u606F</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
-            </label>
-            <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
-              <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
-                <span class="dc-item-title">\u9690\u85CF\u5185\u5BB9</span>
-                <div class="ldu-settings-check-grid" role="group" aria-label="\u6781\u7B80\u6A21\u5F0F\u9690\u85CF\u5185\u5BB9">
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>\u5217\u8868\u5934\u50CF</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>\u516C\u544A</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>\u5206\u7C7B\u5FBD\u7AE0</span></label>
-                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>\u8BDD\u9898\u6807\u7B7E</span></label>
+            <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control ldu-settings-parent-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u6781\u7B80\u6A21\u5F0F</span>
+                  <span class="dc-item-desc">\u6309\u9700\u9690\u85CF\u8BBA\u575B\u4E2D\u7684\u6B21\u8981\u4FE1\u606F</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
+              </label>
+              <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
+                <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
+                  <span class="dc-item-title">\u9690\u85CF\u5185\u5BB9</span>
+                  <div class="ldu-settings-check-grid" role="group" aria-label="\u6781\u7B80\u6A21\u5F0F\u9690\u85CF\u5185\u5BB9">
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>\u5217\u8868\u5934\u50CF</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>\u516C\u544A</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>\u5206\u7C7B\u5FBD\u7AE0</span></label>
+                    <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>\u8BDD\u9898\u6807\u7B7E</span></label>
+                  </div>
                 </div>
               </div>
             </div>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u4F4E\u7AEF\u8BBE\u5907\u6027\u80FD\u4F18\u5316</span>
-                <span class="dc-item-desc">\u51CF\u5C11\u52A8\u753B\u548C\u8FC7\u6E21\u6548\u679C\uFF0C\u964D\u4F4E\u8BBE\u5907\u8D1F\u62C5</span>
+                <span class="dc-item-title">\u51CF\u5C11\u52A8\u753B\u4E0E\u8FC7\u6E21\u6548\u679C</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="lowEndOptimizationEnabled"><span class="dc-slider"></span></span>
             </label>
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-tools-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-tools-heading">\u5B9E\u7528\u5DE5\u5177</div>
-            <label class="dc-row ldu-settings-control">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u94FE\u63A5\u60AC\u6D6E\u9884\u89C8</span>
-                <span class="dc-item-desc alert ldu-settings-risk" data-depends-on="previewEnabled" role="note">\u9884\u89C8\u9875\u9762\u4F1A\u8FD0\u884C\u76EE\u6807\u7F51\u7AD9\u811A\u672C\uFF0C\u8BF7\u53EA\u9884\u89C8\u53EF\u4FE1\u94FE\u63A5\u3002</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
-            </label>
-            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
-              <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+            <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control ldu-settings-parent-row">
                 <span class="dc-label-box">
-                  <span class="dc-item-title">\u89E6\u53D1\u65B9\u5F0F</span>
+                  <span class="dc-item-title">\u94FE\u63A5\u60AC\u6D6E\u9884\u89C8</span>
+                  <span class="dc-item-desc alert ldu-settings-risk" data-depends-on="previewEnabled" role="note">\u9884\u89C8\u9875\u9762\u4F1A\u8FD0\u884C\u76EE\u6807\u7F51\u7AD9\u811A\u672C\uFF0C\u8BF7\u53EA\u9884\u89C8\u53EF\u4FE1\u94FE\u63A5\u3002</span>
                 </span>
-                <div class="dc-pills" data-pills-setting="previewClickMode">
-                  <button type="button" class="dc-pill-btn" data-val="double">\u53CC\u51FB</button>
-                  <button type="button" class="dc-pill-btn" data-val="single">\u5355\u51FB</button>
+                <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
+              </label>
+              <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
+                <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+                  <span class="dc-label-box">
+                    <span class="dc-item-title">\u89E6\u53D1\u65B9\u5F0F</span>
+                  </span>
+                  <div class="dc-pills" data-pills-setting="previewClickMode">
+                    <button type="button" class="dc-pill-btn" data-val="double">\u53CC\u51FB</button>
+                    <button type="button" class="dc-pill-btn" data-val="single">\u5355\u51FB</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3691,7 +3689,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const verticalTabsAutoCollapse = this.panel.querySelector('[data-setting="verticalTabsAutoCollapse"]');
       const groupVerticalTabs = this.panel.querySelector('[data-setting="groupVerticalTabs"]');
       const restore = this.panel.querySelector('[data-setting="restoreSession"]');
-      const ownerOnly = this.panel.querySelector('[data-setting="ownerOnlyEnabled"]');
       const colorizeTabs = this.panel.querySelector('[data-setting="colorizeTabs"]');
       const cleanMode = this.panel.querySelector('[data-setting="cleanModeEnabled"]');
       const minimalHidePosters = this.panel.querySelector('[data-setting="minimalHidePosters"]');
@@ -3707,7 +3704,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (verticalTabsAutoCollapse) verticalTabsAutoCollapse.checked = this.settings.verticalTabsAutoCollapse;
       if (groupVerticalTabs) groupVerticalTabs.checked = this.settings.groupVerticalTabs;
       if (restore) restore.checked = this.settings.restoreSession;
-      if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
       if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
       if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;
       if (minimalHidePosters) minimalHidePosters.checked = this.settings.minimalHidePosters;
@@ -3761,10 +3757,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         const key = row.dataset.dependsOn;
         const expected = row.dataset.dependsValue;
         const dependencyMatches = Boolean(key) && (expected === void 0 ? this.settings[key] === true : String(this.settings[key]) === expected);
-        const requiredKey = row.dataset.requiresSetting;
-        const requiredValue = row.dataset.requiresValue;
-        const requirementMatches = !requiredKey || requiredValue === void 0 || String(this.settings[requiredKey]) === requiredValue;
-        row.hidden = !dependencyMatches || !requirementMatches;
+        row.hidden = !dependencyMatches;
       });
     }
     setPanelOpen(open) {
@@ -4443,6 +4436,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.pageTools = new PageToolsClient({
         isEmbedded: false,
         isSplitHost: () => document.body.classList.contains("ldu-layout-active"),
+        allowOwnerView: Boolean(getTopicInfo(location.href, location.href)),
         ...this.options.loadOwnerView ? { loadOwnerView: this.options.loadOwnerView } : {}
       });
       this.pageTools.setConfig(this.getPageToolsConfig());
@@ -4877,7 +4871,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     getPageToolsConfig() {
       const minimalModeEnabled = this.settings.enabled && this.settings.cleanModeEnabled;
       return {
-        ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
+        ownerOnlyEnabled: true,
         minimalHidePosters: minimalModeEnabled && this.settings.minimalHidePosters,
         minimalHideNotices: minimalModeEnabled && this.settings.minimalHideNotices,
         minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,

@@ -32,7 +32,7 @@ pnpm package:extension
 | `src/core/update-checker.ts` | 版本比较、更新清单校验、低频缓存与手动检查 |
 | `updates/latest.json` | 当前正式版本、发布时间、发行页和结构化更新摘要 |
 
-插件运行时保持现有业务模块不变。`host.ts` 只在非 Challenge 顶层页面调用 `startLinuxDoApp`；`bridge.ts` 只识别受管理子页面并加载 `frame-runtime.ts`，加载期间应用最小首屏隐藏样式，失败时撤销以免页面永久异常；`frame-runtime.ts` 才调用 `bootFrameBridge`；`topic-tools-runtime.ts` 单独导出只看楼主工具，只有对应设置开启时加载；`challenge.ts` 在所有 Linux Do frame 中独立运行过盾检测，并只重定向当前 frame；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心或只看楼主实现重新静态导入 host、bridge、frame runtime 或 challenge。
+插件运行时保持现有业务模块不变。`host.ts` 只在非 Challenge 顶层页面调用 `startLinuxDoApp`；`bridge.ts` 只识别受管理子页面并加载 `frame-runtime.ts`，加载期间应用最小首屏隐藏样式，失败时撤销以免页面永久异常；`frame-runtime.ts` 才调用 `bootFrameBridge`；`topic-tools-runtime.ts` 单独导出只看楼主工具，仅在直接帖子页和受管理帖子 iframe（内嵌页面）中加载；`challenge.ts` 在所有 Linux Do frame 中独立运行过盾检测，并只重定向当前 frame；`preview-runtime.ts` 单独导出原始上游安装器；`background.ts` 将插件跨域 `fetch`（网络请求）包装为上游所需的回调结果。禁止把预览核心或只看楼主实现重新静态导入 host、bridge、frame runtime 或 challenge。
 
 更新检查复用同一个后台请求兼容层，但不调用 GitHub API。顶层应用启动 20 秒后，仅在页面可见时读取仓库 `main` 分支中的 `updates/latest.json`；成功结果按当前插件版本缓存 24 小时，失败尝试在 1 小时内不自动重复。手动检查添加时间参数绕过缓存。发布时必须同步更新 `package.json`、`updates/latest.json`、更新日志和正式 Release；清单只允许指向本仓库对应版本的 GitHub Release 地址。
 
@@ -58,7 +58,7 @@ pnpm package:extension
 
 ## 5. 设置与会话存储
 
-V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存设置和会话，以直接复用现有同步状态模型；兼容用户脚本仍优先使用用户脚本存储接口。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 4，主要字段包括：
+V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存设置和会话，以直接复用现有同步状态模型；兼容用户脚本仍优先使用用户脚本存储接口。后端一经选择便保持不变，单次写入失败不会临时改用另一份旧数据。当前设置结构版本为 5，主要字段包括：
 
 - `tabsEnabled`：分屏与页内帖子标签开关。
 - `tabPresentation`：标签栏使用横向或垂直样式，默认横向。
@@ -71,14 +71,15 @@ V0.4 插件使用 Linux Do 域的 `localStorage`（本地存储）同步保存�
 - `dualPaneSizes`：双阅读区独立记忆的侧栏宽度和列表所占比例。
 - `previewEnabled`、`previewClickMode`：预览开关和触发方式。
 - `creditEnabled`：顶部 LDC 收入开关。
-- `ownerOnlyEnabled`：帖子页只看楼主切换工具，通过论坛原生 `username_filters`（按用户筛选）参数加载楼主回复，可与热门回复组合，并按主题保存查看状态；论坛原生筛选提示保持不变，其“显示全部”操作只用于同步关闭本主题开关，默认关闭。
 - `cleanModeEnabled`：极简模式总开关，沿用旧字段名以兼容现有存储，默认开启。
 - `minimalHidePosters`、`minimalHideNotices`、`minimalHideCategoryBadges`、`minimalHideTags`：分别控制列表头像、公告、分类徽章和话题标签，默认开启。
 - `lowEndOptimizationEnabled`：低端设备动画与过渡降级，默认关闭；只在设备满足低端判定时生效。
 - `maxLiveFrames`：同时保留的活动内嵌页面数量，默认 3，范围 1 到 10。
 - `maxOpenTabs`：阅读区标签总数上限，默认 50，范围 5 到 50。超出时按最久未活跃顺序淘汰非活动标签；该项没有设置界面入口。
 
-从版本 1 迁移到版本 2 时，`restoreSession` 会被设为关闭，内部旧总开关会恢复为启用；版本 3 将旧 `hidePosters`（隐藏列表头像列）并入 `cleanModeEnabled`；版本 4 增加四个极简子项，旧设置迁移时全部开启以保持原显示行为。脚本是否运行由用户脚本管理器控制，设置界面不再暴露重复的总开关。
+从版本 1 迁移到版本 2 时，`restoreSession` 会被设为关闭，内部旧总开关会恢复为启用；版本 3 将旧 `hidePosters`（隐藏列表头像列）并入 `cleanModeEnabled`；版本 4 增加四个极简子项；版本 5 移除只看楼主的持久化开关并改为帖子页固定功能，版本 4 的其余选择完整保留。脚本是否运行由用户脚本管理器控制，设置界面不再暴露重复的总开关。
+
+只看楼主通过论坛原生 `username_filters`（按用户筛选）参数加载楼主回复，可与热门回复组合并按主题保存查看状态。直接帖子页和受管理帖子 iframe（内嵌页面）会加载该工具；列表页、列表 iframe（内嵌页面）和分屏宿主页不会加载对应运行模块。论坛原生筛选提示保持不变，其“显示全部”操作只同步关闭本主题筛选。
 
 页面会话以 `sessionStorage`（会话存储）中的编号隔离，并在扩展存储中记录列表地址、列表滚动位置、布局比例、帖子标签、各帖子当前楼层网址、主阅读区活动标签、第二阅读区标签编号及其活动标签。每个帖子标签只能属于一个阅读区；旧版会话缺少第二阅读区字段时自动迁移为空。活动归属记录会识别由浏览器复制出来的会话编号并立即换号，避免两个顶层标签页共同写入一份状态。
 

@@ -22,7 +22,7 @@
 
 ## 插件运行边界
 
-扩展构建为七个职责隔离的脚本产物：`host.js` 只注入顶层 Linux Do 页面，承载应用与界面；`bridge.js` 是注入子 iframe（内嵌页面）的极小识别器，只为名称匹配 `ldu-list:` 或 `ldu-topic:` 的受管理页面加载 `frame-runtime.js`；`topic-tools-runtime.js` 只在启用“只看楼主”时按需加载；`challenge.js` 在顶层和子页面独立处理 403/响应失效检测、Challenge 跳转与回跳；`preview-runtime.js` 只在首次启用预览时加载；`background.js` 只处理插件跨域请求。Challenge 页面不会启动宿主应用或完整通信桥。
+扩展构建为七个职责隔离的脚本产物：`host.js` 只注入顶层 Linux Do 页面，承载应用与界面；`bridge.js` 是注入子 iframe（内嵌页面）的极小识别器，只为名称匹配 `ldu-list:` 或 `ldu-topic:` 的受管理页面加载 `frame-runtime.js`；`topic-tools-runtime.js` 只在直接帖子页或受管理帖子 iframe（内嵌页面）加载；`challenge.js` 在顶层和子页面独立处理 403/响应失效检测、Challenge 跳转与回跳；`preview-runtime.js` 只在首次启用预览时加载；`background.js` 只处理插件跨域请求。Challenge 页面不会启动宿主应用或完整通信桥。
 
 这一边界保证完整宿主代码、预览核心和只看楼主实现不会进入每个 iframe（内嵌页面）。极简模式只切换四项结构化根节点样式，低端设备优化只做一次设备判断，两者都不建立页面监听。“只看楼主”使用论坛原生作者筛选参数加载帖子，只监听时间轴控制区和原生筛选提示是否被单页导航重建，不扫描或隐藏帖子节点；点击原生“显示全部”只同步开关状态，不接管论坛操作。帖子页冻结时暂停监听，恢复时重新同步，列表页永远不加载该运行模块。拆分不改变列表滚动恢复、帖子楼层同步、书签或阅读计数协议。
 

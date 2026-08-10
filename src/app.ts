@@ -93,6 +93,7 @@ class LinuxDoApp {
     this.pageTools = new PageToolsClient({
       isEmbedded: false,
       isSplitHost: () => document.body.classList.contains("ldu-layout-active"),
+      allowOwnerView: Boolean(getTopicInfo(location.href, location.href)),
       ...(this.options.loadOwnerView ? { loadOwnerView: this.options.loadOwnerView } : {}),
     });
     this.pageTools.setConfig(this.getPageToolsConfig());
@@ -561,7 +562,7 @@ class LinuxDoApp {
   private getPageToolsConfig(): PageToolsConfig {
     const minimalModeEnabled = this.settings.enabled && this.settings.cleanModeEnabled;
     return {
-      ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
+      ownerOnlyEnabled: true,
       minimalHidePosters: minimalModeEnabled && this.settings.minimalHidePosters,
       minimalHideNotices: minimalModeEnabled && this.settings.minimalHideNotices,
       minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,

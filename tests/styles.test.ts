@@ -124,6 +124,7 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel\s*\{[^}]+width:\s*min\(520px,/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-group-title\s*\{[^}]+font-size:\s*var\(--font-up-1,/s);
     expect(APP_STYLES).toContain(".ldu-settings-panel .ldu-settings-tree-row::after");
+    expect(APP_STYLES).toContain(".ldu-settings-panel .ldu-settings-parent-group");
     expect(APP_STYLES).toContain('html[data-ldu-hide-posters="true"]');
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-item-title\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-item-desc\s*\{[^}]+font-size:\s*var\(--font-down-2,/s);

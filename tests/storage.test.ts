@@ -47,7 +47,7 @@ describe("storage", () => {
       verticalTabsAutoCollapse: false,
       groupVerticalTabs: true,
     });
-    expect(settings.schemaVersion).toBe(4);
+    expect(settings.schemaVersion).toBe(5);
     expect(settings.tabPresentation).toBe("vertical");
     expect(settings.verticalTabsAutoCollapse).toBe(false);
     expect(settings.groupVerticalTabs).toBe(true);
@@ -60,7 +60,7 @@ describe("storage", () => {
       restoreSession: true,
       previewEnabled: true,
     });
-    expect(settings.schemaVersion).toBe(4);
+    expect(settings.schemaVersion).toBe(5);
     expect(settings.enabled).toBe(true);
     expect(settings.restoreSession).toBe(false);
     expect(settings.previewEnabled).toBe(true);
@@ -80,7 +80,7 @@ describe("storage", () => {
   it("migrates clean mode into independently configurable minimal-mode items", () => {
     const migrated = normalizeSettings({ schemaVersion: 3, cleanModeEnabled: true });
     expect(migrated).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       cleanModeEnabled: true,
       minimalHidePosters: true,
       minimalHideNotices: true,
@@ -89,7 +89,7 @@ describe("storage", () => {
     });
 
     const configured = normalizeSettings({
-      schemaVersion: 4,
+      schemaVersion: 5,
       cleanModeEnabled: true,
       minimalHidePosters: false,
       minimalHideNotices: true,

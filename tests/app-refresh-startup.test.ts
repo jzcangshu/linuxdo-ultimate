@@ -54,7 +54,8 @@ describe("app refresh startup", () => {
       }
       nativeAppend.apply(this, nodes);
     });
-    startLinuxDoApp();
+    const loadOwnerView = vi.fn(() => () => ({ setActive: vi.fn(), stop: vi.fn() }));
+    startLinuxDoApp({ loadOwnerView });
     document.dispatchEvent(new Event("DOMContentLoaded"));
 
     expect(sessionStorage.getItem(SESSION_ID_KEY)).toBe(sessionId);
@@ -62,5 +63,6 @@ describe("app refresh startup", () => {
     expect(frameMountOrder.slice(0, 2)).toEqual(["ldu-topic-frame", "ldu-list-frame"]);
     expect(document.querySelectorAll(".ldu-tab-item")).toHaveLength(1);
     expect(document.querySelector<HTMLIFrameElement>(".ldu-topic-frame")?.src).toContain("/t/topic/42");
+    expect(loadOwnerView).not.toHaveBeenCalled();
   });
 });

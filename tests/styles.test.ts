@@ -50,20 +50,20 @@ describe("split reading styles", () => {
 
   it("expands vertical tabs as an overlay without resizing the active iframe on hover", () => {
     expect(APP_STYLES).toMatch(/ldu-tabs-vertical:not\(\.ldu-layout-two\)[^}]+#ldu-topic-panel[^{]*\{[^}]+grid-template-columns:\s*var\(--ldu-vertical-tabs-collapsed\)\s+minmax\(0,\s*1fr\)/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical:not\(\.ldu-layout-two\) \.ldu-topic-toolbar\s*\{[^}]+clip-path:\s*inset\(0 calc\(100% - var\(--ldu-vertical-tabs-collapsed\)\) 0 0\)/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical:not\(\.ldu-layout-two\) \.ldu-topic-content\s*\{[^}]+grid-column:\s*2/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-topic-panel > \.ldu-topic-toolbar[^{]*\{[^}]+clip-path:\s*inset\(0 calc\(100% - var\(--ldu-vertical-tabs-collapsed\)\) 0 0\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-topic-panel > \.ldu-topic-content\s*\{[^}]+grid-column:\s*2/s);
     expect(APP_STYLES).not.toMatch(/ldu-tabs-vertical \.ldu-topic-toolbar\s*\{[^}]+transition:[^;}]*width/s);
     expect(APP_STYLES).toMatch(/prefers-reduced-motion:\s*reduce[^}]+ldu-topic-toolbar[^}]+transition-duration:\s*\.01ms/s);
   });
 
   it("anchors the vertical rail itself to the viewport edge", () => {
     expect(APP_STYLES).not.toContain("ldu-vertical-tabs-edge-hit");
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+#ldu-topic-panel[^{]*\{[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two \.ldu-topic-toolbar[^}]+position:\s*absolute[^}]+right:\s*0[^}]+clip-path:\s*inset\(0 0 0 calc\(100% - var\(--ldu-vertical-tabs-collapsed\)\)\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two:not\(\.ldu-secondary-open\) #ldu-topic-panel[^{]*\{[^}]+grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel > \.ldu-topic-toolbar[^}]+position:\s*absolute[^}]+right:\s*0[^}]+clip-path:\s*inset\(0 0 0 calc\(100% - var\(--ldu-vertical-tabs-collapsed\)\)\)/s);
     expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-vertical-tabs-static \.ldu-topic-toolbar[^}]+position:\s*relative[^}]+clip-path:\s*inset\(0\)/s);
-    expect(APP_STYLES).toMatch(/ldu-layout-two\.ldu-vertical-tabs-static \.ldu-topic-toolbar[^}]+grid-column:\s*2/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two[^}]+ldu-topic-content[^}]+grid-column:\s*1/s);
-    expect(APP_STYLES).toMatch(/ldu-layout-two[^}]+ldu-tab-strip[^}]+scrollbar-width:\s*none/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-two\.ldu-secondary-open\.ldu-vertical-tabs-static #ldu-secondary-topic-panel > \.ldu-topic-toolbar[^}]+grid-column:\s*2/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel > \.ldu-topic-content[^}]+grid-column:\s*1/s);
+    expect(APP_STYLES).toMatch(/ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel[^}]+ldu-tab-strip[^}]+scrollbar-width:\s*none/s);
     expect(APP_STYLES).toMatch(/ldu-layout-three:not\(\.has-sidebar-page\)[^}]+#ldu-topic-panel[^}]+border-left:\s*0/s);
     expect(APP_STYLES).toMatch(/ldu-layout-two:not\(\.ldu-secondary-open\)[^}]+#ldu-topic-panel[^}]+border-right:\s*0/s);
     expect(APP_STYLES).not.toMatch(/is-pointer-focused/);
@@ -71,10 +71,10 @@ describe("split reading styles", () => {
   });
 
   it("mirrors right-side vertical tab indicators and the heading icon", () => {
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset -3px 0 0 var\(--ldu-accent\)/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two \.ldu-tab-strip\.is-category-colors-enabled \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset -3px 0 0 color-mix/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two \.ldu-vertical-tabs-heading > \.ldu-symbol\s*\{[^}]+order:\s*2[^}]+transform:\s*scaleX\(-1\)/s);
-    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two \.ldu-vertical-tabs-heading-label\s*\{[^}]+text-align:\s*right/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset -3px 0 0 var\(--ldu-accent\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel \.ldu-tab-strip\.is-category-colors-enabled \.ldu-tab-item\.is-active\s*\{[^}]+box-shadow:\s*inset -3px 0 0 color-mix/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel \.ldu-vertical-tabs-heading > \.ldu-symbol[^}]+order:\s*2[^}]+transform:\s*scaleX\(-1\)/s);
+    expect(APP_STYLES).toMatch(/ldu-tabs-vertical\.ldu-layout-two\.ldu-secondary-open #ldu-secondary-topic-panel \.ldu-vertical-tabs-heading-label[^}]+text-align:\s*right/s);
   });
 
   it("removes the sidebar grid track when Discourse collapses the sidebar", () => {
@@ -117,6 +117,12 @@ describe("split reading styles", () => {
   it("uses the list iframe native scrollbar in right-detail mode", () => {
     expect(APP_STYLES).toMatch(/\.ldu-list-content\s*\{[^}]+grid-area:\s*list/s);
     expect(APP_STYLES).toMatch(/\.ldu-list-frame\s*\{[^}]+border:\s*0/s);
+  });
+
+  it("keeps the primary vertical rail on the left when a right-side detail opens a second pane", () => {
+    expect(APP_STYLES).toContain("body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel");
+    expect(APP_STYLES).toContain("body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel");
+    expect(APP_STYLES).not.toContain("body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,\nbody.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel");
   });
 
   it("uses the supplied compact hierarchical settings surface", () => {

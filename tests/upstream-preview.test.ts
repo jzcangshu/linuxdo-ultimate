@@ -48,7 +48,7 @@ describe("vendored upstream previewer", () => {
 
     controller.openFromFrame("https://first.example/app", owner, { left: 20, bottom: 30 });
     const firstFrame = document.querySelector<HTMLIFrameElement>(".agy-preview-iframe")!;
-    expect(firstFrame.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
+    expect(firstFrame.getAttribute("sandbox")).toBeNull();
     expect(firstFrame.name).toMatch(/^agy-preview-frame:\d+$/);
     expect(document.querySelector(".agy-refresh-btn")).not.toBeNull();
     expect(document.querySelector(".agy-loading-overlay")).toBeNull();

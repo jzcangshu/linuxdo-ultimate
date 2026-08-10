@@ -2686,7 +2686,6 @@ export function installLinkHoverPreviewer(options) {
         const iframe = document.createElement('iframe');
         iframe.className = 'agy-preview-iframe';
         iframe.name = `${PREVIEW_FRAME_PREFIX}${tab.loadToken}`;
-        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
 
         pane.appendChild(iframe);
         body.appendChild(pane);

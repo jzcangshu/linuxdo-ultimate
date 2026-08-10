@@ -156,6 +156,32 @@ describe("topic frame pool", () => {
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "ldu:frame-interaction" }), frame);
   });
 
+  it("resends configuration when the same iframe loads a new document", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const frame = pool.activate(tab("1"), 1);
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage");
+
+    frame.dispatchEvent(new Event("load"));
+    postMessage.mockClear();
+    frame.dispatchEvent(new Event("load"));
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "ldu:preview-config", enabled: false, clickMode: "double" },
+      location.origin,
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "ldu:page-tools-config",
+        ownerOnlyEnabled: false,
+        cleanModeEnabled: false,
+        lowEndOptimizationEnabled: false,
+      },
+      location.origin,
+    );
+  });
+
   it("supports a live-frame limit of ten", () => {
     const host = document.createElement("div");
     const suspended: string[] = [];
@@ -203,6 +229,26 @@ describe("topic frame pool", () => {
     expect(second.adopt(current, transfer!, 2)).toBe(frame);
     expect(secondHost.querySelectorAll("iframe")).toHaveLength(1);
     expect(new URL(frame.src).pathname).toBe("/t/topic/1/18");
+  });
+
+  it("resends configuration when a transferred frame loads again", () => {
+    const firstHost = document.createElement("div");
+    const secondHost = document.createElement("div");
+    document.body.append(firstHost, secondHost);
+    const first = new TopicFramePool(firstHost, 2, vi.fn(), vi.fn());
+    const second = new TopicFramePool(secondHost, 2, vi.fn(), vi.fn());
+    const frame = first.activate(tab("1"), 1);
+    frame.dispatchEvent(new Event("load"));
+    const transfer = first.detach("topic-1");
+    const adopted = second.adopt(tab("1"), transfer!, 2);
+    const postMessage = vi.spyOn(adopted.contentWindow!, "postMessage");
+
+    adopted.dispatchEvent(new Event("load"));
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "ldu:page-tools-config", ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false },
+      location.origin,
+    );
   });
 
   it("does not rewrite accessibility state when activating the current frame", () => {

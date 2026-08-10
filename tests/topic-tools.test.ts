@@ -139,6 +139,8 @@ describe("topic tools", () => {
     const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
     showAll.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(false);
+    await vi.runOnlyPendingTimersAsync();
+    expect(document.querySelector<HTMLButtonElement>("#ldu-owner-toggle")?.getAttribute("aria-pressed")).toBe("false");
     const stored = JSON.parse(window.localStorage.getItem("linuxdo-ultimate:owner-view:v2") ?? "null") as { topics: Record<string, number> };
     expect(stored.topics[123]).toBeUndefined();
 
@@ -147,6 +149,32 @@ describe("topic tools", () => {
     mount.replaceChildren(Object.assign(document.createElement("button"), { className: "show-summary", textContent: "热门回复" }));
     await vi.runOnlyPendingTimersAsync();
     expect(document.querySelector<HTMLButtonElement>("#ldu-owner-toggle")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("loads the owner username only when the user clicks without page metadata", async () => {
+    vi.useFakeTimers();
+    window.__LDU_TEST_MODE__ = true;
+    window.history.replaceState(null, "", "/t/topic/123/108");
+    document.body.innerHTML = '<div class="timeline-footer-controls"><button class="show-summary">热门回复</button></div>';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => ({ details: { created_by: { username: "neo" } } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const navigate = vi.fn();
+    installTopicTools({ navigate });
+    await vi.runOnlyPendingTimersAsync();
+
+    document.querySelector<HTMLButtonElement>("#ldu-owner-toggle")!.click();
+    await fetchMock.mock.results[0]!.value;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+
+    expect(fetchMock).toHaveBeenCalledWith("/t/123.json", expect.objectContaining({ credentials: "same-origin" }));
+    expect(navigate).toHaveBeenCalledWith(new URL("/t/topic/123/108?username_filters=neo", window.location.href).href);
   });
 
   it("restores a remembered topic through the native route", () => {

@@ -41,6 +41,20 @@ interface OwnerState {
   topics: Record<string, number>;
 }
 
+function extractOwnerUsername(value: unknown): string | null {
+  let source = value;
+  if (typeof source === "string") {
+    try { source = JSON.parse(source) as unknown; } catch { return null; }
+  }
+  if (!source || typeof source !== "object") return null;
+  const details = (source as Record<string, unknown>).details;
+  if (!details || typeof details !== "object") return null;
+  const createdBy = (details as Record<string, unknown>).created_by;
+  if (!createdBy || typeof createdBy !== "object") return null;
+  const username = (createdBy as Record<string, unknown>).username;
+  return typeof username === "string" && username.trim() ? username.trim() : null;
+}
+
 declare global {
   interface Window {
     __LDU_TOPIC_TOOLS__?: TopicToolsController;
@@ -55,6 +69,9 @@ export class TopicToolsController {
   private active = true;
   private lastOwnerTopicId = "";
   private ownerUsername: string | null = null;
+  private pendingNativeClearTopicId = "";
+  private ownerLookupTopicId = "";
+  private ownerLookupPromise: Promise<string | null> | null = null;
   private documentClickBound = false;
   private readonly win: Window;
   private readonly doc: Document;
@@ -127,6 +144,9 @@ export class TopicToolsController {
     if (topicId !== this.lastOwnerTopicId) {
       this.lastOwnerTopicId = topicId ?? "";
       this.ownerUsername = null;
+      this.pendingNativeClearTopicId = "";
+      this.ownerLookupTopicId = "";
+      this.ownerLookupPromise = null;
     }
     this.syncOwnerControl();
     if (!topicId || this.isHiddenHostTopic()) return;
@@ -135,6 +155,13 @@ export class TopicToolsController {
 
     const filteredUsername = this.currentUrl().searchParams.get(OWNER_FILTER_PARAM);
     const nativeFilterActive = filteredUsername === ownerUsername;
+    if (this.pendingNativeClearTopicId === topicId) {
+      if (!nativeFilterActive) this.pendingNativeClearTopicId = "";
+      else {
+        this.updateCurrentButton(false);
+        return;
+      }
+    }
     const remembered = this.readOwnerMode(topicId);
     if (nativeFilterActive && !remembered) {
       this.writeOwnerMode(topicId, true);
@@ -190,6 +217,7 @@ export class TopicToolsController {
       const topicId = this.getTopicId();
       const ownerUsername = this.findOwnerUsername();
       if (topicId && ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) {
+        this.pendingNativeClearTopicId = topicId;
         this.writeOwnerMode(topicId, false);
         this.updateCurrentButton(false);
       }
@@ -331,17 +359,41 @@ export class TopicToolsController {
     try {
       const preloaded = JSON.parse(source) as Record<string, unknown>;
       const rawTopic = preloaded[`topic_${topicId}`];
-      const topic = typeof rawTopic === "string" ? JSON.parse(rawTopic) as unknown : rawTopic;
-      if (!topic || typeof topic !== "object") return null;
-      const details = (topic as Record<string, unknown>).details;
-      if (!details || typeof details !== "object") return null;
-      const createdBy = (details as Record<string, unknown>).created_by;
-      if (!createdBy || typeof createdBy !== "object") return null;
-      const username = (createdBy as Record<string, unknown>).username;
-      return typeof username === "string" && username.trim() ? username.trim() : null;
+      return extractOwnerUsername(rawTopic);
     } catch {
       return null;
     }
+  }
+
+  private resolveOwnerUsername(topicId: string): Promise<string | null> {
+    const known = this.findOwnerUsername();
+    if (known) return Promise.resolve(known);
+    if (this.ownerLookupTopicId === topicId && this.ownerLookupPromise) return this.ownerLookupPromise;
+    const fetcher = this.win.fetch?.bind(this.win);
+    if (!fetcher) return Promise.resolve(null);
+    this.ownerLookupTopicId = topicId;
+    const request = fetcher(`/t/${topicId}.json`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (response) => response.ok ? extractOwnerUsername(await response.json()) : null)
+      .catch(() => null);
+    this.ownerLookupPromise = request.then((username) => {
+      if (this.getTopicId() === topicId && username) this.ownerUsername = username;
+      return username;
+    }).finally(() => {
+      if (this.ownerLookupTopicId === topicId) this.ownerLookupPromise = null;
+    });
+    return this.ownerLookupPromise;
+  }
+
+  private toggleOwnerFilter(button: HTMLButtonElement, topicId: string, ownerUsername: string): void {
+    const next = !this.isNativeOwnerFilterActive(ownerUsername);
+    this.pendingNativeClearTopicId = next ? "" : topicId;
+    this.writeOwnerMode(topicId, next);
+    this.updateOwnerButton(button, next);
+    if (next) this.navigateWithOwnerFilter(ownerUsername);
+    else this.navigateWithoutOwnerFilter();
   }
 
   private syncOwnerControl(): void {
@@ -375,13 +427,19 @@ export class TopicToolsController {
         event.preventDefault();
         event.stopImmediatePropagation();
         const currentTopicId = this.getTopicId();
+        if (!currentTopicId) return;
         const ownerUsername = this.findOwnerUsername();
-        if (!currentTopicId || !ownerUsername) return;
-        const next = !this.isNativeOwnerFilterActive(ownerUsername);
-        this.writeOwnerMode(currentTopicId, next);
-        this.updateOwnerButton(button!, next);
-        if (next) this.navigateWithOwnerFilter(ownerUsername);
-        else this.navigateWithoutOwnerFilter();
+        if (ownerUsername) {
+          this.toggleOwnerFilter(button!, currentTopicId, ownerUsername);
+          return;
+        }
+        if (button!.dataset.ownerLookupPending === "true") return;
+        button!.dataset.ownerLookupPending = "true";
+        void this.resolveOwnerUsername(currentTopicId).then((resolvedOwner) => {
+          delete button!.dataset.ownerLookupPending;
+          if (!resolvedOwner || this.getTopicId() !== currentTopicId) return;
+          this.toggleOwnerFilter(button!, currentTopicId, resolvedOwner);
+        });
       });
     }
     const mount = this.doc.querySelector<HTMLElement>(".timeline-footer-controls");
@@ -394,7 +452,8 @@ export class TopicToolsController {
       mount.insertBefore(button, summaryButton ?? mount.firstChild);
     }
     const ownerUsername = this.findOwnerUsername();
-    this.updateOwnerButton(button, Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)));
+    const nativeFilterActive = Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername));
+    this.updateOwnerButton(button, nativeFilterActive && this.pendingNativeClearTopicId !== topicId);
   }
 
   private updateCurrentButton(ownerOnly: boolean): void {
@@ -433,7 +492,11 @@ export class TopicToolsController {
 
   private clearNativeOwnerFilter(): void {
     const ownerUsername = this.findOwnerUsername();
-    if (ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) this.navigateWithoutOwnerFilter();
+    const topicId = this.getTopicId();
+    if (topicId && ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) {
+      this.pendingNativeClearTopicId = topicId;
+      this.navigateWithoutOwnerFilter();
+    }
   }
 
   private isHiddenHostTopic(): boolean {

@@ -43,6 +43,7 @@ export class ListFrameController {
       iframe.title = "帖子列表和站内页面";
       iframe.dataset.frameId = this.frameId;
       iframe.addEventListener("load", () => {
+        this.configSentForDocument = false;
         this.sendInitialConfigs(iframe);
         this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
       });

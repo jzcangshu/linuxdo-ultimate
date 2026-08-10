@@ -55,6 +55,36 @@ describe("independent list frame", () => {
     expect(iframe.src).toBe(new URL("/latest", location.href).href);
   });
 
+  it("resends configuration when the list iframe loads a new document", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const controller = new ListFrameController(container, "session-config", vi.fn());
+    const iframe = controller.mount("https://linux.do/latest");
+    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    iframe.dispatchEvent(new Event("load"));
+    postMessage.mockClear();
+    iframe.dispatchEvent(new Event("load"));
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "ldu:preview-config", enabled: false, clickMode: "double", pageTools: {
+        ownerOnlyEnabled: false,
+        cleanModeEnabled: false,
+        lowEndOptimizationEnabled: false,
+      } },
+      location.origin,
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "ldu:page-tools-config",
+        ownerOnlyEnabled: false,
+        cleanModeEnabled: false,
+        lowEndOptimizationEnabled: false,
+      },
+      location.origin,
+    );
+  });
+
   it("retries list scroll restoration while asynchronous content is still growing", () => {
     vi.useFakeTimers();
     const container = document.createElement("div");

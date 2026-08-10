@@ -225,6 +225,21 @@ class LinuxDoApp {
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link) return;
     if (this.handleUserMenuLink(event, link)) return;
+    let targetUrl: URL | null = null;
+    try { targetUrl = new URL(link.href, location.href); } catch { /* let the native page handle malformed links */ }
+    const splitActive = Boolean(this.layout.getShellElement()) && this.layout.getMode() !== "native";
+    if (
+      splitActive
+      && targetUrl
+      && targetUrl.origin === location.origin
+      && classifyRoute(targetUrl.href) === "chat"
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.dismissHostOverlays();
+      this.navigateList(targetUrl.href);
+      return;
+    }
     if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
     if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
       this.promoteDirectTopicNavigation(event, link);
@@ -239,8 +254,7 @@ class LinuxDoApp {
       return;
     }
     if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
-    let targetUrl: URL;
-    try { targetUrl = new URL(link.href, location.href); } catch { return; }
+    if (!targetUrl) return;
     if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
     event.preventDefault();
     event.stopImmediatePropagation();

@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.7
+// @version      0.6.8
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -769,6 +769,7 @@
           const current = this.frames.get(tab.id);
           if (!current || current.iframe !== iframe) return;
           current.loaded = true;
+          current.configSentForDocument = false;
           this.sendLifecycleState(current);
           this.sendInitialConfigs(current);
           this.flushCommands(current);
@@ -873,6 +874,7 @@
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
         current.loaded = true;
+        current.configSentForDocument = false;
         this.sendInitialConfigs(current);
         this.flushCommands(current);
         this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);
@@ -982,6 +984,7 @@
         iframe.title = "\u5E16\u5B50\u5217\u8868\u548C\u7AD9\u5185\u9875\u9762";
         iframe.dataset.frameId = this.frameId;
         iframe.addEventListener("load", () => {
+          this.configSentForDocument = false;
           this.sendInitialConfigs(iframe);
           this.onMessage({ type: "ldu:list-ready", frameId: this.frameId, url: iframe.src }, iframe);
         });
@@ -4474,6 +4477,19 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const link = target instanceof Element ? target.closest("a[href]") : null;
       if (!link) return;
       if (this.handleUserMenuLink(event, link)) return;
+      let targetUrl = null;
+      try {
+        targetUrl = new URL(link.href, location.href);
+      } catch {
+      }
+      const splitActive = Boolean(this.layout.getShellElement()) && this.layout.getMode() !== "native";
+      if (splitActive && targetUrl && targetUrl.origin === location.origin && classifyRoute(targetUrl.href) === "chat") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.dismissHostOverlays();
+        this.navigateList(targetUrl.href);
+        return;
+      }
       if (link.closest("button, [role=button], .btn, .d-button, .post-controls, .actions, .topic-timeline, .no-track-view-patch")) return;
       if (classifyRoute(location.href) === "topic" && this.tabStore.getTabs().length === 0) {
         this.promoteDirectTopicNavigation(event, link);
@@ -4488,12 +4504,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         return;
       }
       if (!this.layout.getShellElement() || this.layout.getMode() === "native") return;
-      let targetUrl;
-      try {
-        targetUrl = new URL(link.href, location.href);
-      } catch {
-        return;
-      }
+      if (!targetUrl) return;
       if (targetUrl.origin !== location.origin || targetUrl.protocol === "javascript:" || link.target === "_blank" || link.hasAttribute("download")) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -9058,6 +9069,23 @@ ${tab.url}`;
     ".filtered-replies-show-all"
   ].join(", ");
   var SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+  function extractOwnerUsername(value) {
+    let source = value;
+    if (typeof source === "string") {
+      try {
+        source = JSON.parse(source);
+      } catch {
+        return null;
+      }
+    }
+    if (!source || typeof source !== "object") return null;
+    const details = source.details;
+    if (!details || typeof details !== "object") return null;
+    const createdBy = details.created_by;
+    if (!createdBy || typeof createdBy !== "object") return null;
+    const username = createdBy.username;
+    return typeof username === "string" && username.trim() ? username.trim() : null;
+  }
   var TopicToolsController = class {
     config = { ...DEFAULT_CONFIG2 };
     observer = null;
@@ -9066,6 +9094,9 @@ ${tab.url}`;
     active = true;
     lastOwnerTopicId = "";
     ownerUsername = null;
+    pendingNativeClearTopicId = "";
+    ownerLookupTopicId = "";
+    ownerLookupPromise = null;
     documentClickBound = false;
     win;
     doc;
@@ -9131,6 +9162,9 @@ ${tab.url}`;
       if (topicId !== this.lastOwnerTopicId) {
         this.lastOwnerTopicId = topicId ?? "";
         this.ownerUsername = null;
+        this.pendingNativeClearTopicId = "";
+        this.ownerLookupTopicId = "";
+        this.ownerLookupPromise = null;
       }
       this.syncOwnerControl();
       if (!topicId || this.isHiddenHostTopic()) return;
@@ -9138,6 +9172,13 @@ ${tab.url}`;
       if (!ownerUsername) return;
       const filteredUsername = this.currentUrl().searchParams.get(OWNER_FILTER_PARAM);
       const nativeFilterActive = filteredUsername === ownerUsername;
+      if (this.pendingNativeClearTopicId === topicId) {
+        if (!nativeFilterActive) this.pendingNativeClearTopicId = "";
+        else {
+          this.updateCurrentButton(false);
+          return;
+        }
+      }
       const remembered = this.readOwnerMode(topicId);
       if (nativeFilterActive && !remembered) {
         this.writeOwnerMode(topicId, true);
@@ -9186,6 +9227,7 @@ ${tab.url}`;
         const topicId = this.getTopicId();
         const ownerUsername2 = this.findOwnerUsername();
         if (topicId && ownerUsername2 && this.isNativeOwnerFilterActive(ownerUsername2)) {
+          this.pendingNativeClearTopicId = topicId;
           this.writeOwnerMode(topicId, false);
           this.updateCurrentButton(false);
         }
@@ -9313,17 +9355,37 @@ ${tab.url}`;
       try {
         const preloaded = JSON.parse(source);
         const rawTopic = preloaded[`topic_${topicId}`];
-        const topic = typeof rawTopic === "string" ? JSON.parse(rawTopic) : rawTopic;
-        if (!topic || typeof topic !== "object") return null;
-        const details = topic.details;
-        if (!details || typeof details !== "object") return null;
-        const createdBy = details.created_by;
-        if (!createdBy || typeof createdBy !== "object") return null;
-        const username = createdBy.username;
-        return typeof username === "string" && username.trim() ? username.trim() : null;
+        return extractOwnerUsername(rawTopic);
       } catch {
         return null;
       }
+    }
+    resolveOwnerUsername(topicId) {
+      const known = this.findOwnerUsername();
+      if (known) return Promise.resolve(known);
+      if (this.ownerLookupTopicId === topicId && this.ownerLookupPromise) return this.ownerLookupPromise;
+      const fetcher = this.win.fetch?.bind(this.win);
+      if (!fetcher) return Promise.resolve(null);
+      this.ownerLookupTopicId = topicId;
+      const request = fetcher(`/t/${topicId}.json`, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      }).then(async (response) => response.ok ? extractOwnerUsername(await response.json()) : null).catch(() => null);
+      this.ownerLookupPromise = request.then((username) => {
+        if (this.getTopicId() === topicId && username) this.ownerUsername = username;
+        return username;
+      }).finally(() => {
+        if (this.ownerLookupTopicId === topicId) this.ownerLookupPromise = null;
+      });
+      return this.ownerLookupPromise;
+    }
+    toggleOwnerFilter(button, topicId, ownerUsername) {
+      const next = !this.isNativeOwnerFilterActive(ownerUsername);
+      this.pendingNativeClearTopicId = next ? "" : topicId;
+      this.writeOwnerMode(topicId, next);
+      this.updateOwnerButton(button, next);
+      if (next) this.navigateWithOwnerFilter(ownerUsername);
+      else this.navigateWithoutOwnerFilter();
     }
     syncOwnerControl() {
       const topicId = this.getTopicId();
@@ -9356,13 +9418,19 @@ ${tab.url}`;
           event.preventDefault();
           event.stopImmediatePropagation();
           const currentTopicId = this.getTopicId();
+          if (!currentTopicId) return;
           const ownerUsername2 = this.findOwnerUsername();
-          if (!currentTopicId || !ownerUsername2) return;
-          const next = !this.isNativeOwnerFilterActive(ownerUsername2);
-          this.writeOwnerMode(currentTopicId, next);
-          this.updateOwnerButton(button, next);
-          if (next) this.navigateWithOwnerFilter(ownerUsername2);
-          else this.navigateWithoutOwnerFilter();
+          if (ownerUsername2) {
+            this.toggleOwnerFilter(button, currentTopicId, ownerUsername2);
+            return;
+          }
+          if (button.dataset.ownerLookupPending === "true") return;
+          button.dataset.ownerLookupPending = "true";
+          void this.resolveOwnerUsername(currentTopicId).then((resolvedOwner) => {
+            delete button.dataset.ownerLookupPending;
+            if (!resolvedOwner || this.getTopicId() !== currentTopicId) return;
+            this.toggleOwnerFilter(button, currentTopicId, resolvedOwner);
+          });
         });
       }
       const mount = this.doc.querySelector(".timeline-footer-controls");
@@ -9375,7 +9443,8 @@ ${tab.url}`;
         mount.insertBefore(button, summaryButton ?? mount.firstChild);
       }
       const ownerUsername = this.findOwnerUsername();
-      this.updateOwnerButton(button, Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)));
+      const nativeFilterActive = Boolean(ownerUsername && this.isNativeOwnerFilterActive(ownerUsername));
+      this.updateOwnerButton(button, nativeFilterActive && this.pendingNativeClearTopicId !== topicId);
     }
     updateCurrentButton(ownerOnly) {
       const button = this.doc.getElementById("ldu-owner-toggle");
@@ -9408,7 +9477,11 @@ ${tab.url}`;
     }
     clearNativeOwnerFilter() {
       const ownerUsername = this.findOwnerUsername();
-      if (ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) this.navigateWithoutOwnerFilter();
+      const topicId = this.getTopicId();
+      if (topicId && ownerUsername && this.isNativeOwnerFilterActive(ownerUsername)) {
+        this.pendingNativeClearTopicId = topicId;
+        this.navigateWithoutOwnerFilter();
+      }
     }
     isHiddenHostTopic() {
       return !this.embedded && this.isSplitHost();

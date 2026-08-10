@@ -119,7 +119,8 @@ describe("browser smoke", () => {
     document.querySelector<HTMLAnchorElement>('.chat-header-icon a')!.addEventListener("click", nativeChatHandler);
     const chatClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
     document.querySelector<HTMLAnchorElement>('.chat-header-icon a')!.dispatchEvent(chatClick);
-    expect(nativeChatHandler).toHaveBeenCalledOnce();
+    expect(nativeChatHandler).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLIFrameElement>(".ldu-list-frame")?.src).toContain("/chat");
 
     document.querySelector<HTMLButtonElement>('.ldu-settings-host > button')!.click();
     expect(document.querySelector<HTMLElement>('#ldu-settings-panel')?.hidden).toBe(false);

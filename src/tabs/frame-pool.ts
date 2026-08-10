@@ -99,6 +99,7 @@ export class TopicFramePool {
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
         current.loaded = true;
+        current.configSentForDocument = false;
         this.sendLifecycleState(current);
         this.sendInitialConfigs(current);
         this.flushCommands(current);
@@ -211,6 +212,7 @@ export class TopicFramePool {
       const current = this.frames.get(tab.id);
       if (!current || current.iframe !== iframe) return;
       current.loaded = true;
+      current.configSentForDocument = false;
       this.sendInitialConfigs(current);
       this.flushCommands(current);
       this.onMessage({ type: "ldu:frame-ready", tabId: tab.id, url: iframe.src }, iframe);

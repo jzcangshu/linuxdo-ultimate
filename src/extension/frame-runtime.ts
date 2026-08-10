@@ -5,12 +5,14 @@ interface OwnerViewRuntimeModule {
   installOwnerView: OwnerViewInstaller;
 }
 
+const topicOwnerViewRuntime = window.name.startsWith("ldu-topic:")
+  ? import(chrome.runtime.getURL("topic-tools-runtime.js")) as Promise<OwnerViewRuntimeModule>
+  : null;
+
 bootFrameBridge({
-  loadOwnerView: async () => {
-    const runtimeUrl = chrome.runtime.getURL("topic-tools-runtime.js");
-    const module = await import(runtimeUrl) as OwnerViewRuntimeModule;
-    return module.installOwnerView;
-  },
+  ...(topicOwnerViewRuntime
+    ? { loadOwnerView: () => topicOwnerViewRuntime.then((module) => module.installOwnerView) }
+    : {}),
 });
 
 document.getElementById("ldu-frame-bootstrap-style")?.remove();

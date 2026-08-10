@@ -54,6 +54,7 @@ describe("browser extension build", () => {
     expect(bridge).not.toContain("agy-preview-container");
     expect(frameRuntime).toContain("ldu:frame-ready");
     expect(frameRuntime).toContain("topic-tools-runtime.js");
+    expect(frameRuntime).toContain("ldu-topic:");
     expect(frameRuntime).not.toContain("当前只看楼主");
     expect(ownerRuntime).toContain("ldu-owner-toggle");
     expect(challenge).toContain("linux_do_auto_challenge_nf_guard");

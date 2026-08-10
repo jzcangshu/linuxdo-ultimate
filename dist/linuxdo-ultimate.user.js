@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.11
+// @version      0.6.12
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -1922,6 +1922,7 @@ body.ldu-tabs-vertical .ldu-topic-content {
 }
 
 body.ldu-tabs-vertical .ldu-topic-toolbar {
+  --ldu-tabs-collapsed-clip: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
   z-index: 4;
   grid-row: 1;
   display: flex;
@@ -1933,6 +1934,7 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   overflow: hidden;
   border-right: 1px solid var(--ldu-border);
   box-shadow: 4px 0 14px rgb(0 0 0 / 12%);
+  clip-path: var(--ldu-tabs-collapsed-clip);
   transition: clip-path 180ms var(--ldu-ease-out), opacity 180ms ease-out;
   transition-delay: 180ms;
 }
@@ -1949,7 +1951,6 @@ body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel > .ldu-to
 body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel > .ldu-topic-toolbar {
   position: relative;
   grid-column: 1;
-  clip-path: inset(0 calc(100% - var(--ldu-vertical-tabs-collapsed)) 0 0);
 }
 
 body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel > .ldu-topic-content,
@@ -1966,13 +1967,13 @@ body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-pa
 
 body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-toolbar,
 body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-toolbar {
+  --ldu-tabs-collapsed-clip: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
   position: absolute;
   inset-block: 0;
   right: 0;
   border-right: 0;
   border-left: 1px solid var(--ldu-border);
   box-shadow: -4px 0 14px rgb(0 0 0 / 12%);
-  clip-path: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
 }
 
 body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-content,

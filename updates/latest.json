@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.13",
+  "version": "0.6.15",
   "publishedAt": "2026-08-10",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.13",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.15",
   "changelog": [
-    "统一单、双阅读区垂直标签栏的方向：左侧布局靠左，右侧布局靠右。",
-    "同步修正标签栏的展开方向、标题对齐、活动高亮、滚动条遮盖和触控布局。"
+    "只看楼主在内嵌帖子页启动时即加载并应用配置，切换筛选后按钮不再长时间迟到。",
+    "极简模式的公告、列表头像、分类徽章和话题标签在页面启动阶段即生效，减少迟延与闪动。",
+    "保留论坛原生筛选提示和后续设置同步逻辑，不新增轮询或页面监听。"
   ]
 }

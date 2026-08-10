@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.11",
+  "version": "0.6.13",
   "publishedAt": "2026-08-10",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.11",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.13",
   "changelog": [
-    "正式改为 Chrome 与 Firefox 浏览器扩展，宿主页、内嵌页和大型功能按需拆分加载。",
-    "完善独立分屏阅读、多标签会话、双阅读区、垂直标签栏、拖拽排序和标签管理菜单。",
-    "链接预览保留上游完整加载能力并解除页面运行限制，悬停链接不会预热或下载内容。",
-    "新增只看楼主、自动过盾、极简模式、更新检查及多项交互与性能修复。"
+    "统一单、双阅读区垂直标签栏的方向：左侧布局靠左，右侧布局靠右。",
+    "同步修正标签栏的展开方向、标题对齐、活动高亮、滚动条遮盖和触控布局。"
   ]
 }

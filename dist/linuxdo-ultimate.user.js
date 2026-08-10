@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.12
+// @version      0.6.13
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -1939,34 +1939,28 @@ body.ldu-tabs-vertical .ldu-topic-toolbar {
   transition-delay: 180ms;
 }
 
-/* A middle detail pane keeps its rail on the left. */
+/* A left-side detail layout keeps every rail on the left. */
 body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
-body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel {
+body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
   grid-template-columns: var(--ldu-vertical-tabs-collapsed) minmax(0, 1fr);
 }
 
-body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel > .ldu-topic-toolbar,
-body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel > .ldu-topic-toolbar,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel > .ldu-topic-toolbar {
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-toolbar {
   position: relative;
   grid-column: 1;
 }
 
-body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel > .ldu-topic-content,
-body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel > .ldu-topic-content,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel > .ldu-topic-content {
+body.ldu-tabs-vertical:not(.ldu-layout-two) .ldu-topic-content {
   grid-column: 2;
 }
 
-/* The rightmost detail pane overlays its compact rail on the iframe scrollbar. */
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel {
+/* A right-side detail layout keeps every rail on the right. */
+body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
   grid-template-columns: minmax(0, 1fr);
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-toolbar,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-toolbar {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
   --ldu-tabs-collapsed-clip: inset(0 0 0 calc(100% - var(--ldu-vertical-tabs-collapsed)));
   position: absolute;
   inset-block: 0;
@@ -1976,8 +1970,7 @@ body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-pa
   box-shadow: -4px 0 14px rgb(0 0 0 / 12%);
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-content,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-content {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-content {
   grid-column: 1;
 }
 
@@ -1991,14 +1984,13 @@ body.ldu-tabs-vertical .ldu-topic-toolbar:has(.ldu-tab-strip.is-reordering) {
 
 /* Fixed left rail. */
 body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-topic-panel,
-body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-secondary-topic-panel,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open.ldu-vertical-tabs-static #ldu-topic-panel {
+body.ldu-tabs-vertical.ldu-vertical-tabs-static:not(.ldu-layout-two) #ldu-secondary-topic-panel {
   grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
 }
 
 /* Fixed right rail. */
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open).ldu-vertical-tabs-static #ldu-topic-panel,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-topic-panel,
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static #ldu-secondary-topic-panel {
   grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
 }
 
@@ -2009,32 +2001,27 @@ body.ldu-tabs-vertical.ldu-vertical-tabs-static .ldu-topic-toolbar {
   transition: none;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open).ldu-vertical-tabs-static #ldu-topic-panel > .ldu-topic-toolbar,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open.ldu-vertical-tabs-static #ldu-secondary-topic-panel > .ldu-topic-toolbar {
+body.ldu-tabs-vertical.ldu-layout-two.ldu-vertical-tabs-static .ldu-topic-toolbar {
   right: auto;
   grid-column: 2;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-topic-actions,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-topic-actions {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-actions {
   justify-content: flex-end;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-vertical-tabs-heading,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-vertical-tabs-heading {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading {
   justify-content: flex-end;
   padding-right: 7px;
   padding-left: 0;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-vertical-tabs-heading > .ldu-symbol,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-vertical-tabs-heading > .ldu-symbol {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading > .ldu-symbol {
   order: 2;
   transform: scaleX(-1);
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-vertical-tabs-heading-label,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-vertical-tabs-heading-label {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-vertical-tabs-heading-label {
   text-align: right;
 }
 
@@ -2054,13 +2041,11 @@ body.ldu-tabs-vertical .ldu-topic-toolbar .ldu-tab-strip {
   scrollbar-width: thin;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-toolbar .ldu-tab-strip,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-toolbar .ldu-tab-strip {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip {
   scrollbar-width: none;
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-toolbar .ldu-tab-strip::-webkit-scrollbar,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-toolbar .ldu-tab-strip::-webkit-scrollbar {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar .ldu-tab-strip::-webkit-scrollbar {
   display: none;
 }
 
@@ -2139,13 +2124,12 @@ body.ldu-tabs-vertical .ldu-tab-close .ldu-symbol {
 
 @media (hover: none) {
   body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-topic-panel,
-  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel,
-  body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-topic-panel {
+  body.ldu-tabs-vertical:not(.ldu-layout-two) #ldu-secondary-topic-panel {
     grid-template-columns: min(17rem, max(10rem, 46%)) minmax(0, 1fr);
   }
 
-  body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel,
-  body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel {
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-topic-panel,
+  body.ldu-tabs-vertical.ldu-layout-two #ldu-secondary-topic-panel {
     grid-template-columns: minmax(0, 1fr) min(17rem, max(10rem, 46%));
   }
 
@@ -2156,8 +2140,7 @@ body.ldu-tabs-vertical .ldu-tab-close .ldu-symbol {
     transition: none;
   }
 
-  body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel > .ldu-topic-toolbar,
-  body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel > .ldu-topic-toolbar {
+  body.ldu-tabs-vertical.ldu-layout-two .ldu-topic-toolbar {
     right: auto;
     grid-column: 2;
   }
@@ -2179,13 +2162,11 @@ body.ldu-tabs-vertical .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.i
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-tab-item.is-active,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-tab-item.is-active {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-item.is-active {
   box-shadow: inset -3px 0 0 var(--ldu-accent);
 }
 
-body.ldu-tabs-vertical.ldu-layout-two:not(.ldu-secondary-open) #ldu-topic-panel .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active,
-body.ldu-tabs-vertical.ldu-layout-two.ldu-secondary-open #ldu-secondary-topic-panel .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
+body.ldu-tabs-vertical.ldu-layout-two .ldu-tab-strip.is-category-colors-enabled .ldu-tab-item.is-active {
   box-shadow: inset -3px 0 0 color-mix(in srgb, var(--ldu-tab-category-color) 88%, var(--ldu-text));
 }
 

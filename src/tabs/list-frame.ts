@@ -22,7 +22,14 @@ export class ListFrameController {
   } = {
     enabled: false,
     clickMode: "double" as "double" | "single",
-    pageTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false } satisfies PageToolsConfig,
+    pageTools: {
+      ownerOnlyEnabled: false,
+      minimalHidePosters: false,
+      minimalHideNotices: false,
+      minimalHideCategoryBadges: false,
+      minimalHideTags: false,
+      lowEndOptimizationEnabled: false,
+    } satisfies PageToolsConfig,
   };
   private configSentForDocument = false;
   private restoreScrollY = 0;
@@ -170,6 +177,9 @@ export class ListFrameController {
 
 function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
   return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.cleanModeEnabled === right.cleanModeEnabled
+    && left.minimalHidePosters === right.minimalHidePosters
+    && left.minimalHideNotices === right.minimalHideNotices
+    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
+    && left.minimalHideTags === right.minimalHideTags
     && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

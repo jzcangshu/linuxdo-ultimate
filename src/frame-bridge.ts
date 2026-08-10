@@ -182,7 +182,10 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
       topicId?: unknown;
       active?: unknown;
       ownerOnlyEnabled?: unknown;
-      cleanModeEnabled?: unknown;
+      minimalHidePosters?: unknown;
+      minimalHideNotices?: unknown;
+      minimalHideCategoryBadges?: unknown;
+      minimalHideTags?: unknown;
       lowEndOptimizationEnabled?: unknown;
     } | null;
     if (data?.type === "ldu:frame-lifecycle") {
@@ -243,7 +246,10 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
     if (data?.type === "ldu:page-tools-config") {
       pageTools.setConfig({
         ownerOnlyEnabled: data.ownerOnlyEnabled === true,
-        cleanModeEnabled: data.cleanModeEnabled === true,
+        minimalHidePosters: data.minimalHidePosters === true,
+        minimalHideNotices: data.minimalHideNotices === true,
+        minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
+        minimalHideTags: data.minimalHideTags === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
       });
       return;
@@ -412,13 +418,19 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
       enabled?: unknown;
       clickMode?: unknown;
       ownerOnlyEnabled?: unknown;
-      cleanModeEnabled?: unknown;
+      minimalHidePosters?: unknown;
+      minimalHideNotices?: unknown;
+      minimalHideCategoryBadges?: unknown;
+      minimalHideTags?: unknown;
       lowEndOptimizationEnabled?: unknown;
     } | null;
     if (data?.type === "ldu:page-tools-config") {
       pageTools.setConfig({
         ownerOnlyEnabled: data.ownerOnlyEnabled === true,
-        cleanModeEnabled: data.cleanModeEnabled === true,
+        minimalHidePosters: data.minimalHidePosters === true,
+        minimalHideNotices: data.minimalHideNotices === true,
+        minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
+        minimalHideTags: data.minimalHideTags === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
       });
       return;

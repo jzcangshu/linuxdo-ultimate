@@ -559,9 +559,13 @@ class LinuxDoApp {
   }
 
   private getPageToolsConfig(): PageToolsConfig {
+    const minimalModeEnabled = this.settings.enabled && this.settings.cleanModeEnabled;
     return {
       ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
-      cleanModeEnabled: this.settings.enabled && this.settings.cleanModeEnabled,
+      minimalHidePosters: minimalModeEnabled && this.settings.minimalHidePosters,
+      minimalHideNotices: minimalModeEnabled && this.settings.minimalHideNotices,
+      minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,
+      minimalHideTags: minimalModeEnabled && this.settings.minimalHideTags,
       lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled,
     };
   }

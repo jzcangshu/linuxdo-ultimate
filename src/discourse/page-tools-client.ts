@@ -1,6 +1,9 @@
 export interface PageToolsConfig {
   ownerOnlyEnabled: boolean;
-  cleanModeEnabled: boolean;
+  minimalHidePosters: boolean;
+  minimalHideNotices: boolean;
+  minimalHideCategoryBadges: boolean;
+  minimalHideTags: boolean;
   lowEndOptimizationEnabled: boolean;
 }
 
@@ -26,7 +29,10 @@ export interface PageToolsClientOptions extends OwnerViewOptions {
 
 const DEFAULT_CONFIG: PageToolsConfig = {
   ownerOnlyEnabled: false,
-  cleanModeEnabled: false,
+  minimalHidePosters: false,
+  minimalHideNotices: false,
+  minimalHideCategoryBadges: false,
+  minimalHideTags: false,
   lowEndOptimizationEnabled: false,
 };
 
@@ -67,13 +73,19 @@ export class PageToolsClient {
     this.stopped = true;
     this.ownerController?.stop();
     this.ownerController = null;
-    delete this.doc.documentElement.dataset.lduCleanMode;
+    delete this.doc.documentElement.dataset.lduHidePosters;
+    delete this.doc.documentElement.dataset.lduHideNotices;
+    delete this.doc.documentElement.dataset.lduHideCategoryBadges;
+    delete this.doc.documentElement.dataset.lduHideTags;
     delete this.doc.documentElement.dataset.lduLowEnd;
   }
 
   private applyStaticModes(): void {
     const root = this.doc.documentElement;
-    setDataset(root, "lduCleanMode", this.config.cleanModeEnabled);
+    setDataset(root, "lduHidePosters", this.config.minimalHidePosters);
+    setDataset(root, "lduHideNotices", this.config.minimalHideNotices);
+    setDataset(root, "lduHideCategoryBadges", this.config.minimalHideCategoryBadges);
+    setDataset(root, "lduHideTags", this.config.minimalHideTags);
     setDataset(root, "lduLowEnd", this.config.lowEndOptimizationEnabled && this.lowEndDevice);
   }
 
@@ -143,11 +155,18 @@ export class PageToolsClient {
 
 function sameConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
   return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.cleanModeEnabled === right.cleanModeEnabled
+    && left.minimalHidePosters === right.minimalHidePosters
+    && left.minimalHideNotices === right.minimalHideNotices
+    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
+    && left.minimalHideTags === right.minimalHideTags
     && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }
 
-function setDataset(root: HTMLElement, key: "lduCleanMode" | "lduLowEnd", enabled: boolean): void {
+function setDataset(
+  root: HTMLElement,
+  key: "lduHidePosters" | "lduHideNotices" | "lduHideCategoryBadges" | "lduHideTags" | "lduLowEnd",
+  enabled: boolean,
+): void {
   const next = String(enabled);
   if (root.dataset[key] !== next) root.dataset[key] = next;
 }

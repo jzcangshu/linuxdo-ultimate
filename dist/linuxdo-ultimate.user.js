@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.8
+// @version      0.6.9
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -22,7 +22,7 @@
 (() => {
   // src/core/defaults.ts
   var DEFAULT_SETTINGS = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     enabled: true,
     layoutPreference: "auto",
     tabsEnabled: true,
@@ -33,6 +33,10 @@
     colorizeTabs: true,
     ownerOnlyEnabled: false,
     cleanModeEnabled: true,
+    minimalHidePosters: true,
+    minimalHideNotices: true,
+    minimalHideCategoryBadges: true,
+    minimalHideTags: true,
     lowEndOptimizationEnabled: false,
     previewEnabled: false,
     creditEnabled: true,
@@ -53,8 +57,9 @@
   function normalizeSettings(value) {
     if (!value || typeof value !== "object") return structuredClone(DEFAULT_SETTINGS);
     const source = value;
-    const preservesSessionChoice = source.schemaVersion === 2 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
-    const cleanModeEnabled = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion ? source.cleanModeEnabled !== false : source.cleanModeEnabled === true || source.hidePosters !== false;
+    const preservesSessionChoice = source.schemaVersion === 2 || source.schemaVersion === 3 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
+    const cleanModeEnabled = source.schemaVersion === 3 || source.schemaVersion === DEFAULT_SETTINGS.schemaVersion ? source.cleanModeEnabled !== false : source.cleanModeEnabled === true || source.hidePosters !== false;
+    const hasMinimalOptions = source.schemaVersion === DEFAULT_SETTINGS.schemaVersion;
     const paneSizes = source.paneSizes && typeof source.paneSizes === "object" ? source.paneSizes : {};
     const dualPaneSizes = source.dualPaneSizes && typeof source.dualPaneSizes === "object" ? source.dualPaneSizes : {};
     return {
@@ -69,6 +74,10 @@
       colorizeTabs: source.colorizeTabs !== false,
       ownerOnlyEnabled: source.ownerOnlyEnabled === true,
       cleanModeEnabled,
+      minimalHidePosters: hasMinimalOptions ? source.minimalHidePosters !== false : true,
+      minimalHideNotices: hasMinimalOptions ? source.minimalHideNotices !== false : true,
+      minimalHideCategoryBadges: hasMinimalOptions ? source.minimalHideCategoryBadges !== false : true,
+      minimalHideTags: hasMinimalOptions ? source.minimalHideTags !== false : true,
       lowEndOptimizationEnabled: source.lowEndOptimizationEnabled === true,
       previewEnabled: source.previewEnabled === true,
       creditEnabled: source.creditEnabled !== false,
@@ -720,7 +729,10 @@
     previewConfig = { enabled: false, clickMode: "double" };
     pageToolsConfig = {
       ownerOnlyEnabled: false,
-      cleanModeEnabled: false,
+      minimalHidePosters: false,
+      minimalHideNotices: false,
+      minimalHideCategoryBadges: false,
+      minimalHideTags: false,
       lowEndOptimizationEnabled: false
     };
     activeTabId = null;
@@ -955,7 +967,7 @@
     return left.enabled === right.enabled && left.clickMode === right.clickMode;
   }
   function samePageToolsConfig(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.cleanModeEnabled === right.cleanModeEnabled && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
   }
 
   // src/tabs/list-frame.ts
@@ -970,7 +982,14 @@
     frameConfig = {
       enabled: false,
       clickMode: "double",
-      pageTools: { ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false }
+      pageTools: {
+        ownerOnlyEnabled: false,
+        minimalHidePosters: false,
+        minimalHideNotices: false,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
+        lowEndOptimizationEnabled: false
+      }
     };
     configSentForDocument = false;
     restoreScrollY = 0;
@@ -1100,7 +1119,7 @@
     }
   };
   function samePageToolsConfig2(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.cleanModeEnabled === right.cleanModeEnabled && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
   }
 
   // src/tabs/tab-store.ts
@@ -1664,10 +1683,10 @@ ${tab.url}`;
   --ldu-vertical-tabs-collapsed: calc(var(--font-0, 1rem) * 2.75);
 }
 
-html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+html[data-ldu-hide-notices="true"] #global-notice-alert-global-notice,
+html[data-ldu-hide-posters="true"] #main-outlet .topic-list .posters,
+html[data-ldu-hide-category-badges="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-hide-tags="true"] #main-outlet .topic-list a.discourse-tag {
   display: none !important;
 }
 
@@ -2540,7 +2559,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--ldu-border);
   color: var(--ldu-text);
-  font-size: var(--font-0, 1rem);
+  font-size: var(--font-up-1, 1.125rem);
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -2556,11 +2575,53 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-row:last-child { border-bottom: 0; }
 .ldu-settings-panel .dc-dependent-row[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-tree {
+  position: relative;
+  margin-left: 10px;
+  padding-left: 22px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
+}
+.ldu-settings-panel .ldu-settings-tree::before {
+  position: absolute;
+  top: -7px;
+  left: 0;
+  height: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row { position: relative; }
+.ldu-settings-panel .ldu-settings-tree-row::before {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -22px;
+  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row::after {
+  position: absolute;
+  top: 50%;
+  left: -22px;
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row:last-child::before {
+  width: 12px;
+  bottom: 50%;
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-bottom-left-radius: 4px;
+}
+.ldu-settings-panel .ldu-settings-tree-row:last-child::after { display: none; }
 .ldu-settings-panel .dc-label-box { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
 .ldu-settings-panel .dc-item-title { color: var(--ldu-text); font-size: var(--font-down-1, .875rem); font-weight: 600; line-height: 1.3; }
 .ldu-settings-panel .dc-item-desc { color: var(--primary-medium, #8b949e); font-size: var(--font-down-2, .75rem); line-height: 1.35; }
 .ldu-settings-panel .dc-item-desc.alert { color: var(--danger, #f85149); }
 .ldu-settings-panel .ldu-settings-risk[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-compact-row { min-height: 42px; }
+.ldu-settings-panel .ldu-settings-check-grid { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 14px; }
+.ldu-settings-panel .ldu-settings-check { display: inline-flex; align-items: center; gap: 5px; color: var(--primary-medium, #8b949e); cursor: pointer; font-size: var(--font-down-2, .75rem); line-height: 1.2; white-space: nowrap; }
+.ldu-settings-panel .ldu-settings-check input { width: 14px; height: 14px; margin: 0; accent-color: var(--ldu-accent); cursor: pointer; }
 
 .ldu-settings-panel .dc-switch { position: relative; display: inline-block; width: 38px; height: 20px; flex: none; }
 .ldu-settings-panel .dc-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -2767,10 +2828,10 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+html[data-ldu-hide-notices="true"] #global-notice-alert-global-notice,
+html[data-ldu-hide-posters="true"] #main-outlet .topic-list .posters,
+html[data-ldu-hide-category-badges="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-hide-tags="true"] #main-outlet .topic-list a.discourse-tag {
   display: none !important;
 }
 
@@ -3394,20 +3455,22 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
                 <button type="button" class="dc-pill-btn" data-val="vertical">\u5782\u76F4</button>
               </div>
             </div>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77</span>
-                <span class="dc-item-desc">\u79FB\u5F00\u9F20\u6807\u540E\u6536\u8D77\u4E3A\u56FE\u6807\u680F</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u6309\u5206\u533A\u5206\u7EC4</span>
-                <span class="dc-item-desc">\u6309\u5E16\u5B50\u4E3B\u5206\u7C7B\u6574\u7406\u5782\u76F4\u6807\u7B7E</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
-            </label>
+            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u81EA\u52A8\u6536\u8D77</span>
+                  <span class="dc-item-desc">\u79FB\u5F00\u9F20\u6807\u540E\u6536\u8D77\u4E3A\u56FE\u6807\u680F</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+              </label>
+              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u6309\u5206\u533A\u5206\u7EC4</span>
+                  <span class="dc-item-desc">\u6309\u5E16\u5B50\u4E3B\u5206\u7C7B\u6574\u7406\u5782\u76F4\u6807\u7B7E</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+              </label>
+            </div>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u6062\u590D\u4E0A\u6B21\u5E16\u5B50</span>
@@ -3424,12 +3487,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6807\u7B7E\u5206\u7C7B\u4E0A\u8272</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
                 <span class="dc-item-title">\u6D3B\u52A8\u9875\u9762\u4E0A\u9650</span>
                 <span class="dc-item-desc">\u9650\u5236\u540C\u65F6\u4FDD\u7559\u5728\u5185\u5B58\u4E2D\u7684\u5E16\u5B50\u9875\u9762\u6570\u91CF</span>
               </span>
@@ -3437,14 +3494,31 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
             </label>
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
-            <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">\u9875\u9762\u6837\u5F0F</div>
+            <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">\u8BBA\u575B\u7F8E\u5316</div>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
+              <span class="dc-label-box">
+                <span class="dc-item-title">\u6807\u7B7E\u5206\u7C7B\u4E0A\u8272</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
+            </label>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">\u6E05\u723D\u6A21\u5F0F</span>
-                <span class="dc-item-desc">\u9690\u85CF\u5217\u8868\u5934\u50CF\u3001\u516C\u544A\u3001\u5206\u7C7B\u5FBD\u7AE0\u548C\u6807\u7B7E</span>
+                <span class="dc-item-title">\u6781\u7B80\u6A21\u5F0F</span>
+                <span class="dc-item-desc">\u6309\u9700\u9690\u85CF\u8BBA\u575B\u4E2D\u7684\u6B21\u8981\u4FE1\u606F</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
             </label>
+            <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
+                <span class="dc-item-title">\u9690\u85CF\u5185\u5BB9</span>
+                <div class="ldu-settings-check-grid" role="group" aria-label="\u6781\u7B80\u6A21\u5F0F\u9690\u85CF\u5185\u5BB9">
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>\u5217\u8868\u5934\u50CF</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>\u516C\u544A</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>\u5206\u7C7B\u5FBD\u7AE0</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>\u8BDD\u9898\u6807\u7B7E</span></label>
+                </div>
+              </div>
+            </div>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">\u4F4E\u7AEF\u8BBE\u5907\u6027\u80FD\u4F18\u5316</span>
@@ -3462,13 +3536,15 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
             </label>
-            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="previewEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">\u89E6\u53D1\u65B9\u5F0F</span>
-              </span>
-              <div class="dc-pills" data-pills-setting="previewClickMode">
-                <button type="button" class="dc-pill-btn" data-val="double">\u53CC\u51FB</button>
-                <button type="button" class="dc-pill-btn" data-val="single">\u5355\u51FB</button>
+            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u89E6\u53D1\u65B9\u5F0F</span>
+                </span>
+                <div class="dc-pills" data-pills-setting="previewClickMode">
+                  <button type="button" class="dc-pill-btn" data-val="double">\u53CC\u51FB</button>
+                  <button type="button" class="dc-pill-btn" data-val="single">\u5355\u51FB</button>
+                </div>
               </div>
             </div>
             <label class="dc-row ldu-settings-control">
@@ -3618,6 +3694,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const ownerOnly = this.panel.querySelector('[data-setting="ownerOnlyEnabled"]');
       const colorizeTabs = this.panel.querySelector('[data-setting="colorizeTabs"]');
       const cleanMode = this.panel.querySelector('[data-setting="cleanModeEnabled"]');
+      const minimalHidePosters = this.panel.querySelector('[data-setting="minimalHidePosters"]');
+      const minimalHideNotices = this.panel.querySelector('[data-setting="minimalHideNotices"]');
+      const minimalHideCategoryBadges = this.panel.querySelector('[data-setting="minimalHideCategoryBadges"]');
+      const minimalHideTags = this.panel.querySelector('[data-setting="minimalHideTags"]');
       const lowEndOptimization = this.panel.querySelector('[data-setting="lowEndOptimizationEnabled"]');
       const preview = this.panel.querySelector('[data-setting="previewEnabled"]');
       const credit = this.panel.querySelector('[data-setting="creditEnabled"]');
@@ -3630,6 +3710,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
       if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
       if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;
+      if (minimalHidePosters) minimalHidePosters.checked = this.settings.minimalHidePosters;
+      if (minimalHideNotices) minimalHideNotices.checked = this.settings.minimalHideNotices;
+      if (minimalHideCategoryBadges) minimalHideCategoryBadges.checked = this.settings.minimalHideCategoryBadges;
+      if (minimalHideTags) minimalHideTags.checked = this.settings.minimalHideTags;
       if (lowEndOptimization) lowEndOptimization.checked = this.settings.lowEndOptimizationEnabled;
       if (preview) preview.checked = this.settings.previewEnabled;
       if (credit) credit.checked = this.settings.creditEnabled;
@@ -4182,7 +4266,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   // src/discourse/page-tools-client.ts
   var DEFAULT_CONFIG = {
     ownerOnlyEnabled: false,
-    cleanModeEnabled: false,
+    minimalHidePosters: false,
+    minimalHideNotices: false,
+    minimalHideCategoryBadges: false,
+    minimalHideTags: false,
     lowEndOptimizationEnabled: false
   };
   var PageToolsClient = class {
@@ -4219,12 +4306,18 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.stopped = true;
       this.ownerController?.stop();
       this.ownerController = null;
-      delete this.doc.documentElement.dataset.lduCleanMode;
+      delete this.doc.documentElement.dataset.lduHidePosters;
+      delete this.doc.documentElement.dataset.lduHideNotices;
+      delete this.doc.documentElement.dataset.lduHideCategoryBadges;
+      delete this.doc.documentElement.dataset.lduHideTags;
       delete this.doc.documentElement.dataset.lduLowEnd;
     }
     applyStaticModes() {
       const root = this.doc.documentElement;
-      setDataset(root, "lduCleanMode", this.config.cleanModeEnabled);
+      setDataset(root, "lduHidePosters", this.config.minimalHidePosters);
+      setDataset(root, "lduHideNotices", this.config.minimalHideNotices);
+      setDataset(root, "lduHideCategoryBadges", this.config.minimalHideCategoryBadges);
+      setDataset(root, "lduHideTags", this.config.minimalHideTags);
       setDataset(root, "lduLowEnd", this.config.lowEndOptimizationEnabled && this.lowEndDevice);
     }
     wantsOwnerView() {
@@ -4285,7 +4378,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     }
   };
   function sameConfig(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.cleanModeEnabled === right.cleanModeEnabled && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
   }
   function setDataset(root, key, enabled) {
     const next = String(enabled);
@@ -4782,9 +4875,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (this.settingsHost.parentElement !== target) target.append(this.settingsHost);
     }
     getPageToolsConfig() {
+      const minimalModeEnabled = this.settings.enabled && this.settings.cleanModeEnabled;
       return {
         ownerOnlyEnabled: this.settings.enabled && this.settings.ownerOnlyEnabled,
-        cleanModeEnabled: this.settings.enabled && this.settings.cleanModeEnabled,
+        minimalHidePosters: minimalModeEnabled && this.settings.minimalHidePosters,
+        minimalHideNotices: minimalModeEnabled && this.settings.minimalHideNotices,
+        minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,
+        minimalHideTags: minimalModeEnabled && this.settings.minimalHideTags,
         lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled
       };
     }
@@ -5602,7 +5699,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (data?.type === "ldu:page-tools-config") {
         pageTools.setConfig({
           ownerOnlyEnabled: data.ownerOnlyEnabled === true,
-          cleanModeEnabled: data.cleanModeEnabled === true,
+          minimalHidePosters: data.minimalHidePosters === true,
+          minimalHideNotices: data.minimalHideNotices === true,
+          minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
+          minimalHideTags: data.minimalHideTags === true,
           lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
         });
         return;
@@ -5780,7 +5880,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (data?.type === "ldu:page-tools-config") {
         pageTools.setConfig({
           ownerOnlyEnabled: data.ownerOnlyEnabled === true,
-          cleanModeEnabled: data.cleanModeEnabled === true,
+          minimalHidePosters: data.minimalHidePosters === true,
+          minimalHideNotices: data.minimalHideNotices === true,
+          minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
+          minimalHideTags: data.minimalHideTags === true,
           lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
         });
         return;

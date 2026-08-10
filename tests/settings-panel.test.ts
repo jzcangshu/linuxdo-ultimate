@@ -16,7 +16,7 @@ describe("settings panel", () => {
     expect([...host.querySelectorAll(".ldu-settings-group-title")].map((node) => node.textContent)).toEqual([
       "布局",
       "阅读与标签",
-      "页面样式",
+      "论坛美化",
       "实用工具",
     ]);
     expect(host.querySelector('[data-setting="enabled"]')).toBeNull();
@@ -28,13 +28,14 @@ describe("settings panel", () => {
     expect(host.querySelector('[data-setting="hidePosters"]')).toBeNull();
     expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.textContent).toContain("只看楼主");
     expect(host.querySelector('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.hasAttribute("data-depends-on")).toBe(false);
-    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("清爽模式");
-    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("隐藏列表头像、公告、分类徽章和标签");
+    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("极简模式");
+    expect(host.querySelector('[data-setting="cleanModeEnabled"]')?.closest("label")?.textContent).toContain("按需隐藏论坛中的次要信息");
     expect(host.querySelector('[data-setting="lowEndOptimizationEnabled"]')?.closest("label")?.textContent).toContain("低端设备性能优化");
     expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.textContent).toContain("标签分类上色");
+    expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("section")?.querySelector(".ldu-settings-group-title")?.textContent).toBe("论坛美化");
     expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.textContent).toContain("标签栏样式");
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.textContent).toContain("LDC 收入");
-    expect(host.querySelector(".dc-child-row")).toBeNull();
+    expect(host.querySelectorAll(".ldu-settings-tree")).toHaveLength(3);
     expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-setting="colorizeTabs"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-pills-setting="previewClickMode"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
@@ -42,25 +43,38 @@ describe("settings panel", () => {
 
     const layoutRow = host.querySelector<HTMLElement>('[data-depends-on="tabsEnabled"]')!;
     const previewRow = host.querySelector<HTMLElement>('[data-depends-on="previewEnabled"]')!;
+    const minimalOptions = host.querySelector<HTMLElement>('.ldu-minimal-options')!;
     const risk = host.querySelector<HTMLElement>('.ldu-settings-risk')!;
     expect(layoutRow.hidden).toBe(false);
     expect(previewRow.hidden).toBe(true);
     expect(host.querySelector('[data-setting="previewSameOrigin"]')).toBeNull();
     expect(risk.hidden).toBe(true);
+    expect(minimalOptions.hidden).toBe(false);
+    expect([...minimalOptions.querySelectorAll<HTMLInputElement>('[data-setting]')].map((input) => input.dataset.setting)).toEqual([
+      "minimalHidePosters",
+      "minimalHideNotices",
+      "minimalHideCategoryBadges",
+      "minimalHideTags",
+    ]);
 
     const split = host.querySelector<HTMLInputElement>('[data-setting="tabsEnabled"]')!;
     const colorizeTabsRow = host.querySelector<HTMLElement>('[data-setting="colorizeTabs"]')!.closest("label")!;
-    const autoCollapseRow = host.querySelector<HTMLElement>('[data-setting="verticalTabsAutoCollapse"]')!.closest("label")!;
+    const verticalOptions = host.querySelector<HTMLElement>('[data-setting="verticalTabsAutoCollapse"]')!.closest<HTMLElement>(".ldu-settings-tree")!;
     expect(colorizeTabsRow.hidden).toBe(false);
-    expect(autoCollapseRow.hidden).toBe(true);
+    expect(verticalOptions.hidden).toBe(true);
     host.querySelector<HTMLButtonElement>('[data-pills-setting="tabPresentation"] [data-val="vertical"]')!.click();
-    expect(autoCollapseRow.hidden).toBe(false);
+    expect(verticalOptions.hidden).toBe(false);
     split.checked = false;
     split.dispatchEvent(new Event("change", { bubbles: true }));
     expect(layoutRow.hidden).toBe(true);
     expect(colorizeTabsRow.hidden).toBe(true);
-    expect(autoCollapseRow.hidden).toBe(true);
+    expect(verticalOptions.hidden).toBe(true);
     expect(host.querySelector<HTMLInputElement>('[data-setting="ownerOnlyEnabled"]')?.closest("label")?.hidden).toBe(false);
+
+    const minimalMode = host.querySelector<HTMLInputElement>('[data-setting="cleanModeEnabled"]')!;
+    minimalMode.checked = false;
+    minimalMode.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(minimalOptions.hidden).toBe(true);
 
     const preview = host.querySelector<HTMLInputElement>('[data-setting="previewEnabled"]')!;
     preview.checked = true;

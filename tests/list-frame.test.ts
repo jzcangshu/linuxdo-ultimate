@@ -69,7 +69,10 @@ describe("independent list frame", () => {
     expect(postMessage).toHaveBeenCalledWith(
       { type: "ldu:preview-config", enabled: false, clickMode: "double", pageTools: {
         ownerOnlyEnabled: false,
-        cleanModeEnabled: false,
+        minimalHidePosters: false,
+        minimalHideNotices: false,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
         lowEndOptimizationEnabled: false,
       } },
       location.origin,
@@ -78,7 +81,10 @@ describe("independent list frame", () => {
       {
         type: "ldu:page-tools-config",
         ownerOnlyEnabled: false,
-        cleanModeEnabled: false,
+        minimalHidePosters: false,
+        minimalHideNotices: false,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
         lowEndOptimizationEnabled: false,
       },
       location.origin,

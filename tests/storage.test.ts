@@ -34,6 +34,10 @@ describe("storage", () => {
     expect(settings.tabPresentation).toBe("horizontal");
     expect(settings.verticalTabsAutoCollapse).toBe(true);
     expect(settings.groupVerticalTabs).toBe(false);
+    expect(settings.minimalHidePosters).toBe(true);
+    expect(settings.minimalHideNotices).toBe(true);
+    expect(settings.minimalHideCategoryBadges).toBe(true);
+    expect(settings.minimalHideTags).toBe(true);
   });
 
   it("normalizes vertical tab presentation without changing the settings schema", () => {
@@ -43,7 +47,7 @@ describe("storage", () => {
       verticalTabsAutoCollapse: false,
       groupVerticalTabs: true,
     });
-    expect(settings.schemaVersion).toBe(3);
+    expect(settings.schemaVersion).toBe(4);
     expect(settings.tabPresentation).toBe("vertical");
     expect(settings.verticalTabsAutoCollapse).toBe(false);
     expect(settings.groupVerticalTabs).toBe(true);
@@ -56,7 +60,7 @@ describe("storage", () => {
       restoreSession: true,
       previewEnabled: true,
     });
-    expect(settings.schemaVersion).toBe(3);
+    expect(settings.schemaVersion).toBe(4);
     expect(settings.enabled).toBe(true);
     expect(settings.restoreSession).toBe(false);
     expect(settings.previewEnabled).toBe(true);
@@ -71,6 +75,31 @@ describe("storage", () => {
     expect(normalizeSettings({ schemaVersion: 2, hidePosters: true, cleanModeEnabled: false }).cleanModeEnabled).toBe(true);
     expect(normalizeSettings({ schemaVersion: 2, hidePosters: false, cleanModeEnabled: false }).cleanModeEnabled).toBe(false);
     expect(normalizeSettings({ schemaVersion: 3, cleanModeEnabled: false }).cleanModeEnabled).toBe(false);
+  });
+
+  it("migrates clean mode into independently configurable minimal-mode items", () => {
+    const migrated = normalizeSettings({ schemaVersion: 3, cleanModeEnabled: true });
+    expect(migrated).toMatchObject({
+      schemaVersion: 4,
+      cleanModeEnabled: true,
+      minimalHidePosters: true,
+      minimalHideNotices: true,
+      minimalHideCategoryBadges: true,
+      minimalHideTags: true,
+    });
+
+    const configured = normalizeSettings({
+      schemaVersion: 4,
+      cleanModeEnabled: true,
+      minimalHidePosters: false,
+      minimalHideNotices: true,
+      minimalHideCategoryBadges: false,
+      minimalHideTags: true,
+    });
+    expect(configured.minimalHidePosters).toBe(false);
+    expect(configured.minimalHideNotices).toBe(true);
+    expect(configured.minimalHideCategoryBadges).toBe(false);
+    expect(configured.minimalHideTags).toBe(true);
   });
 
   it("keeps tab category coloring enabled by default and preserves an explicit opt-out", () => {

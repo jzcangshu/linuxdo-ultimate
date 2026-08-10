@@ -6,6 +6,10 @@ describe("page tools lazy client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.documentElement.removeAttribute("data-ldu-clean-mode");
+    document.documentElement.removeAttribute("data-ldu-hide-posters");
+    document.documentElement.removeAttribute("data-ldu-hide-notices");
+    document.documentElement.removeAttribute("data-ldu-hide-category-badges");
+    document.documentElement.removeAttribute("data-ldu-hide-tags");
     document.documentElement.removeAttribute("data-ldu-low-end");
     try { Reflect.deleteProperty(window.navigator, "hardwareConcurrency"); } catch { /* readonly browser field */ }
   });
@@ -14,9 +18,18 @@ describe("page tools lazy client", () => {
     Object.defineProperty(window.navigator, "hardwareConcurrency", { configurable: true, value: 2 });
     const loadOwnerView = vi.fn();
     const client = new PageToolsClient({ loadOwnerView });
-    client.setConfig({ cleanModeEnabled: true, lowEndOptimizationEnabled: true });
+    client.setConfig({
+      minimalHidePosters: true,
+      minimalHideNotices: false,
+      minimalHideCategoryBadges: true,
+      minimalHideTags: false,
+      lowEndOptimizationEnabled: true,
+    });
     expect(loadOwnerView).not.toHaveBeenCalled();
-    expect(document.documentElement.dataset.lduCleanMode).toBe("true");
+    expect(document.documentElement.dataset.lduHidePosters).toBe("true");
+    expect(document.documentElement.dataset.lduHideNotices).toBe("false");
+    expect(document.documentElement.dataset.lduHideCategoryBadges).toBe("true");
+    expect(document.documentElement.dataset.lduHideTags).toBe("false");
     expect(document.documentElement.dataset.lduLowEnd).toBe("true");
   });
 

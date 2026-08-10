@@ -83,20 +83,22 @@ export class SettingsPanel {
                 <button type="button" class="dc-pill-btn" data-val="vertical">垂直</button>
               </div>
             </div>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <span class="dc-label-box">
-                <span class="dc-item-title">自动收起</span>
-                <span class="dc-item-desc">移开鼠标后收起为图标栏</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
-              <span class="dc-label-box">
-                <span class="dc-item-title">按分区分组</span>
-                <span class="dc-item-desc">按帖子主分类整理垂直标签</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
-            </label>
+            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="tabsEnabled" data-requires-setting="tabPresentation" data-requires-value="vertical">
+              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">自动收起</span>
+                  <span class="dc-item-desc">移开鼠标后收起为图标栏</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="verticalTabsAutoCollapse"><span class="dc-slider"></span></span>
+              </label>
+              <label class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">按分区分组</span>
+                  <span class="dc-item-desc">按帖子主分类整理垂直标签</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="groupVerticalTabs"><span class="dc-slider"></span></span>
+              </label>
+            </div>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
                 <span class="dc-item-title">恢复上次帖子</span>
@@ -113,12 +115,6 @@ export class SettingsPanel {
             </label>
             <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
               <span class="dc-label-box">
-                <span class="dc-item-title">标签分类上色</span>
-              </span>
-              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
-            </label>
-            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
-              <span class="dc-label-box">
                 <span class="dc-item-title">活动页面上限</span>
                 <span class="dc-item-desc">限制同时保留在内存中的帖子页面数量</span>
               </span>
@@ -126,14 +122,31 @@ export class SettingsPanel {
             </label>
           </section>
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
-            <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">页面样式</div>
+            <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">论坛美化</div>
+            <label class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="tabsEnabled">
+              <span class="dc-label-box">
+                <span class="dc-item-title">标签分类上色</span>
+              </span>
+              <span class="dc-switch"><input type="checkbox" data-setting="colorizeTabs"><span class="dc-slider"></span></span>
+            </label>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
-                <span class="dc-item-title">清爽模式</span>
-                <span class="dc-item-desc">隐藏列表头像、公告、分类徽章和标签</span>
+                <span class="dc-item-title">极简模式</span>
+                <span class="dc-item-desc">按需隐藏论坛中的次要信息</span>
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="cleanModeEnabled"><span class="dc-slider"></span></span>
             </label>
+            <div class="ldu-settings-tree ldu-minimal-options dc-dependent-row" data-depends-on="cleanModeEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-tree-row ldu-settings-compact-row">
+                <span class="dc-item-title">隐藏内容</span>
+                <div class="ldu-settings-check-grid" role="group" aria-label="极简模式隐藏内容">
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHidePosters"><span>列表头像</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideNotices"><span>公告</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideCategoryBadges"><span>分类徽章</span></label>
+                  <label class="ldu-settings-check"><input type="checkbox" data-setting="minimalHideTags"><span>话题标签</span></label>
+                </div>
+              </div>
+            </div>
             <label class="dc-row ldu-settings-control">
               <span class="dc-label-box">
                 <span class="dc-item-title">低端设备性能优化</span>
@@ -151,13 +164,15 @@ export class SettingsPanel {
               </span>
               <span class="dc-switch"><input type="checkbox" data-setting="previewEnabled"><span class="dc-slider"></span></span>
             </label>
-            <div class="dc-row dc-dependent-row ldu-settings-control" data-depends-on="previewEnabled">
-              <span class="dc-label-box">
-                <span class="dc-item-title">触发方式</span>
-              </span>
-              <div class="dc-pills" data-pills-setting="previewClickMode">
-                <button type="button" class="dc-pill-btn" data-val="double">双击</button>
-                <button type="button" class="dc-pill-btn" data-val="single">单击</button>
+            <div class="ldu-settings-tree dc-dependent-row" data-depends-on="previewEnabled">
+              <div class="dc-row ldu-settings-control ldu-settings-tree-row">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">触发方式</span>
+                </span>
+                <div class="dc-pills" data-pills-setting="previewClickMode">
+                  <button type="button" class="dc-pill-btn" data-val="double">双击</button>
+                  <button type="button" class="dc-pill-btn" data-val="single">单击</button>
+                </div>
               </div>
             </div>
             <label class="dc-row ldu-settings-control">
@@ -311,6 +326,10 @@ export class SettingsPanel {
     const ownerOnly = this.panel.querySelector<HTMLInputElement>('[data-setting="ownerOnlyEnabled"]');
     const colorizeTabs = this.panel.querySelector<HTMLInputElement>('[data-setting="colorizeTabs"]');
     const cleanMode = this.panel.querySelector<HTMLInputElement>('[data-setting="cleanModeEnabled"]');
+    const minimalHidePosters = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHidePosters"]');
+    const minimalHideNotices = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHideNotices"]');
+    const minimalHideCategoryBadges = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHideCategoryBadges"]');
+    const minimalHideTags = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHideTags"]');
     const lowEndOptimization = this.panel.querySelector<HTMLInputElement>('[data-setting="lowEndOptimizationEnabled"]');
     const preview = this.panel.querySelector<HTMLInputElement>('[data-setting="previewEnabled"]');
     const credit = this.panel.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]');
@@ -323,6 +342,10 @@ export class SettingsPanel {
     if (ownerOnly) ownerOnly.checked = this.settings.ownerOnlyEnabled;
     if (colorizeTabs) colorizeTabs.checked = this.settings.colorizeTabs;
     if (cleanMode) cleanMode.checked = this.settings.cleanModeEnabled;
+    if (minimalHidePosters) minimalHidePosters.checked = this.settings.minimalHidePosters;
+    if (minimalHideNotices) minimalHideNotices.checked = this.settings.minimalHideNotices;
+    if (minimalHideCategoryBadges) minimalHideCategoryBadges.checked = this.settings.minimalHideCategoryBadges;
+    if (minimalHideTags) minimalHideTags.checked = this.settings.minimalHideTags;
     if (lowEndOptimization) lowEndOptimization.checked = this.settings.lowEndOptimizationEnabled;
     if (preview) preview.checked = this.settings.previewEnabled;
     if (credit) credit.checked = this.settings.creditEnabled;

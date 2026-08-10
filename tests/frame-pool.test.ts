@@ -175,7 +175,10 @@ describe("topic frame pool", () => {
       {
         type: "ldu:page-tools-config",
         ownerOnlyEnabled: false,
-        cleanModeEnabled: false,
+        minimalHidePosters: false,
+        minimalHideNotices: false,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
         lowEndOptimizationEnabled: false,
       },
       location.origin,
@@ -246,7 +249,15 @@ describe("topic frame pool", () => {
     adopted.dispatchEvent(new Event("load"));
 
     expect(postMessage).toHaveBeenCalledWith(
-      { type: "ldu:page-tools-config", ownerOnlyEnabled: false, cleanModeEnabled: false, lowEndOptimizationEnabled: false },
+      {
+        type: "ldu:page-tools-config",
+        ownerOnlyEnabled: false,
+        minimalHidePosters: false,
+        minimalHideNotices: false,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
+        lowEndOptimizationEnabled: false,
+      },
       location.origin,
     );
   });

@@ -18,10 +18,10 @@ export const APP_STYLES = `
   --ldu-vertical-tabs-collapsed: calc(var(--font-0, 1rem) * 2.75);
 }
 
-html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+html[data-ldu-hide-notices="true"] #global-notice-alert-global-notice,
+html[data-ldu-hide-posters="true"] #main-outlet .topic-list .posters,
+html[data-ldu-hide-category-badges="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-hide-tags="true"] #main-outlet .topic-list a.discourse-tag {
   display: none !important;
 }
 
@@ -894,7 +894,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--ldu-border);
   color: var(--ldu-text);
-  font-size: var(--font-0, 1rem);
+  font-size: var(--font-up-1, 1.125rem);
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -910,11 +910,53 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-row:last-child { border-bottom: 0; }
 .ldu-settings-panel .dc-dependent-row[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-tree {
+  position: relative;
+  margin-left: 10px;
+  padding-left: 22px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 34%, transparent);
+}
+.ldu-settings-panel .ldu-settings-tree::before {
+  position: absolute;
+  top: -7px;
+  left: 0;
+  height: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row { position: relative; }
+.ldu-settings-panel .ldu-settings-tree-row::before {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -22px;
+  border-left: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row::after {
+  position: absolute;
+  top: 50%;
+  left: -22px;
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  content: "";
+}
+.ldu-settings-panel .ldu-settings-tree-row:last-child::before {
+  width: 12px;
+  bottom: 50%;
+  border-bottom: 1px solid color-mix(in srgb, var(--ldu-border) 70%, transparent);
+  border-bottom-left-radius: 4px;
+}
+.ldu-settings-panel .ldu-settings-tree-row:last-child::after { display: none; }
 .ldu-settings-panel .dc-label-box { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
 .ldu-settings-panel .dc-item-title { color: var(--ldu-text); font-size: var(--font-down-1, .875rem); font-weight: 600; line-height: 1.3; }
 .ldu-settings-panel .dc-item-desc { color: var(--primary-medium, #8b949e); font-size: var(--font-down-2, .75rem); line-height: 1.35; }
 .ldu-settings-panel .dc-item-desc.alert { color: var(--danger, #f85149); }
 .ldu-settings-panel .ldu-settings-risk[hidden] { display: none; }
+.ldu-settings-panel .ldu-settings-compact-row { min-height: 42px; }
+.ldu-settings-panel .ldu-settings-check-grid { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 14px; }
+.ldu-settings-panel .ldu-settings-check { display: inline-flex; align-items: center; gap: 5px; color: var(--primary-medium, #8b949e); cursor: pointer; font-size: var(--font-down-2, .75rem); line-height: 1.2; white-space: nowrap; }
+.ldu-settings-panel .ldu-settings-check input { width: 14px; height: 14px; margin: 0; accent-color: var(--ldu-accent); cursor: pointer; }
 
 .ldu-settings-panel .dc-switch { position: relative; display: inline-block; width: 38px; height: 20px; flex: none; }
 .ldu-settings-panel .dc-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -1122,10 +1164,10 @@ export const EMBEDDED_STYLES = `
   --ldu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-html[data-ldu-clean-mode="true"] #global-notice-alert-global-notice,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .posters,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list .badge-category__wrapper,
-html[data-ldu-clean-mode="true"] #main-outlet .topic-list a.discourse-tag {
+html[data-ldu-hide-notices="true"] #global-notice-alert-global-notice,
+html[data-ldu-hide-posters="true"] #main-outlet .topic-list .posters,
+html[data-ldu-hide-category-badges="true"] #main-outlet .topic-list .badge-category__wrapper,
+html[data-ldu-hide-tags="true"] #main-outlet .topic-list a.discourse-tag {
   display: none !important;
 }
 

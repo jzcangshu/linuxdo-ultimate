@@ -37,7 +37,10 @@ export class TopicFramePool {
   private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
   private pageToolsConfig: PageToolsConfig = {
     ownerOnlyEnabled: false,
-    cleanModeEnabled: false,
+    minimalHidePosters: false,
+    minimalHideNotices: false,
+    minimalHideCategoryBadges: false,
+    minimalHideTags: false,
     lowEndOptimizationEnabled: false,
   };
   private activeTabId: string | null = null;
@@ -306,6 +309,9 @@ function samePreviewConfig(left: FramePreviewConfig, right: FramePreviewConfig):
 
 function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
   return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.cleanModeEnabled === right.cleanModeEnabled
+    && left.minimalHidePosters === right.minimalHidePosters
+    && left.minimalHideNotices === right.minimalHideNotices
+    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
+    && left.minimalHideTags === right.minimalHideTags
     && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

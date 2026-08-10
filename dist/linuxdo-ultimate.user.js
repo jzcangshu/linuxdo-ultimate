@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.14
+// @version      0.6.15
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -713,6 +713,39 @@
     return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  // src/discourse/page-tools-config.ts
+  var DEFAULT_PAGE_TOOLS_CONFIG = {
+    ownerOnlyEnabled: false,
+    minimalHidePosters: false,
+    minimalHideNotices: false,
+    minimalHideCategoryBadges: false,
+    minimalHideTags: false,
+    lowEndOptimizationEnabled: false
+  };
+  function writeFramePageToolsConfig(frame, config) {
+    const encoded = JSON.stringify(config);
+    if (frame.dataset.lduPageTools !== encoded) frame.dataset.lduPageTools = encoded;
+  }
+  function applyStaticPageToolsConfig(root, navigator2, config) {
+    setDataset(root, "lduHidePosters", config.minimalHidePosters);
+    setDataset(root, "lduHideNotices", config.minimalHideNotices);
+    setDataset(root, "lduHideCategoryBadges", config.minimalHideCategoryBadges);
+    setDataset(root, "lduHideTags", config.minimalHideTags);
+    setDataset(root, "lduLowEnd", config.lowEndOptimizationEnabled && isLowEndDevice(navigator2));
+  }
+  function samePageToolsConfig(left, right) {
+    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+  }
+  function setDataset(root, key, enabled) {
+    const next = String(enabled);
+    if (root.dataset[key] !== next) root.dataset[key] = next;
+  }
+  function isLowEndDevice(navigator2) {
+    const hardwareConcurrency = navigator2.hardwareConcurrency;
+    const deviceMemory = navigator2.deviceMemory;
+    return Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= 4 || typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory <= 4;
+  }
+
   // src/tabs/frame-pool.ts
   var TopicFramePool = class {
     constructor(container, maxLiveFrames, onMessage, onSuspend) {
@@ -725,14 +758,7 @@
     frames = /* @__PURE__ */ new Map();
     liveLimit;
     previewConfig = { enabled: false, clickMode: "double" };
-    pageToolsConfig = {
-      ownerOnlyEnabled: false,
-      minimalHidePosters: false,
-      minimalHideNotices: false,
-      minimalHideCategoryBadges: false,
-      minimalHideTags: false,
-      lowEndOptimizationEnabled: false
-    };
+    pageToolsConfig = { ...DEFAULT_PAGE_TOOLS_CONFIG };
     activeTabId = null;
     setMaxLiveFrames(value) {
       this.liveLimit = Math.max(1, Math.min(10, Math.floor(value)));
@@ -746,7 +772,10 @@
     setPageToolsConfig(config) {
       if (samePageToolsConfig(this.pageToolsConfig, config)) return;
       this.pageToolsConfig = { ...config };
-      for (const record of this.frames.values()) this.sendPageToolsConfig(record.iframe);
+      for (const record of this.frames.values()) {
+        writeFramePageToolsConfig(record.iframe, this.pageToolsConfig);
+        this.sendPageToolsConfig(record.iframe);
+      }
     }
     activate(tab, now) {
       const switchingToAnotherFrame = this.activeTabId !== tab.id;
@@ -775,6 +804,7 @@
         iframe.name = `ldu-topic:${tab.id}`;
         iframe.title = tab.title;
         iframe.dataset.tabId = tab.id;
+        writeFramePageToolsConfig(iframe, this.pageToolsConfig);
         const loadListener = () => {
           const current = this.frames.get(tab.id);
           if (!current || current.iframe !== iframe) return;
@@ -880,6 +910,7 @@
       iframe.name = `ldu-topic:${tab.id}`;
       iframe.dataset.tabId = tab.id;
       iframe.title = tab.title;
+      writeFramePageToolsConfig(iframe, this.pageToolsConfig);
       const loadListener = () => {
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
@@ -964,9 +995,6 @@
   function samePreviewConfig(left, right) {
     return left.enabled === right.enabled && left.clickMode === right.clickMode;
   }
-  function samePageToolsConfig(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
-  }
 
   // src/tabs/list-frame.ts
   var ListFrameController = class {
@@ -980,14 +1008,7 @@
     frameConfig = {
       enabled: false,
       clickMode: "double",
-      pageTools: {
-        ownerOnlyEnabled: false,
-        minimalHidePosters: false,
-        minimalHideNotices: false,
-        minimalHideCategoryBadges: false,
-        minimalHideTags: false,
-        lowEndOptimizationEnabled: false
-      }
+      pageTools: { ...DEFAULT_PAGE_TOOLS_CONFIG }
     };
     configSentForDocument = false;
     restoreScrollY = 0;
@@ -1000,6 +1021,7 @@
         iframe.name = `ldu-list:${this.frameId}`;
         iframe.title = "\u5E16\u5B50\u5217\u8868\u548C\u7AD9\u5185\u9875\u9762";
         iframe.dataset.frameId = this.frameId;
+        writeFramePageToolsConfig(iframe, this.frameConfig.pageTools);
         iframe.addEventListener("load", () => {
           this.configSentForDocument = false;
           this.sendInitialConfigs(iframe);
@@ -1043,7 +1065,7 @@
     setConfig(config) {
       const previewChanged = this.frameConfig.enabled !== config.enabled || this.frameConfig.clickMode !== config.clickMode;
       const pageTools = config.pageTools ? { ...config.pageTools } : this.frameConfig.pageTools;
-      const pageToolsChanged = !samePageToolsConfig2(this.frameConfig.pageTools, pageTools);
+      const pageToolsChanged = !samePageToolsConfig(this.frameConfig.pageTools, pageTools);
       this.frameConfig = {
         ...this.frameConfig,
         ...config,
@@ -1051,7 +1073,10 @@
       };
       if (this.iframe) {
         if (previewChanged) this.sendPreviewConfig(this.iframe);
-        if (pageToolsChanged) this.sendPageToolsConfig(this.iframe);
+        if (pageToolsChanged) {
+          writeFramePageToolsConfig(this.iframe, this.frameConfig.pageTools);
+          this.sendPageToolsConfig(this.iframe);
+        }
       }
     }
     handleMessage(event) {
@@ -1116,9 +1141,6 @@
       this.configSentForDocument = false;
     }
   };
-  function samePageToolsConfig2(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
-  }
 
   // src/tabs/tab-store.ts
   var TopicTabStore = class {
@@ -4259,22 +4281,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
   };
 
   // src/discourse/page-tools-client.ts
-  var DEFAULT_CONFIG = {
-    ownerOnlyEnabled: false,
-    minimalHidePosters: false,
-    minimalHideNotices: false,
-    minimalHideCategoryBadges: false,
-    minimalHideTags: false,
-    lowEndOptimizationEnabled: false
-  };
   var PageToolsClient = class {
     constructor(options = {}) {
       this.options = options;
       this.win = options.window ?? window;
       this.doc = options.document ?? document;
-      this.lowEndDevice = isLowEndDevice(this.win.navigator);
     }
-    config = { ...DEFAULT_CONFIG };
+    config = { ...DEFAULT_PAGE_TOOLS_CONFIG };
     active = true;
     stopped = false;
     ownerInstaller = null;
@@ -4282,11 +4295,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
     ownerLoad = null;
     win;
     doc;
-    lowEndDevice;
     setConfig(patch) {
       if (this.stopped) return;
       const next = { ...this.config, ...patch };
-      if (sameConfig(this.config, next)) return;
+      if (samePageToolsConfig(this.config, next)) return;
       this.config = next;
       this.applyStaticModes();
       this.syncOwnerView();
@@ -4308,12 +4320,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       delete this.doc.documentElement.dataset.lduLowEnd;
     }
     applyStaticModes() {
-      const root = this.doc.documentElement;
-      setDataset(root, "lduHidePosters", this.config.minimalHidePosters);
-      setDataset(root, "lduHideNotices", this.config.minimalHideNotices);
-      setDataset(root, "lduHideCategoryBadges", this.config.minimalHideCategoryBadges);
-      setDataset(root, "lduHideTags", this.config.minimalHideTags);
-      setDataset(root, "lduLowEnd", this.config.lowEndOptimizationEnabled && this.lowEndDevice);
+      applyStaticPageToolsConfig(this.doc.documentElement, this.win.navigator, this.config);
     }
     wantsOwnerView() {
       return this.active && this.ownerViewConfigured();
@@ -4372,18 +4379,6 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.ownerController.setActive(true);
     }
   };
-  function sameConfig(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
-  }
-  function setDataset(root, key, enabled) {
-    const next = String(enabled);
-    if (root.dataset[key] !== next) root.dataset[key] = next;
-  }
-  function isLowEndDevice(navigator2) {
-    const hardwareConcurrency = navigator2.hardwareConcurrency;
-    const deviceMemory = navigator2.deviceMemory;
-    return Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= 4 || typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory <= 4;
-  }
 
   // src/app.ts
   var ROUTE_DEBOUNCE_MS = 100;
@@ -5474,6 +5469,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       isEmbedded: true,
       ...options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}
     });
+    if (options.initialPageToolsConfig) pageTools.setConfig(options.initialPageToolsConfig);
     let timer = null;
     let pendingSendType = null;
     let lastUrl = "";
@@ -5788,6 +5784,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       allowOwnerView: false,
       ...options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}
     });
+    if (options.initialPageToolsConfig) pageTools.setConfig(options.initialPageToolsConfig);
     let timer = null;
     let clickTimer = null;
     let visualReadySent = false;
@@ -9145,7 +9142,7 @@ ${tab.url}`;
   }
 
   // src/discourse/topic-tools.ts
-  var DEFAULT_CONFIG2 = {
+  var DEFAULT_CONFIG = {
     ownerOnlyEnabled: true
   };
   var OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
@@ -9185,7 +9182,7 @@ ${tab.url}`;
     return typeof username === "string" && username.trim() ? username.trim() : null;
   }
   var TopicToolsController = class {
-    config = { ...DEFAULT_CONFIG2 };
+    config = { ...DEFAULT_CONFIG };
     observer = null;
     applyQueued = false;
     started = false;

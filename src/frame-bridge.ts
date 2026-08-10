@@ -1,11 +1,12 @@
 import { ensureEmbeddedStyles } from "./ui/styles";
 import { getTopicInfo, isSupportedTopicTarget } from "./discourse/routes";
-import { PageToolsClient, type OwnerViewLoader } from "./discourse/page-tools-client";
+import { PageToolsClient, type OwnerViewLoader, type PageToolsConfig } from "./discourse/page-tools-client";
 
 const DOUBLE_CLICK_DELAY_MS = 300;
 
 export interface FrameBridgeOptions {
   loadOwnerView?: OwnerViewLoader;
+  initialPageToolsConfig?: PageToolsConfig;
 }
 
 export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
@@ -22,6 +23,7 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
     isEmbedded: true,
     ...(options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}),
   });
+  if (options.initialPageToolsConfig) pageTools.setConfig(options.initialPageToolsConfig);
 
   let timer: number | null = null;
   let pendingSendType: "ldu:frame-state" | "ldu:frame-ready" | null = null;
@@ -336,6 +338,7 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
     allowOwnerView: false,
     ...(options.loadOwnerView ? { loadOwnerView: options.loadOwnerView } : {}),
   });
+  if (options.initialPageToolsConfig) pageTools.setConfig(options.initialPageToolsConfig);
   let timer: number | null = null;
   let clickTimer: number | null = null;
   let visualReadySent = false;

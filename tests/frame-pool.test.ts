@@ -15,6 +15,24 @@ function tab(topicId: string, url = `/t/topic/${topicId}`): TopicTabState {
 }
 
 describe("topic frame pool", () => {
+  it("places the initial page-tools config on a frame before it navigates", () => {
+    const host = document.createElement("div");
+    const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());
+    const config = {
+      ownerOnlyEnabled: true,
+      minimalHidePosters: true,
+      minimalHideNotices: true,
+      minimalHideCategoryBadges: false,
+      minimalHideTags: false,
+      lowEndOptimizationEnabled: true,
+    };
+    pool.setPageToolsConfig(config);
+
+    const frame = pool.activate(tab("1"), 1);
+
+    expect(JSON.parse(frame.dataset.lduPageTools ?? "null")).toEqual(config);
+  });
+
   it("reuses a frame and navigates it for an explicit target change", () => {
     const host = document.createElement("div");
     const pool = new TopicFramePool(host, 2, vi.fn(), vi.fn());

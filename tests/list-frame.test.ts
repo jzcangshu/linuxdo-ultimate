@@ -3,6 +3,24 @@ import { describe, expect, it, vi } from "vitest";
 import { ListFrameController } from "../src/tabs/list-frame";
 
 describe("independent list frame", () => {
+  it("places the initial page-tools config on the frame before navigation", () => {
+    const container = document.createElement("div");
+    const controller = new ListFrameController(container, "session-bootstrap", vi.fn());
+    const config = {
+      ownerOnlyEnabled: false,
+      minimalHidePosters: true,
+      minimalHideNotices: true,
+      minimalHideCategoryBadges: false,
+      minimalHideTags: true,
+      lowEndOptimizationEnabled: false,
+    };
+    controller.setConfig({ enabled: false, clickMode: "double", pageTools: config });
+
+    const frame = controller.mount("https://linux.do/latest");
+
+    expect(JSON.parse(frame.dataset.lduPageTools ?? "null")).toEqual(config);
+  });
+
   it("creates one same-origin frame and accepts only its own messages", () => {
     const container = document.createElement("div");
     document.body.append(container);

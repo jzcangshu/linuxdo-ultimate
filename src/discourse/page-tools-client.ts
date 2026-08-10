@@ -1,11 +1,11 @@
-export interface PageToolsConfig {
-  ownerOnlyEnabled: boolean;
-  minimalHidePosters: boolean;
-  minimalHideNotices: boolean;
-  minimalHideCategoryBadges: boolean;
-  minimalHideTags: boolean;
-  lowEndOptimizationEnabled: boolean;
-}
+import {
+  applyStaticPageToolsConfig,
+  DEFAULT_PAGE_TOOLS_CONFIG,
+  samePageToolsConfig,
+  type PageToolsConfig,
+} from "./page-tools-config";
+
+export type { PageToolsConfig } from "./page-tools-config";
 
 export interface OwnerViewOptions {
   window?: Window;
@@ -27,17 +27,8 @@ export interface PageToolsClientOptions extends OwnerViewOptions {
   loadOwnerView?: OwnerViewLoader;
 }
 
-const DEFAULT_CONFIG: PageToolsConfig = {
-  ownerOnlyEnabled: false,
-  minimalHidePosters: false,
-  minimalHideNotices: false,
-  minimalHideCategoryBadges: false,
-  minimalHideTags: false,
-  lowEndOptimizationEnabled: false,
-};
-
 export class PageToolsClient {
-  private config: PageToolsConfig = { ...DEFAULT_CONFIG };
+  private config: PageToolsConfig = { ...DEFAULT_PAGE_TOOLS_CONFIG };
   private active = true;
   private stopped = false;
   private ownerInstaller: OwnerViewInstaller | null = null;
@@ -45,18 +36,16 @@ export class PageToolsClient {
   private ownerLoad: Promise<OwnerViewInstaller | null> | null = null;
   private readonly win: Window;
   private readonly doc: Document;
-  private readonly lowEndDevice: boolean;
 
   constructor(private readonly options: PageToolsClientOptions = {}) {
     this.win = options.window ?? window;
     this.doc = options.document ?? document;
-    this.lowEndDevice = isLowEndDevice(this.win.navigator);
   }
 
   setConfig(patch: Partial<PageToolsConfig>): void {
     if (this.stopped) return;
     const next = { ...this.config, ...patch };
-    if (sameConfig(this.config, next)) return;
+    if (samePageToolsConfig(this.config, next)) return;
     this.config = next;
     this.applyStaticModes();
     this.syncOwnerView();
@@ -81,12 +70,7 @@ export class PageToolsClient {
   }
 
   private applyStaticModes(): void {
-    const root = this.doc.documentElement;
-    setDataset(root, "lduHidePosters", this.config.minimalHidePosters);
-    setDataset(root, "lduHideNotices", this.config.minimalHideNotices);
-    setDataset(root, "lduHideCategoryBadges", this.config.minimalHideCategoryBadges);
-    setDataset(root, "lduHideTags", this.config.minimalHideTags);
-    setDataset(root, "lduLowEnd", this.config.lowEndOptimizationEnabled && this.lowEndDevice);
+    applyStaticPageToolsConfig(this.doc.documentElement, this.win.navigator, this.config);
   }
 
   private wantsOwnerView(): boolean {
@@ -151,29 +135,4 @@ export class PageToolsClient {
     });
     this.ownerController.setActive(true);
   }
-}
-
-function sameConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
-  return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.minimalHidePosters === right.minimalHidePosters
-    && left.minimalHideNotices === right.minimalHideNotices
-    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
-    && left.minimalHideTags === right.minimalHideTags
-    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
-}
-
-function setDataset(
-  root: HTMLElement,
-  key: "lduHidePosters" | "lduHideNotices" | "lduHideCategoryBadges" | "lduHideTags" | "lduLowEnd",
-  enabled: boolean,
-): void {
-  const next = String(enabled);
-  if (root.dataset[key] !== next) root.dataset[key] = next;
-}
-
-function isLowEndDevice(navigator: Navigator): boolean {
-  const hardwareConcurrency = navigator.hardwareConcurrency;
-  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  return (Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= 4)
-    || (typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory <= 4);
 }

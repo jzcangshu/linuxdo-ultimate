@@ -364,4 +364,26 @@ describe("embedded topic preview bridge", () => {
       tabId: "topic-freeze",
     }), location.origin);
   });
+
+  it("applies initial page tools before the parent ready message", () => {
+    Object.defineProperty(window, "name", { configurable: true, value: "ldu-topic:topic-bootstrap" });
+    const controller: OwnerViewController = { setActive: vi.fn(), stop: vi.fn() };
+    const loader = vi.fn(() => () => controller);
+
+    bootFrameBridge({
+      loadOwnerView: loader,
+      initialPageToolsConfig: {
+        ownerOnlyEnabled: true,
+        minimalHidePosters: true,
+        minimalHideNotices: true,
+        minimalHideCategoryBadges: false,
+        minimalHideTags: false,
+        lowEndOptimizationEnabled: false,
+      },
+    });
+
+    expect(document.documentElement.dataset.lduHidePosters).toBe("true");
+    expect(document.documentElement.dataset.lduHideNotices).toBe("true");
+    expect(loader).toHaveBeenCalledOnce();
+  });
 });

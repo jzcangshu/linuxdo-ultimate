@@ -1,4 +1,9 @@
-import type { PageToolsConfig } from "../discourse/page-tools-client";
+import {
+  DEFAULT_PAGE_TOOLS_CONFIG,
+  samePageToolsConfig,
+  writeFramePageToolsConfig,
+  type PageToolsConfig,
+} from "../discourse/page-tools-config";
 
 export interface ListFrameMessage {
   type: "ldu:list-ready" | "ldu:list-visual-ready" | "ldu:list-state" | "ldu:list-interaction" | "ldu:list-topic-open" | "ldu:list-navigate" | "ldu:list-preview-open" | "ldu:list-preview-dismiss";
@@ -22,14 +27,7 @@ export class ListFrameController {
   } = {
     enabled: false,
     clickMode: "double" as "double" | "single",
-    pageTools: {
-      ownerOnlyEnabled: false,
-      minimalHidePosters: false,
-      minimalHideNotices: false,
-      minimalHideCategoryBadges: false,
-      minimalHideTags: false,
-      lowEndOptimizationEnabled: false,
-    } satisfies PageToolsConfig,
+    pageTools: { ...DEFAULT_PAGE_TOOLS_CONFIG },
   };
   private configSentForDocument = false;
   private restoreScrollY = 0;
@@ -49,6 +47,7 @@ export class ListFrameController {
       iframe.name = `ldu-list:${this.frameId}`;
       iframe.title = "帖子列表和站内页面";
       iframe.dataset.frameId = this.frameId;
+      writeFramePageToolsConfig(iframe, this.frameConfig.pageTools);
       iframe.addEventListener("load", () => {
         this.configSentForDocument = false;
         this.sendInitialConfigs(iframe);
@@ -106,7 +105,10 @@ export class ListFrameController {
     };
     if (this.iframe) {
       if (previewChanged) this.sendPreviewConfig(this.iframe);
-      if (pageToolsChanged) this.sendPageToolsConfig(this.iframe);
+      if (pageToolsChanged) {
+        writeFramePageToolsConfig(this.iframe, this.frameConfig.pageTools);
+        this.sendPageToolsConfig(this.iframe);
+      }
     }
   }
 
@@ -173,13 +175,4 @@ export class ListFrameController {
     this.reportedUrl = "";
     this.configSentForDocument = false;
   }
-}
-
-function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
-  return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.minimalHidePosters === right.minimalHidePosters
-    && left.minimalHideNotices === right.minimalHideNotices
-    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
-    && left.minimalHideTags === right.minimalHideTags
-    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

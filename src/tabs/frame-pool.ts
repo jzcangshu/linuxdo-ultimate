@@ -1,5 +1,10 @@
 import type { TopicTabState } from "../core/types";
-import type { PageToolsConfig } from "../discourse/page-tools-client";
+import {
+  DEFAULT_PAGE_TOOLS_CONFIG,
+  samePageToolsConfig,
+  writeFramePageToolsConfig,
+  type PageToolsConfig,
+} from "../discourse/page-tools-config";
 
 export interface FrameMessage {
   type: "ldu:frame-state" | "ldu:frame-ready" | "ldu:frame-interaction" | "ldu:bookmark-result" | "ldu:preview-open" | "ldu:preview-dismiss" | "ldu:topic-open" | "ldu:list-navigate";
@@ -35,14 +40,7 @@ export class TopicFramePool {
   private readonly frames = new Map<string, FrameRecord>();
   private liveLimit: number;
   private previewConfig: FramePreviewConfig = { enabled: false, clickMode: "double" };
-  private pageToolsConfig: PageToolsConfig = {
-    ownerOnlyEnabled: false,
-    minimalHidePosters: false,
-    minimalHideNotices: false,
-    minimalHideCategoryBadges: false,
-    minimalHideTags: false,
-    lowEndOptimizationEnabled: false,
-  };
+  private pageToolsConfig: PageToolsConfig = { ...DEFAULT_PAGE_TOOLS_CONFIG };
   private activeTabId: string | null = null;
 
   constructor(
@@ -66,7 +64,10 @@ export class TopicFramePool {
   setPageToolsConfig(config: PageToolsConfig): void {
     if (samePageToolsConfig(this.pageToolsConfig, config)) return;
     this.pageToolsConfig = { ...config };
-    for (const record of this.frames.values()) this.sendPageToolsConfig(record.iframe);
+    for (const record of this.frames.values()) {
+      writeFramePageToolsConfig(record.iframe, this.pageToolsConfig);
+      this.sendPageToolsConfig(record.iframe);
+    }
   }
 
   activate(tab: TopicTabState, now: number): HTMLIFrameElement {
@@ -98,6 +99,7 @@ export class TopicFramePool {
       iframe.name = `ldu-topic:${tab.id}`;
       iframe.title = tab.title;
       iframe.dataset.tabId = tab.id;
+      writeFramePageToolsConfig(iframe, this.pageToolsConfig);
       const loadListener = () => {
         const current = this.frames.get(tab.id);
         if (!current || current.iframe !== iframe) return;
@@ -211,6 +213,7 @@ export class TopicFramePool {
     iframe.name = `ldu-topic:${tab.id}`;
     iframe.dataset.tabId = tab.id;
     iframe.title = tab.title;
+    writeFramePageToolsConfig(iframe, this.pageToolsConfig);
     const loadListener = () => {
       const current = this.frames.get(tab.id);
       if (!current || current.iframe !== iframe) return;
@@ -305,13 +308,4 @@ export class TopicFramePool {
 
 function samePreviewConfig(left: FramePreviewConfig, right: FramePreviewConfig): boolean {
   return left.enabled === right.enabled && left.clickMode === right.clickMode;
-}
-
-function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfig): boolean {
-  return left.ownerOnlyEnabled === right.ownerOnlyEnabled
-    && left.minimalHidePosters === right.minimalHidePosters
-    && left.minimalHideNotices === right.minimalHideNotices
-    && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
-    && left.minimalHideTags === right.minimalHideTags
-    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
 }

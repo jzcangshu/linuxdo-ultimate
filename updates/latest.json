@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.15",
-  "publishedAt": "2026-08-10",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.15",
+  "version": "0.6.16",
+  "publishedAt": "2026-08-16",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.16",
   "changelog": [
-    "只看楼主在内嵌帖子页启动时即加载并应用配置，切换筛选后按钮不再长时间迟到。",
-    "极简模式的公告、列表头像、分类徽章和话题标签在页面启动阶段即生效，减少迟延与闪动。",
-    "保留论坛原生筛选提示和后续设置同步逻辑，不新增轮询或页面监听。"
+    "设置面板改为可滚动的右侧侧拉窗口，页头和页脚保持可见。",
+    "选中文本操作条新增一键 Base64，可打开常驻、可拖拽的快捷编码和解码窗口。",
+    "实用工具新增一键 Base64 开关，设置页底部操作按钮文字保持单行显示。"
   ]
 }

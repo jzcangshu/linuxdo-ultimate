@@ -10,6 +10,7 @@ describe("settings panel", () => {
     const panel = new SettingsPanel(host, DEFAULT_SETTINGS, { onChange: vi.fn() });
     panel.mount();
 
+    expect(host.querySelector("#ldu-settings-panel")?.classList).toContain("ldu-settings-drawer");
     expect(host.querySelector(".ldu-settings-heading")?.textContent).toContain("Linux Do Ultimate");
     expect(host.querySelector(".ldu-brand-ultimate")?.textContent).toBe("Ultimate");
     expect(host.querySelector(".ldu-settings-version")?.textContent).toMatch(/^v\d+\.\d+\.\d+$/);
@@ -44,6 +45,8 @@ describe("settings panel", () => {
     expect(host.querySelector('[data-setting="groupVerticalTabs"]')?.closest("label")?.textContent).toContain("自动按帖子分类整理标签页");
     expect(host.querySelector('[data-setting="groupVerticalTabs"]')?.closest("label")?.querySelector(".dc-item-desc")).toBeNull();
     expect(host.querySelector('[data-setting="creditEnabled"]')?.closest("label")?.textContent).toContain("LDC 收入");
+    expect(host.querySelector('[data-setting="base64Enabled"]')?.closest("label")?.textContent).toContain("一键 Base64");
+    expect(host.querySelector('[data-setting="base64Enabled"]')?.closest("label")?.textContent).toContain("选中一段文本后，弹出 Base64 工具");
     expect(host.querySelectorAll(".ldu-settings-tree")).toHaveLength(3);
     expect(host.querySelectorAll(".ldu-settings-parent-group")).toHaveLength(3);
     expect(host.querySelector('[data-pills-setting="tabPresentation"]')?.closest(".dc-row")?.querySelector(".dc-item-desc")).toBeNull();
@@ -113,7 +116,7 @@ describe("settings panel", () => {
     expect(host.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]')?.checked).toBe(true);
     expect(host.querySelector(".dc-modal")).not.toBeNull();
     expect(host.querySelector(".dc-item-desc.alert")?.textContent).toContain("运行目标网站脚本");
-    expect(host.querySelectorAll(".dc-label-box").length).toBe(13);
+    expect(host.querySelectorAll(".dc-label-box").length).toBe(14);
   });
 
   it("provides repository and three explicit LDC donation destinations", () => {

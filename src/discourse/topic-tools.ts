@@ -1,7 +1,9 @@
 import { getTopicInfo } from "./routes";
+import { Base64ToolController } from "../ui/base64-tool";
 
 export interface TopicToolsConfig {
   ownerOnlyEnabled: boolean;
+  base64Enabled: boolean;
 }
 
 export interface TopicToolsOptions {
@@ -10,10 +12,12 @@ export interface TopicToolsOptions {
   isEmbedded?: boolean;
   isSplitHost?: () => boolean;
   navigate?: (url: string) => void;
+  base64Enabled?: boolean;
 }
 
 const DEFAULT_CONFIG: TopicToolsConfig = {
   ownerOnlyEnabled: true,
+  base64Enabled: true,
 };
 
 const OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
@@ -78,6 +82,7 @@ export class TopicToolsController {
   private readonly embedded: boolean;
   private readonly isSplitHost: () => boolean;
   private readonly navigate: (url: string) => void;
+  private readonly base64Tool: Base64ToolController;
 
   constructor(options: TopicToolsOptions = {}) {
     this.win = options.window ?? window;
@@ -85,11 +90,15 @@ export class TopicToolsController {
     this.embedded = options.isEmbedded === true;
     this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
     this.navigate = options.navigate ?? ((url) => this.win.location.assign(url));
+    this.base64Tool = new Base64ToolController({ window: this.win, document: this.doc, observeMutations: false });
+    if (options.base64Enabled !== undefined) this.config.base64Enabled = options.base64Enabled;
   }
 
   start(): this {
     if (this.started) return this;
     this.started = true;
+    this.base64Tool.start();
+    this.base64Tool.setActive(this.active && this.config.base64Enabled);
     this.syncObserver();
     this.queueApply();
     return this;
@@ -97,6 +106,7 @@ export class TopicToolsController {
 
   stop(clearNativeFilter = false): void {
     this.disconnectObserver();
+    this.base64Tool.stop();
     this.unbindDocumentClick();
     this.started = false;
     this.applyQueued = false;
@@ -109,8 +119,11 @@ export class TopicToolsController {
   setConfig(patch: Partial<TopicToolsConfig>): void {
     const previous = this.config.ownerOnlyEnabled;
     const next = { ...this.config, ...patch };
-    if (next.ownerOnlyEnabled === previous) return;
+    const base64Changed = next.base64Enabled !== this.config.base64Enabled;
+    if (next.ownerOnlyEnabled === previous && !base64Changed) return;
     this.config = next;
+    this.base64Tool.setActive(this.active && next.base64Enabled);
+    if (next.ownerOnlyEnabled === previous) return;
     this.syncObserver();
     if (!next.ownerOnlyEnabled) {
       this.doc.getElementById("ldu-owner-toggle")?.remove();
@@ -123,6 +136,7 @@ export class TopicToolsController {
   setActive(active: boolean): void {
     if (this.active === active) return;
     this.active = active;
+    this.base64Tool.setActive(active && this.config.base64Enabled);
     this.syncObserver();
     if (active) this.queueApply();
   }
@@ -239,6 +253,7 @@ export class TopicToolsController {
   };
 
   private handleMutations(records: MutationRecord[]): void {
+    this.base64Tool.refresh();
     if (this.getTopicId() !== this.lastOwnerTopicId) {
       this.queueApply();
       return;

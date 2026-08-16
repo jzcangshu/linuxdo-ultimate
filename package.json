@@ -1,12 +1,12 @@
 {
   "name": "linuxdo-ultimate-browser-extension",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsx scripts/build.ts",
     "build:extension": "tsx scripts/build-extension.ts",
-    "build:all": "pnpm build && pnpm build:extension",
+    "build:all": "pnpm build && pnpm package:extension",
     "package:extension": "pnpm build:extension && tsx scripts/package-extension.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",

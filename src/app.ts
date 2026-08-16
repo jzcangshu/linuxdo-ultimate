@@ -568,6 +568,7 @@ class LinuxDoApp {
       minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,
       minimalHideTags: minimalModeEnabled && this.settings.minimalHideTags,
       lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled,
+      base64Enabled: this.settings.enabled && this.settings.base64Enabled,
     };
   }
 

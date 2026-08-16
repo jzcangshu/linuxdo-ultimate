@@ -100,7 +100,7 @@ describe("split reading styles", () => {
   });
 
   it("gives update notes a readable card without restyling dependent rows", () => {
-    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-modal\s*\{[^}]+overflow:\s*visible/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-modal\s*\{[^}]+overflow:\s*hidden/s);
     expect(APP_STYLES).not.toContain(".dc-child-row");
     expect(APP_STYLES).toMatch(/\.dc-dropdown-menu\.ldu-update-menu\s*\{[^}]+width:\s*min\(420px[^}]+padding:\s*16px/s);
     expect(APP_STYLES).toMatch(/\.ldu-update-summary\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);
@@ -135,7 +135,13 @@ describe("split reading styles", () => {
 
   it("uses the supplied compact hierarchical settings surface", () => {
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel\s*\{[^}]+font-family:\s*var\(--font-family,/s);
-    expect(APP_STYLES).toMatch(/\.ldu-settings-panel\s*\{[^}]+width:\s*min\(520px,/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel\s*\{[^}]+top:\s*var\(--ldu-header-height\)[^}]+right:\s*0[^}]+bottom:\s*0/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel\s*\{[^}]+width:\s*min\(440px,\s*100vw\)[^}]+overflow:\s*hidden/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-modal\s*\{[^}]+height:\s*100%[^}]+overflow:\s*hidden/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-body\s*\{[^}]+min-height:\s*0[^}]+overflow-x:\s*hidden[^}]+overflow-y:\s*auto/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-header[^}]+flex:\s*none/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-footer[^}]+flex:\s*none/s);
+    expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-btn\s*\{[^}]+white-space:\s*nowrap/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-group-title\s*\{[^}]+font-size:\s*var\(--font-up-1,/s);
     expect(APP_STYLES).toContain(".ldu-settings-panel .ldu-settings-tree-row::after");
     expect(APP_STYLES).toContain(".ldu-settings-panel .ldu-settings-parent-group");
@@ -148,7 +154,15 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-update-available[^}]+border-color:\s*#ffd43b/s);
     expect(APP_STYLES).toContain("@keyframes ldu-update-pulse");
     expect(APP_STYLES).not.toContain("width: min(600px");
-    expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel\s*\{[^}]+max-height:/s);
-    expect(APP_STYLES).not.toMatch(/\.ldu-settings-panel \.dc-body\s*\{[^}]+overflow(?:-y)?:/s);
+    expect(APP_STYLES).toContain("transform: translateX(100%)");
+  });
+
+  it("styles the Base64 utility in both direct and embedded topics", () => {
+    for (const styles of [APP_STYLES, EMBEDDED_STYLES]) {
+      expect(styles).toContain('[data-identifier="post-text-selection-toolbar"] .ldu-base64-trigger');
+      expect(styles).toMatch(/\.ldu-base64-dialog\s*\{[^}]+position:\s*fixed[^}]+width:\s*min\(440px,/s);
+      expect(styles).toMatch(/\.ldu-base64-body\s*\{[^}]+overflow-y:\s*auto/s);
+      expect(styles).toMatch(/\.ldu-base64-drag-handle\s*\{[^}]+cursor:\s*move/s);
+    }
   });
 });

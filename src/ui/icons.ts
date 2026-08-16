@@ -1,5 +1,6 @@
 export type IconName =
   | "settings" | "close" | "split" | "external" | "refresh" | "copy"
+  | "code"
   | "bookmark" | "bookmark-filled" | "close-others" | "list" | "tab-list" | "check"
   | "maximize" | "restore" | "trash" | "thumbs-up" | "thumbs-down"
   | "github" | "gift";
@@ -11,6 +12,7 @@ const ICON_CONTENT: Record<IconName, string> = {
   external: '<path d="M15 4h5v5M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>',
   refresh: '<path d="M20 6v5h-5"/><path d="M19 11a7 7 0 1 0 1 5"/>',
   copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  code: '<path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 6l-4 12"/>',
   bookmark: '<path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
   "bookmark-filled": '<path class="ldu-symbol-fill" d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
   "close-others": '<rect x="3" y="5" width="13" height="12" rx="2"/><path d="M8 3h10a3 3 0 0 1 3 3v8"/><path d="m18 16 4 4m0-4-4 4"/>',

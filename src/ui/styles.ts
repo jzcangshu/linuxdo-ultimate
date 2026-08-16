@@ -1,6 +1,84 @@
 export const APP_STYLE_ID = "linuxdo-ultimate-styles";
 export const EMBEDDED_STYLE_ID = "linuxdo-ultimate-embedded-styles";
 
+const BASE64_TOOL_STYLES = `
+[data-identifier="post-text-selection-toolbar"] .ldu-base64-trigger {
+  flex: 0 0 auto;
+}
+[data-identifier="post-text-selection-toolbar"]:has(.ldu-base64-trigger) {
+  max-width: min(500px, calc(100dvw - 20px)) !important;
+}
+@media (max-width: 520px) {
+  [data-identifier="post-text-selection-toolbar"]:has(.ldu-base64-trigger) .quote-button .buttons {
+    flex-wrap: wrap;
+  }
+}
+
+.ldu-base64-dialog {
+  position: fixed;
+  z-index: 1000004;
+  display: flex;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - 16px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ldu-border, #313131);
+  border-radius: 6px;
+  background: var(--ldu-surface, #222);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 42%);
+  color: var(--ldu-text, #ddd);
+  font-family: var(--font-family, Inter, Arial, sans-serif);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition: opacity 160ms ease-out, transform 180ms var(--ldu-ease-out, cubic-bezier(.23, 1, .32, 1));
+}
+
+.ldu-base64-dialog[hidden] { display: none; }
+.ldu-base64-dialog[data-state="error"] { border-color: color-mix(in srgb, var(--ldu-danger, #d04437) 70%, var(--ldu-border, #313131)); }
+.ldu-base64-dialog.is-dragging { cursor: move; user-select: none; }
+.ldu-base64-dialog.is-dragging textarea { pointer-events: none; }
+.ldu-base64-header,
+.ldu-base64-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 10px 12px;
+  border-color: var(--ldu-border, #313131);
+  background: var(--ldu-surface-muted, #2a2a2a);
+}
+.ldu-base64-header { border-bottom: 1px solid var(--ldu-border, #313131); }
+.ldu-base64-footer { justify-content: flex-end; border-top: 1px solid var(--ldu-border, #313131); }
+.ldu-base64-drag-handle { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 8px; cursor: move; outline: 0; }
+.ldu-base64-title { color: var(--ldu-text, #ddd); font-size: 15px; font-weight: 700; }
+.ldu-base64-subtitle { color: var(--primary-medium, #999); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.ldu-base64-close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--primary-medium, #999); cursor: pointer; }
+.ldu-base64-close:hover { background: var(--primary-low, #333); color: var(--ldu-text, #ddd); }
+.ldu-base64-body { display: grid; min-height: 0; gap: 12px; overflow-x: hidden; overflow-y: auto; padding: 14px 12px; }
+.ldu-base64-field { display: grid; gap: 6px; color: var(--primary-medium, #aaa); font-size: 12px; font-weight: 600; }
+.ldu-base64-field textarea { width: 100%; min-height: 92px; max-height: 220px; box-sizing: border-box; resize: vertical; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text, #ddd) 5%, var(--ldu-surface, #222)); color: var(--ldu-text, #ddd); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; padding: 9px 10px; }
+.ldu-base64-field textarea:focus { border-color: var(--ldu-accent, #0088cc); outline: 2px solid color-mix(in srgb, var(--ldu-accent, #0088cc) 35%, transparent); outline-offset: 1px; }
+.ldu-base64-output { background: color-mix(in srgb, var(--ldu-surface-muted, #2a2a2a) 78%, var(--ldu-surface, #222)); }
+.ldu-base64-mode { display: inline-flex; justify-self: start; padding: 2px; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: var(--ldu-surface-muted, #2a2a2a); }
+.ldu-base64-mode-button { min-width: 58px; padding: 5px 10px; border: 0; border-radius: 2px; background: transparent; color: var(--primary-medium, #aaa); cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+.ldu-base64-mode-button.is-active { background: var(--ldu-accent, #0088cc); color: #fff; }
+.ldu-base64-status { min-height: 18px; color: var(--primary-medium, #aaa); font-size: 12px; line-height: 1.5; }
+.ldu-base64-dialog[data-state="error"] .ldu-base64-status { color: var(--ldu-danger, #f85149); }
+.ldu-base64-footer button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: transparent; color: var(--ldu-text, #ddd); cursor: pointer; font: inherit; font-size: 12px; }
+.ldu-base64-footer .ldu-base64-copy { border-color: var(--ldu-accent, #0088cc); background: var(--ldu-accent, #0088cc); color: #fff; }
+.ldu-base64-dialog :is(button):active { transform: scale(.97); }
+.ldu-base64-dialog :is(button, textarea):focus-visible { outline: 2px solid var(--ldu-accent, #0088cc); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .ldu-base64-dialog { width: calc(100vw - 16px); }
+  .ldu-base64-footer { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ldu-base64-dialog { transition-duration: 0ms; }
+}
+`;
+
 export const APP_STYLES = `
 :root {
   --ldu-sidebar-width: 216px;
@@ -791,16 +869,19 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel {
   position: fixed;
-  top: calc(var(--ldu-header-height) + 4px);
-  right: 8px;
+  top: var(--ldu-header-height);
+  right: 0;
+  bottom: 0;
   z-index: 1000001;
   display: block;
-  width: min(520px, calc(100vw - 16px));
+  width: min(440px, 100vw);
+  max-height: none;
   box-sizing: border-box;
+  overflow: hidden;
   color: var(--ldu-text);
   font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  transform-origin: top right;
-  transition: opacity 140ms ease, transform 160ms var(--ldu-ease-out);
+  transform-origin: center right;
+  transition: opacity 180ms ease-out, transform 220ms var(--ldu-ease-out);
 }
 
 .ldu-settings-panel[hidden] { display: none; }
@@ -808,7 +889,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 @starting-style {
   .ldu-settings-panel:not([hidden]) {
     opacity: 0;
-    transform: translateY(-4px) scale(.98);
+    transform: translateX(100%);
   }
 }
 
@@ -830,9 +911,12 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-modal {
   display: flex;
   width: 100%;
-  max-height: inherit;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
   border: 1px solid var(--ldu-border);
   border-radius: 6px;
   background: var(--ldu-surface);
@@ -843,6 +927,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: none;
   padding: 14px 20px;
   border-bottom: 1px solid var(--ldu-border);
   background: var(--ldu-surface-muted);
@@ -886,7 +971,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-close-btn:hover { background: var(--primary-low, #2a2d32); color: var(--ldu-text); }
 
-.ldu-settings-panel .dc-body { padding: 18px 20px; }
+.ldu-settings-panel .dc-body { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px; scrollbar-gutter: stable; }
 
 .ldu-settings-panel .dc-group { margin-bottom: 24px; padding: 0; border-top: 0; }
 .ldu-settings-panel .dc-group:last-child { margin-bottom: 0; }
@@ -983,8 +1068,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 2px; background: var(--ldu-accent); cursor: pointer; }
 .ldu-settings-panel .dc-range-number { min-width: 16px; color: var(--ldu-accent); font-family: ui-monospace, monospace; font-size: var(--font-down-1, .875rem); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
-.ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
-.ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
+.ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
+.ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; white-space: nowrap; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
 .ldu-settings-panel .ldu-update-available,
 .ldu-settings-host .ldu-update-available { border-color: #ffd43b; animation: ldu-update-pulse 1.6s ease-in-out infinite; }
 @keyframes ldu-update-pulse {
@@ -1057,6 +1142,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-panel .dc-row { gap: 10px; }
   .ldu-settings-panel .dc-item-desc { font-size: var(--font-down-2, .75rem); }
   .ldu-settings-panel .dc-range { width: 82px; }
+  .ldu-settings-panel .dc-footer { align-items: flex-start; flex-wrap: wrap; }
+  .ldu-settings-panel .dc-footer-right { flex-wrap: wrap; justify-content: flex-end; }
 }
 
 @media (max-height: 820px) and (min-width: 561px) {
@@ -1154,6 +1241,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-action,
   .ldu-donate-menu a { transition-duration: 0ms !important; }
 }
+
+${BASE64_TOOL_STYLES}
 `;
 
 export const EMBEDDED_STYLES = `
@@ -1283,6 +1372,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button > button {
   width: 100% !important;
 }
+
+${BASE64_TOOL_STYLES}
 `;
 
 export function ensureAppStyles(doc: Document = document): HTMLStyleElement {

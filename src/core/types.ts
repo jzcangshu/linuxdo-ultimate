@@ -25,6 +25,7 @@ export interface Settings {
   lowEndOptimizationEnabled: boolean;
   previewEnabled: boolean;
   creditEnabled: boolean;
+  base64Enabled: boolean;
   previewClickMode: "double" | "single";
   maxLiveFrames: number;
   maxOpenTabs: number;

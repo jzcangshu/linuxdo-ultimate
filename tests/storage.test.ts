@@ -29,6 +29,7 @@ describe("storage", () => {
     expect(settings.paneSizes.sidebar).toBe(160);
     expect(settings.previewEnabled).toBe(false);
     expect(settings.creditEnabled).toBe(true);
+    expect(settings.base64Enabled).toBe(true);
     expect(settings.restoreSession).toBe(false);
     expect(settings.colorizeTabs).toBe(true);
     expect(settings.tabPresentation).toBe("horizontal");

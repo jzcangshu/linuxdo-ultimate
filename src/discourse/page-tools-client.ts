@@ -12,9 +12,11 @@ export interface OwnerViewOptions {
   document?: Document;
   isEmbedded?: boolean;
   isSplitHost?: () => boolean;
+  base64Enabled?: boolean;
 }
 
 export interface OwnerViewController {
+  setConfig?(patch: { base64Enabled: boolean; ownerOnlyEnabled?: boolean }): void;
   setActive(active: boolean): void;
   stop(clearNativeFilter?: boolean): void;
 }
@@ -48,6 +50,10 @@ export class PageToolsClient {
     if (samePageToolsConfig(this.config, next)) return;
     this.config = next;
     this.applyStaticModes();
+    this.ownerController?.setConfig?.({
+      ownerOnlyEnabled: next.ownerOnlyEnabled,
+      base64Enabled: next.base64Enabled !== false,
+    });
     this.syncOwnerView();
   }
 
@@ -132,6 +138,7 @@ export class PageToolsClient {
       document: this.doc,
       ...(this.options.isEmbedded !== undefined ? { isEmbedded: this.options.isEmbedded } : {}),
       ...(this.options.isSplitHost ? { isSplitHost: this.options.isSplitHost } : {}),
+      base64Enabled: this.config.base64Enabled !== false,
     });
     this.ownerController.setActive(true);
   }

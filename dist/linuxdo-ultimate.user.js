@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.15
+// @version      0.6.16
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -39,6 +39,7 @@
     lowEndOptimizationEnabled: false,
     previewEnabled: false,
     creditEnabled: true,
+    base64Enabled: true,
     previewClickMode: "double",
     maxLiveFrames: 3,
     maxOpenTabs: 50,
@@ -79,6 +80,7 @@
       lowEndOptimizationEnabled: source.lowEndOptimizationEnabled === true,
       previewEnabled: source.previewEnabled === true,
       creditEnabled: source.creditEnabled !== false,
+      base64Enabled: source.base64Enabled !== false,
       previewClickMode: source.previewClickMode === "single" ? "single" : "double",
       maxLiveFrames: clampSetting(source.maxLiveFrames, 1, 10, DEFAULT_SETTINGS.maxLiveFrames),
       maxOpenTabs: clampSetting(source.maxOpenTabs, 5, 50, DEFAULT_SETTINGS.maxOpenTabs),
@@ -734,7 +736,7 @@
     setDataset(root, "lduLowEnd", config.lowEndOptimizationEnabled && isLowEndDevice(navigator2));
   }
   function samePageToolsConfig(left, right) {
-    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+    return left.ownerOnlyEnabled === right.ownerOnlyEnabled && left.minimalHidePosters === right.minimalHidePosters && left.minimalHideNotices === right.minimalHideNotices && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges && left.minimalHideTags === right.minimalHideTags && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled && left.base64Enabled !== false === (right.base64Enabled !== false);
   }
   function setDataset(root, key, enabled) {
     const next = String(enabled);
@@ -1369,6 +1371,7 @@
     external: '<path d="M15 4h5v5M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>',
     refresh: '<path d="M20 6v5h-5"/><path d="M19 11a7 7 0 1 0 1 5"/>',
     copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    code: '<path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 6l-4 12"/>',
     bookmark: '<path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
     "bookmark-filled": '<path class="ldu-symbol-fill" d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/>',
     "close-others": '<rect x="3" y="5" width="13" height="12" rx="2"/><path d="M8 3h10a3 3 0 0 1 3 3v8"/><path d="m18 16 4 4m0-4-4 4"/>',
@@ -1686,6 +1689,83 @@ ${tab.url}`;
   // src/ui/styles.ts
   var APP_STYLE_ID = "linuxdo-ultimate-styles";
   var EMBEDDED_STYLE_ID = "linuxdo-ultimate-embedded-styles";
+  var BASE64_TOOL_STYLES = `
+[data-identifier="post-text-selection-toolbar"] .ldu-base64-trigger {
+  flex: 0 0 auto;
+}
+[data-identifier="post-text-selection-toolbar"]:has(.ldu-base64-trigger) {
+  max-width: min(500px, calc(100dvw - 20px)) !important;
+}
+@media (max-width: 520px) {
+  [data-identifier="post-text-selection-toolbar"]:has(.ldu-base64-trigger) .quote-button .buttons {
+    flex-wrap: wrap;
+  }
+}
+
+.ldu-base64-dialog {
+  position: fixed;
+  z-index: 1000004;
+  display: flex;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - 16px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ldu-border, #313131);
+  border-radius: 6px;
+  background: var(--ldu-surface, #222);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 42%);
+  color: var(--ldu-text, #ddd);
+  font-family: var(--font-family, Inter, Arial, sans-serif);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition: opacity 160ms ease-out, transform 180ms var(--ldu-ease-out, cubic-bezier(.23, 1, .32, 1));
+}
+
+.ldu-base64-dialog[hidden] { display: none; }
+.ldu-base64-dialog[data-state="error"] { border-color: color-mix(in srgb, var(--ldu-danger, #d04437) 70%, var(--ldu-border, #313131)); }
+.ldu-base64-dialog.is-dragging { cursor: move; user-select: none; }
+.ldu-base64-dialog.is-dragging textarea { pointer-events: none; }
+.ldu-base64-header,
+.ldu-base64-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 10px 12px;
+  border-color: var(--ldu-border, #313131);
+  background: var(--ldu-surface-muted, #2a2a2a);
+}
+.ldu-base64-header { border-bottom: 1px solid var(--ldu-border, #313131); }
+.ldu-base64-footer { justify-content: flex-end; border-top: 1px solid var(--ldu-border, #313131); }
+.ldu-base64-drag-handle { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 8px; cursor: move; outline: 0; }
+.ldu-base64-title { color: var(--ldu-text, #ddd); font-size: 15px; font-weight: 700; }
+.ldu-base64-subtitle { color: var(--primary-medium, #999); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.ldu-base64-close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--primary-medium, #999); cursor: pointer; }
+.ldu-base64-close:hover { background: var(--primary-low, #333); color: var(--ldu-text, #ddd); }
+.ldu-base64-body { display: grid; min-height: 0; gap: 12px; overflow-x: hidden; overflow-y: auto; padding: 14px 12px; }
+.ldu-base64-field { display: grid; gap: 6px; color: var(--primary-medium, #aaa); font-size: 12px; font-weight: 600; }
+.ldu-base64-field textarea { width: 100%; min-height: 92px; max-height: 220px; box-sizing: border-box; resize: vertical; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text, #ddd) 5%, var(--ldu-surface, #222)); color: var(--ldu-text, #ddd); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; padding: 9px 10px; }
+.ldu-base64-field textarea:focus { border-color: var(--ldu-accent, #0088cc); outline: 2px solid color-mix(in srgb, var(--ldu-accent, #0088cc) 35%, transparent); outline-offset: 1px; }
+.ldu-base64-output { background: color-mix(in srgb, var(--ldu-surface-muted, #2a2a2a) 78%, var(--ldu-surface, #222)); }
+.ldu-base64-mode { display: inline-flex; justify-self: start; padding: 2px; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: var(--ldu-surface-muted, #2a2a2a); }
+.ldu-base64-mode-button { min-width: 58px; padding: 5px 10px; border: 0; border-radius: 2px; background: transparent; color: var(--primary-medium, #aaa); cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+.ldu-base64-mode-button.is-active { background: var(--ldu-accent, #0088cc); color: #fff; }
+.ldu-base64-status { min-height: 18px; color: var(--primary-medium, #aaa); font-size: 12px; line-height: 1.5; }
+.ldu-base64-dialog[data-state="error"] .ldu-base64-status { color: var(--ldu-danger, #f85149); }
+.ldu-base64-footer button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px; border: 1px solid var(--ldu-border, #313131); border-radius: 4px; background: transparent; color: var(--ldu-text, #ddd); cursor: pointer; font: inherit; font-size: 12px; }
+.ldu-base64-footer .ldu-base64-copy { border-color: var(--ldu-accent, #0088cc); background: var(--ldu-accent, #0088cc); color: #fff; }
+.ldu-base64-dialog :is(button):active { transform: scale(.97); }
+.ldu-base64-dialog :is(button, textarea):focus-visible { outline: 2px solid var(--ldu-accent, #0088cc); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .ldu-base64-dialog { width: calc(100vw - 16px); }
+  .ldu-base64-footer { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ldu-base64-dialog { transition-duration: 0ms; }
+}
+`;
   var APP_STYLES = `
 :root {
   --ldu-sidebar-width: 216px;
@@ -2476,16 +2556,19 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel {
   position: fixed;
-  top: calc(var(--ldu-header-height) + 4px);
-  right: 8px;
+  top: var(--ldu-header-height);
+  right: 0;
+  bottom: 0;
   z-index: 1000001;
   display: block;
-  width: min(520px, calc(100vw - 16px));
+  width: min(440px, 100vw);
+  max-height: none;
   box-sizing: border-box;
+  overflow: hidden;
   color: var(--ldu-text);
   font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  transform-origin: top right;
-  transition: opacity 140ms ease, transform 160ms var(--ldu-ease-out);
+  transform-origin: center right;
+  transition: opacity 180ms ease-out, transform 220ms var(--ldu-ease-out);
 }
 
 .ldu-settings-panel[hidden] { display: none; }
@@ -2493,7 +2576,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 @starting-style {
   .ldu-settings-panel:not([hidden]) {
     opacity: 0;
-    transform: translateY(-4px) scale(.98);
+    transform: translateX(100%);
   }
 }
 
@@ -2515,9 +2598,12 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-modal {
   display: flex;
   width: 100%;
-  max-height: inherit;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
   border: 1px solid var(--ldu-border);
   border-radius: 6px;
   background: var(--ldu-surface);
@@ -2528,6 +2614,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: none;
   padding: 14px 20px;
   border-bottom: 1px solid var(--ldu-border);
   background: var(--ldu-surface-muted);
@@ -2571,7 +2658,7 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 
 .ldu-settings-panel .dc-close-btn:hover { background: var(--primary-low, #2a2d32); color: var(--ldu-text); }
 
-.ldu-settings-panel .dc-body { padding: 18px 20px; }
+.ldu-settings-panel .dc-body { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px; scrollbar-gutter: stable; }
 
 .ldu-settings-panel .dc-group { margin-bottom: 24px; padding: 0; border-top: 0; }
 .ldu-settings-panel .dc-group:last-child { margin-bottom: 0; }
@@ -2668,8 +2755,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 2px; background: var(--ldu-accent); cursor: pointer; }
 .ldu-settings-panel .dc-range-number { min-width: 16px; color: var(--ldu-accent); font-family: ui-monospace, monospace; font-size: var(--font-down-1, .875rem); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
-.ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
-.ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
+.ldu-settings-panel .dc-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 12px 20px; border-top: 1px solid var(--ldu-border); background: var(--ldu-surface-muted); }
+.ldu-settings-panel .dc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--ldu-border); border-radius: 4px; background: color-mix(in srgb, var(--ldu-text) 5%, var(--ldu-surface-muted)); color: var(--ldu-text); cursor: pointer; font: inherit; font-size: var(--font-down-2, .8rem); font-weight: 500; text-decoration: none; white-space: nowrap; transition: background-color 120ms ease, transform 120ms var(--ldu-ease-out); }
 .ldu-settings-panel .ldu-update-available,
 .ldu-settings-host .ldu-update-available { border-color: #ffd43b; animation: ldu-update-pulse 1.6s ease-in-out infinite; }
 @keyframes ldu-update-pulse {
@@ -2742,6 +2829,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-panel .dc-row { gap: 10px; }
   .ldu-settings-panel .dc-item-desc { font-size: var(--font-down-2, .75rem); }
   .ldu-settings-panel .dc-range { width: 82px; }
+  .ldu-settings-panel .dc-footer { align-items: flex-start; flex-wrap: wrap; }
+  .ldu-settings-panel .dc-footer-right { flex-wrap: wrap; justify-content: flex-end; }
 }
 
 @media (max-height: 820px) and (min-width: 561px) {
@@ -2839,6 +2928,8 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-settings-action,
   .ldu-donate-menu a { transition-duration: 0ms !important; }
 }
+
+${BASE64_TOOL_STYLES}
 `;
   var EMBEDDED_STYLES = `
 :root {
@@ -2967,6 +3058,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button > button {
   width: 100% !important;
 }
+
+${BASE64_TOOL_STYLES}
 `;
   function ensureAppStyles(doc = document) {
     const existing = doc.getElementById(APP_STYLE_ID);
@@ -3439,7 +3532,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       this.host.append(button);
       const panel = document.createElement("div");
       panel.id = "ldu-settings-panel";
-      panel.className = "ldu-settings-panel";
+      panel.className = "ldu-settings-panel ldu-settings-drawer";
       panel.hidden = true;
       panel.setAttribute("role", "dialog");
       panel.setAttribute("aria-label", "\u5E03\u5C40\u4E0E\u529F\u80FD\u8BBE\u7F6E");
@@ -3521,6 +3614,13 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">\u8BBA\u575B\u7F8E\u5316</div>
             <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">\u4E00\u952E Base64</span>
+                  <span class="dc-item-desc">\u9009\u4E2D\u4E00\u6BB5\u6587\u672C\u540E\uFF0C\u5F39\u51FA Base64 \u5DE5\u5177</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="base64Enabled"><span class="dc-slider"></span></span>
+              </label>
               <label class="dc-row ldu-settings-control ldu-settings-parent-row">
                 <span class="dc-label-box">
                   <span class="dc-item-title">\u6781\u7B80\u6A21\u5F0F</span>
@@ -3720,6 +3820,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       const minimalHideCategoryBadges = this.panel.querySelector('[data-setting="minimalHideCategoryBadges"]');
       const minimalHideTags = this.panel.querySelector('[data-setting="minimalHideTags"]');
       const lowEndOptimization = this.panel.querySelector('[data-setting="lowEndOptimizationEnabled"]');
+      const base64 = this.panel.querySelector('[data-setting="base64Enabled"]');
       const preview = this.panel.querySelector('[data-setting="previewEnabled"]');
       const credit = this.panel.querySelector('[data-setting="creditEnabled"]');
       const live = this.panel.querySelector('[data-setting="maxLiveFrames"]');
@@ -3735,6 +3836,7 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (minimalHideCategoryBadges) minimalHideCategoryBadges.checked = this.settings.minimalHideCategoryBadges;
       if (minimalHideTags) minimalHideTags.checked = this.settings.minimalHideTags;
       if (lowEndOptimization) lowEndOptimization.checked = this.settings.lowEndOptimizationEnabled;
+      if (base64) base64.checked = this.settings.base64Enabled;
       if (preview) preview.checked = this.settings.previewEnabled;
       if (credit) credit.checked = this.settings.creditEnabled;
       if (live) live.value = String(this.settings.maxLiveFrames);
@@ -4301,6 +4403,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
       if (samePageToolsConfig(this.config, next)) return;
       this.config = next;
       this.applyStaticModes();
+      this.ownerController?.setConfig?.({
+        ownerOnlyEnabled: next.ownerOnlyEnabled,
+        base64Enabled: next.base64Enabled !== false
+      });
       this.syncOwnerView();
     }
     setActive(active) {
@@ -4374,7 +4480,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         window: this.win,
         document: this.doc,
         ...this.options.isEmbedded !== void 0 ? { isEmbedded: this.options.isEmbedded } : {},
-        ...this.options.isSplitHost ? { isSplitHost: this.options.isSplitHost } : {}
+        ...this.options.isSplitHost ? { isSplitHost: this.options.isSplitHost } : {},
+        base64Enabled: this.config.base64Enabled !== false
       });
       this.ownerController.setActive(true);
     }
@@ -4873,7 +4980,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
         minimalHideNotices: minimalModeEnabled && this.settings.minimalHideNotices,
         minimalHideCategoryBadges: minimalModeEnabled && this.settings.minimalHideCategoryBadges,
         minimalHideTags: minimalModeEnabled && this.settings.minimalHideTags,
-        lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled
+        lowEndOptimizationEnabled: this.settings.enabled && this.settings.lowEndOptimizationEnabled,
+        base64Enabled: this.settings.enabled && this.settings.base64Enabled
       };
     }
     applySettings(patch) {
@@ -5695,7 +5803,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           minimalHideNotices: data.minimalHideNotices === true,
           minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
           minimalHideTags: data.minimalHideTags === true,
-          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
+          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+          base64Enabled: data.base64Enabled !== false
         });
         return;
       }
@@ -5877,7 +5986,8 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notificati
           minimalHideNotices: data.minimalHideNotices === true,
           minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
           minimalHideTags: data.minimalHideTags === true,
-          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true
+          lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+          base64Enabled: data.base64Enabled !== false
         });
         return;
       }
@@ -9141,9 +9251,301 @@ ${tab.url}`;
     };
   }
 
+  // src/ui/base64-tool.ts
+  var TOOLBAR_SELECTOR = '[data-identifier="post-text-selection-toolbar"]';
+  var TRIGGER_SELECTOR = ".ldu-base64-trigger";
+  function encodeBase64Utf8(value) {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    for (let index = 0; index < bytes.length; index += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
+    }
+    return btoa(binary);
+  }
+  function decodeBase64Utf8(value) {
+    let normalized = value.replace(/\s+/g, "").replaceAll("-", "+").replaceAll("_", "/");
+    if (!normalized) return "";
+    if (normalized.length % 4 === 1) throw new Error("\u65E0\u6548\u7684 Base64 \u5185\u5BB9");
+    normalized += "=".repeat((4 - normalized.length % 4) % 4);
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized)) {
+      throw new Error("\u65E0\u6548\u7684 Base64 \u5185\u5BB9");
+    }
+    try {
+      const binary = atob(normalized);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error("\u65E0\u6548\u7684 Base64 \u5185\u5BB9");
+    }
+  }
+  var Base64ToolController = class {
+    win;
+    doc;
+    observeMutations;
+    observer = null;
+    syncTimer = null;
+    started = false;
+    active = true;
+    selectionText = "";
+    dialog = null;
+    mode = "encode";
+    drag = null;
+    constructor(options = {}) {
+      this.win = options.window ?? window;
+      this.doc = options.document ?? document;
+      this.observeMutations = options.observeMutations !== false;
+    }
+    start() {
+      if (this.started) return this;
+      this.started = true;
+      this.doc.addEventListener("selectionchange", this.captureSelection);
+      this.doc.addEventListener("pointerup", this.captureSelection, true);
+      this.doc.addEventListener("keyup", this.captureSelection, true);
+      this.doc.addEventListener("keydown", this.handleKeydown, true);
+      if (this.observeMutations) {
+        const Observer = this.win.MutationObserver;
+        const target = this.doc.body ?? this.doc.documentElement;
+        if (Observer && target) {
+          this.observer = new Observer(() => this.scheduleSync());
+          this.observer.observe(target, { childList: true, subtree: true });
+        }
+      }
+      this.scheduleSync();
+      return this;
+    }
+    stop() {
+      if (!this.started) return;
+      this.started = false;
+      this.observer?.disconnect();
+      this.observer = null;
+      if (this.syncTimer !== null) this.win.clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+      this.doc.removeEventListener("selectionchange", this.captureSelection);
+      this.doc.removeEventListener("pointerup", this.captureSelection, true);
+      this.doc.removeEventListener("keyup", this.captureSelection, true);
+      this.doc.removeEventListener("keydown", this.handleKeydown, true);
+      this.doc.querySelectorAll(TRIGGER_SELECTOR).forEach((trigger) => trigger.remove());
+      this.dialog?.remove();
+      this.dialog = null;
+      this.drag = null;
+    }
+    setActive(active) {
+      if (this.active === active) return;
+      this.active = active;
+      if (!active) {
+        this.doc.querySelectorAll(TRIGGER_SELECTOR).forEach((trigger) => trigger.remove());
+        if (this.dialog) this.dialog.hidden = true;
+        return;
+      }
+      this.scheduleSync();
+    }
+    refresh() {
+      this.scheduleSync();
+    }
+    captureSelection = () => {
+      if (!this.active) return;
+      const text = this.win.getSelection?.()?.toString() ?? "";
+      if (text.trim()) this.selectionText = text;
+    };
+    handleKeydown = (event) => {
+      if (event.key === "Escape" && this.dialog && !this.dialog.hidden) {
+        this.closeDialog();
+      }
+    };
+    scheduleSync() {
+      if (!this.started || !this.active || this.syncTimer !== null) return;
+      this.syncTimer = this.win.setTimeout(() => {
+        this.syncTimer = null;
+        this.syncToolbar();
+      }, 0);
+    }
+    syncToolbar() {
+      if (!this.active) return;
+      const toolbar = this.doc.querySelector(TOOLBAR_SELECTOR);
+      const buttons = toolbar?.querySelector(".quote-button .buttons");
+      if (!toolbar || !buttons || buttons.querySelector(TRIGGER_SELECTOR)) return;
+      const trigger = this.doc.createElement("button");
+      trigger.type = "button";
+      trigger.className = "btn btn-icon-text btn-flat ldu-base64-trigger";
+      trigger.title = "Base64\u5DE5\u5177";
+      trigger.setAttribute("aria-label", "Base64\u5DE5\u5177");
+      trigger.setAttribute("aria-controls", "ldu-base64-dialog");
+      trigger.innerHTML = `${iconSvg("code", 16)}<span class="d-button-label">Base64\u5DE5\u5177</span>`;
+      trigger.addEventListener("pointerdown", this.captureSelection, true);
+      trigger.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.openDialog(toolbar);
+      });
+      const copyQuote = buttons.querySelector(".copy-quote");
+      if (copyQuote) buttons.insertBefore(trigger, copyQuote.nextSibling);
+      else buttons.append(trigger);
+    }
+    openDialog(toolbar) {
+      const dialog = this.dialog ?? this.createDialog();
+      const input = dialog.querySelector(".ldu-base64-input");
+      if (this.selectionText) input.value = this.selectionText;
+      this.setMode(this.mode);
+      dialog.hidden = false;
+      if (!this.dialogPositioned(dialog)) this.positionDialog(dialog, toolbar);
+      input.focus({ preventScroll: true });
+    }
+    createDialog() {
+      const dialog = this.doc.createElement("section");
+      dialog.id = "ldu-base64-dialog";
+      dialog.className = "ldu-base64-dialog";
+      dialog.hidden = true;
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-label", "Base64\u5DE5\u5177");
+      dialog.innerHTML = `
+      <header class="ldu-base64-header">
+        <div class="ldu-base64-drag-handle" title="\u62D6\u52A8\u7A97\u53E3" tabindex="0">
+          <span class="ldu-base64-title">Base64\u5DE5\u5177</span>
+          <span class="ldu-base64-subtitle">UTF-8</span>
+        </div>
+        <button type="button" class="ldu-base64-close" title="\u5173\u95ED" aria-label="\u5173\u95ED Base64 \u5DE5\u5177">${iconSvg("close", 16)}</button>
+      </header>
+      <div class="ldu-base64-body">
+        <label class="ldu-base64-field">
+          <span>\u8F93\u5165</span>
+          <textarea class="ldu-base64-input" rows="5" spellcheck="false" placeholder="\u8F93\u5165\u6587\u672C\u6216 Base64 \u5185\u5BB9"></textarea>
+        </label>
+        <div class="ldu-base64-mode" role="group" aria-label="Base64\u64CD\u4F5C">
+          <button type="button" class="ldu-base64-mode-button is-active" data-mode="encode" aria-pressed="true">\u7F16\u7801</button>
+          <button type="button" class="ldu-base64-mode-button" data-mode="decode" aria-pressed="false">\u89E3\u7801</button>
+        </div>
+        <label class="ldu-base64-field">
+          <span>\u7ED3\u679C</span>
+          <textarea class="ldu-base64-output" rows="5" readonly spellcheck="false"></textarea>
+        </label>
+        <div class="ldu-base64-status" role="status" aria-live="polite"></div>
+      </div>
+      <footer class="ldu-base64-footer">
+        <button type="button" class="ldu-base64-clear">${iconSvg("trash", 14)}\u6E05\u7A7A</button>
+        <button type="button" class="ldu-base64-copy">${iconSvg("copy", 14)}\u590D\u5236\u7ED3\u679C</button>
+      </footer>
+    `;
+      this.doc.body?.append(dialog);
+      this.dialog = dialog;
+      dialog.querySelector(".ldu-base64-close")?.addEventListener("click", () => this.closeDialog());
+      dialog.querySelector(".ldu-base64-clear")?.addEventListener("click", () => {
+        const input = dialog.querySelector(".ldu-base64-input");
+        input.value = "";
+        this.renderResult("");
+        this.setStatus("");
+        input.focus({ preventScroll: true });
+      });
+      dialog.querySelector(".ldu-base64-copy")?.addEventListener("click", () => void this.copyResult());
+      dialog.querySelector(".ldu-base64-input")?.addEventListener("input", () => this.renderResult());
+      dialog.querySelectorAll("[data-mode]").forEach((button) => {
+        button.addEventListener("click", () => this.setMode(button.dataset.mode === "decode" ? "decode" : "encode"));
+      });
+      dialog.querySelector(".ldu-base64-drag-handle")?.addEventListener("pointerdown", this.startDrag);
+      dialog.querySelector(".ldu-base64-drag-handle")?.addEventListener("pointermove", this.moveDrag);
+      dialog.querySelector(".ldu-base64-drag-handle")?.addEventListener("pointerup", this.endDrag);
+      dialog.querySelector(".ldu-base64-drag-handle")?.addEventListener("pointercancel", this.endDrag);
+      return dialog;
+    }
+    setMode(mode) {
+      this.mode = mode;
+      this.dialog?.querySelectorAll("[data-mode]").forEach((button) => {
+        const selected = button.dataset.mode === mode;
+        button.classList.toggle("is-active", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+      this.renderResult();
+    }
+    renderResult(fallbackInput) {
+      if (!this.dialog) return;
+      const input = this.dialog.querySelector(".ldu-base64-input");
+      const value = fallbackInput ?? input.value;
+      try {
+        const output = this.mode === "encode" ? encodeBase64Utf8(value) : decodeBase64Utf8(value);
+        this.dialog.querySelector(".ldu-base64-output").value = output;
+        this.dialog.dataset.state = "ready";
+        this.setStatus("");
+      } catch (error) {
+        this.dialog.querySelector(".ldu-base64-output").value = "";
+        this.dialog.dataset.state = "error";
+        this.setStatus(error instanceof Error ? error.message : "\u8F6C\u6362\u5931\u8D25");
+      }
+    }
+    setStatus(message) {
+      if (this.dialog) this.dialog.querySelector(".ldu-base64-status").textContent = message;
+    }
+    async copyResult() {
+      if (!this.dialog) return;
+      const output = this.dialog.querySelector(".ldu-base64-output");
+      if (!output.value) return;
+      try {
+        const writeText = this.win.navigator.clipboard?.writeText;
+        if (!writeText) throw new Error("Clipboard API unavailable");
+        await writeText.call(this.win.navigator.clipboard, output.value);
+      } catch {
+        output.focus({ preventScroll: true });
+        output.select();
+        this.doc.execCommand?.("copy");
+      }
+      this.setStatus("\u5DF2\u590D\u5236");
+    }
+    closeDialog() {
+      if (this.dialog) this.dialog.hidden = true;
+      this.drag = null;
+    }
+    dialogPositioned(dialog) {
+      return dialog.style.left !== "" && dialog.style.top !== "";
+    }
+    positionDialog(dialog, toolbar) {
+      const width = Math.min(440, Math.max(280, this.win.innerWidth - 16));
+      const rect = toolbar.getBoundingClientRect();
+      const dialogRect = dialog.getBoundingClientRect();
+      const height = dialogRect.height || 360;
+      const left = clamp(rect.left, 8, Math.max(8, this.win.innerWidth - width - 8));
+      const top = rect.bottom + height + 12 <= this.win.innerHeight ? rect.bottom + 12 : Math.max(8, rect.top - height - 12);
+      dialog.style.left = `${left}px`;
+      dialog.style.top = `${top}px`;
+    }
+    startDrag = (event) => {
+      if (event.target?.closest("button")) return;
+      if (!this.dialog) return;
+      const rect = this.dialog.getBoundingClientRect();
+      this.drag = {
+        pointerId: event.pointerId ?? 0,
+        startX: event.clientX,
+        startY: event.clientY,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      };
+      event.currentTarget.setPointerCapture?.(this.drag.pointerId);
+      this.dialog.classList.add("is-dragging");
+    };
+    moveDrag = (event) => {
+      if (!this.drag || (event.pointerId ?? 0) !== this.drag.pointerId || !this.dialog) return;
+      const nextLeft = clamp(this.drag.left + event.clientX - this.drag.startX, 8, Math.max(8, this.win.innerWidth - this.drag.width - 8));
+      const nextTop = clamp(this.drag.top + event.clientY - this.drag.startY, 8, Math.max(8, this.win.innerHeight - this.drag.height - 8));
+      this.dialog.style.transform = `translate3d(${nextLeft - this.drag.left}px, ${nextTop - this.drag.top}px, 0)`;
+    };
+    endDrag = (event) => {
+      if (!this.drag || (event.pointerId ?? 0) !== this.drag.pointerId || !this.dialog) return;
+      const nextLeft = clamp(this.drag.left + event.clientX - this.drag.startX, 8, Math.max(8, this.win.innerWidth - this.drag.width - 8));
+      const nextTop = clamp(this.drag.top + event.clientY - this.drag.startY, 8, Math.max(8, this.win.innerHeight - this.drag.height - 8));
+      this.dialog.style.left = `${nextLeft}px`;
+      this.dialog.style.top = `${nextTop}px`;
+      this.dialog.style.transform = "";
+      this.dialog.classList.remove("is-dragging");
+      this.drag = null;
+    };
+  };
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+  }
+
   // src/discourse/topic-tools.ts
   var DEFAULT_CONFIG = {
-    ownerOnlyEnabled: true
+    ownerOnlyEnabled: true,
+    base64Enabled: true
   };
   var OWNER_STATE_KEY = "linuxdo-ultimate:owner-view:v2";
   var OWNER_STATE_PREFIX = "linuxdo-ultimate:owner-view:";
@@ -9198,22 +9600,28 @@ ${tab.url}`;
     embedded;
     isSplitHost;
     navigate;
+    base64Tool;
     constructor(options = {}) {
       this.win = options.window ?? window;
       this.doc = options.document ?? document;
       this.embedded = options.isEmbedded === true;
       this.isSplitHost = options.isSplitHost ?? (() => this.doc.body?.classList.contains("ldu-layout-active") === true);
       this.navigate = options.navigate ?? ((url) => this.win.location.assign(url));
+      this.base64Tool = new Base64ToolController({ window: this.win, document: this.doc, observeMutations: false });
+      if (options.base64Enabled !== void 0) this.config.base64Enabled = options.base64Enabled;
     }
     start() {
       if (this.started) return this;
       this.started = true;
+      this.base64Tool.start();
+      this.base64Tool.setActive(this.active && this.config.base64Enabled);
       this.syncObserver();
       this.queueApply();
       return this;
     }
     stop(clearNativeFilter = false) {
       this.disconnectObserver();
+      this.base64Tool.stop();
       this.unbindDocumentClick();
       this.started = false;
       this.applyQueued = false;
@@ -9225,8 +9633,11 @@ ${tab.url}`;
     setConfig(patch) {
       const previous = this.config.ownerOnlyEnabled;
       const next = { ...this.config, ...patch };
-      if (next.ownerOnlyEnabled === previous) return;
+      const base64Changed = next.base64Enabled !== this.config.base64Enabled;
+      if (next.ownerOnlyEnabled === previous && !base64Changed) return;
       this.config = next;
+      this.base64Tool.setActive(this.active && next.base64Enabled);
+      if (next.ownerOnlyEnabled === previous) return;
       this.syncObserver();
       if (!next.ownerOnlyEnabled) {
         this.doc.getElementById("ldu-owner-toggle")?.remove();
@@ -9238,6 +9649,7 @@ ${tab.url}`;
     setActive(active) {
       if (this.active === active) return;
       this.active = active;
+      this.base64Tool.setActive(active && this.config.base64Enabled);
       this.syncObserver();
       if (active) this.queueApply();
     }
@@ -9341,6 +9753,7 @@ ${tab.url}`;
       this.navigate(url.href);
     };
     handleMutations(records) {
+      this.base64Tool.refresh();
       if (this.getTopicId() !== this.lastOwnerTopicId) {
         this.queueApply();
         return;

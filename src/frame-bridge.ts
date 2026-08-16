@@ -189,6 +189,7 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
       minimalHideCategoryBadges?: unknown;
       minimalHideTags?: unknown;
       lowEndOptimizationEnabled?: unknown;
+      base64Enabled?: unknown;
     } | null;
     if (data?.type === "ldu:frame-lifecycle") {
       setSoftFrozen(data.active !== true);
@@ -253,6 +254,7 @@ export function bootFrameBridge(options: FrameBridgeOptions = {}): void {
         minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
         minimalHideTags: data.minimalHideTags === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+        base64Enabled: data.base64Enabled !== false,
       });
       return;
     }
@@ -426,6 +428,7 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
       minimalHideCategoryBadges?: unknown;
       minimalHideTags?: unknown;
       lowEndOptimizationEnabled?: unknown;
+      base64Enabled?: unknown;
     } | null;
     if (data?.type === "ldu:page-tools-config") {
       pageTools.setConfig({
@@ -435,6 +438,7 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
         minimalHideCategoryBadges: data.minimalHideCategoryBadges === true,
         minimalHideTags: data.minimalHideTags === true,
         lowEndOptimizationEnabled: data.lowEndOptimizationEnabled === true,
+        base64Enabled: data.base64Enabled !== false,
       });
       return;
     }

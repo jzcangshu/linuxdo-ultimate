@@ -5,6 +5,7 @@ export interface PageToolsConfig {
   minimalHideCategoryBadges: boolean;
   minimalHideTags: boolean;
   lowEndOptimizationEnabled: boolean;
+  base64Enabled?: boolean;
 }
 
 export const DEFAULT_PAGE_TOOLS_CONFIG: PageToolsConfig = {
@@ -35,6 +36,7 @@ export function readFramePageToolsConfig(frame: Element | null): PageToolsConfig
       minimalHideCategoryBadges: source.minimalHideCategoryBadges === true,
       minimalHideTags: source.minimalHideTags === true,
       lowEndOptimizationEnabled: source.lowEndOptimizationEnabled === true,
+      base64Enabled: source.base64Enabled !== false,
     };
   } catch {
     return null;
@@ -59,7 +61,8 @@ export function samePageToolsConfig(left: PageToolsConfig, right: PageToolsConfi
     && left.minimalHideNotices === right.minimalHideNotices
     && left.minimalHideCategoryBadges === right.minimalHideCategoryBadges
     && left.minimalHideTags === right.minimalHideTags
-    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled;
+    && left.lowEndOptimizationEnabled === right.lowEndOptimizationEnabled
+    && (left.base64Enabled !== false) === (right.base64Enabled !== false);
 }
 
 function setDataset(

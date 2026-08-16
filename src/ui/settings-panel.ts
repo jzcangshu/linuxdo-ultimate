@@ -40,7 +40,7 @@ export class SettingsPanel {
 
     const panel = document.createElement("div");
     panel.id = "ldu-settings-panel";
-    panel.className = "ldu-settings-panel";
+    panel.className = "ldu-settings-panel ldu-settings-drawer";
     panel.hidden = true;
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-label", "布局与功能设置");
@@ -122,6 +122,13 @@ export class SettingsPanel {
           <section class="dc-group ldu-settings-group" aria-labelledby="ldu-settings-style-heading">
             <div class="dc-group-title ldu-settings-group-title" id="ldu-settings-style-heading">论坛美化</div>
             <div class="ldu-settings-parent-group">
+              <label class="dc-row ldu-settings-control">
+                <span class="dc-label-box">
+                  <span class="dc-item-title">一键 Base64</span>
+                  <span class="dc-item-desc">选中一段文本后，弹出 Base64 工具</span>
+                </span>
+                <span class="dc-switch"><input type="checkbox" data-setting="base64Enabled"><span class="dc-slider"></span></span>
+              </label>
               <label class="dc-row ldu-settings-control ldu-settings-parent-row">
                 <span class="dc-label-box">
                   <span class="dc-item-title">极简模式</span>
@@ -325,6 +332,7 @@ export class SettingsPanel {
     const minimalHideCategoryBadges = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHideCategoryBadges"]');
     const minimalHideTags = this.panel.querySelector<HTMLInputElement>('[data-setting="minimalHideTags"]');
     const lowEndOptimization = this.panel.querySelector<HTMLInputElement>('[data-setting="lowEndOptimizationEnabled"]');
+    const base64 = this.panel.querySelector<HTMLInputElement>('[data-setting="base64Enabled"]');
     const preview = this.panel.querySelector<HTMLInputElement>('[data-setting="previewEnabled"]');
     const credit = this.panel.querySelector<HTMLInputElement>('[data-setting="creditEnabled"]');
     const live = this.panel.querySelector<HTMLInputElement>('[data-setting="maxLiveFrames"]');
@@ -340,6 +348,7 @@ export class SettingsPanel {
     if (minimalHideCategoryBadges) minimalHideCategoryBadges.checked = this.settings.minimalHideCategoryBadges;
     if (minimalHideTags) minimalHideTags.checked = this.settings.minimalHideTags;
     if (lowEndOptimization) lowEndOptimization.checked = this.settings.lowEndOptimizationEnabled;
+    if (base64) base64.checked = this.settings.base64Enabled;
     if (preview) preview.checked = this.settings.previewEnabled;
     if (credit) credit.checked = this.settings.creditEnabled;
     if (live) live.value = String(this.settings.maxLiveFrames);

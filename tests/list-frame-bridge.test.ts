@@ -40,6 +40,39 @@ describe("embedded list bridge", () => {
       frameId: "session-1",
       topicId: "2",
     }), location.origin);
+    document.body.insertAdjacentHTML("beforeend", `
+      <table>
+        <tbody>
+          <tr class="topic-list-item" data-topic-id="26463">
+            <td class="main-link topic-list-data">
+              <h2><a class="title raw-link raw-topic-link" href="/t/topic/26463">帖子标题</a></h2>
+              <span class="row-whitespace"></span>
+              <a class="badge-category__wrapper" href="#category">开发调优</a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    `);
+    postMessage.mockClear();
+
+    const whitespaceClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    document.querySelector<HTMLElement>(".row-whitespace")!.dispatchEvent(whitespaceClick);
+
+    expect(whitespaceClick.defaultPrevented).toBe(true);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:list-topic-open",
+      frameId: "session-1",
+      topicId: "26463",
+      topicTitle: "帖子标题",
+    }), location.origin);
+
+    postMessage.mockClear();
+    const categoryClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    document.querySelector<HTMLAnchorElement>(".badge-category__wrapper")!.dispatchEvent(categoryClick);
+    expect(categoryClick.defaultPrevented).toBe(false);
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "ldu:list-topic-open",
+    }), location.origin);
   });
 
   it("notifies the parent when the user interacts with the list iframe", () => {

@@ -395,6 +395,17 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
     if (link.closest("button, [role=button], .btn, .d-button, input, textarea, select")) return null;
     return link;
   };
+  const getTopicRowLink = (target: EventTarget | null): HTMLAnchorElement | null => {
+    if (!(target instanceof Element)) return null;
+    if (target.closest("a[href], button, [role=button], [role=link], input, textarea, select, label, summary, [contenteditable=true]")) return null;
+    const selection = window.getSelection?.();
+    if (selection && !selection.isCollapsed) return null;
+    const row = target.closest<HTMLElement>(".topic-list-item[data-topic-id]");
+    const link = row?.querySelector<HTMLAnchorElement>("a.title.raw-topic-link[href], .main-link a.title[href], a.raw-topic-link[href]") ?? null;
+    if (!row || !link || !isSupportedTopicTarget(link.href, location.href)) return null;
+    const info = getTopicInfo(link.href, location.href);
+    return info?.topicId === row.dataset.topicId ? link : null;
+  };
   const getPreviewableLink = (target: EventTarget | null): HTMLAnchorElement | null => {
     const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!link || !/^https?:/i.test(link.href) || getTopicInfo(link.href) || new URL(link.href, location.href).origin === location.origin) return null;
@@ -468,7 +479,7 @@ function bootListBridge(frameId: string, options: FrameBridgeOptions): void {
   }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("click", (event) => {
     if (replayingClick || !isPlainPrimaryClick(event)) return;
-    const topic = getTopicLink(event.target);
+    const topic = getTopicLink(event.target) ?? getTopicRowLink(event.target);
     if (topic) {
       event.preventDefault();
       event.stopImmediatePropagation();

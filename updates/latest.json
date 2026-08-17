@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.17",
+  "version": "0.6.18",
   "publishedAt": "2026-08-17",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.17",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.18",
   "changelog": [
-    "修复点击帖子列表空白区域时帖子覆盖列表页的问题，现统一在阅读区打开。"
+    "修复更新日志浮层在设置页边缘被截断的问题。"
   ]
 }

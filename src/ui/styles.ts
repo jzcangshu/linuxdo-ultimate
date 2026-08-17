@@ -1087,8 +1087,9 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .ldu-update-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
   right: 0;
-  width: min(420px, calc(100vw - 32px));
-  min-width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  width: min(400px, calc(100vw - 24px));
+  min-width: 0;
   max-width: none;
   gap: 10px;
   padding: 16px;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Linux Do Ultimate",
-  "version": "0.6.17",
+  "version": "0.6.18",
   "description": "Linux.do 分屏阅读、页内帖子标签、阅读计数修复、错误弹窗自动过盾、链接预览与更新检查。",
   "minimum_chrome_version": "110",
   "icons": {

@@ -102,7 +102,7 @@ describe("split reading styles", () => {
   it("gives update notes a readable card without restyling dependent rows", () => {
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-modal\s*\{[^}]+overflow:\s*hidden/s);
     expect(APP_STYLES).not.toContain(".dc-child-row");
-    expect(APP_STYLES).toMatch(/\.dc-dropdown-menu\.ldu-update-menu\s*\{[^}]+width:\s*min\(420px[^}]+padding:\s*16px/s);
+    expect(APP_STYLES).toMatch(/\.dc-dropdown-menu\.ldu-update-menu\s*\{[^}]+box-sizing:\s*border-box[^}]+width:\s*min\(400px,\s*calc\(100vw - 24px\)\)[^}]+padding:\s*16px/s);
     expect(APP_STYLES).toMatch(/\.ldu-update-summary\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-version\s*\{[^}]+font-size:\s*var\(--font-down-2,/s);
     expect(APP_STYLES).toMatch(/\.ldu-tab-group-header\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);

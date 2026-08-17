@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.17
+// @version      0.6.18
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -2774,8 +2774,9 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .ldu-update-wrap { position: relative; }
 .ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
   right: 0;
-  width: min(420px, calc(100vw - 32px));
-  min-width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  width: min(400px, calc(100vw - 24px));
+  min-width: 0;
   max-width: none;
   gap: 10px;
   padding: 16px;

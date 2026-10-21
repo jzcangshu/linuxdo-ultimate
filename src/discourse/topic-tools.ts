@@ -411,6 +411,14 @@ export class TopicToolsController {
     else this.navigateWithoutOwnerFilter();
   }
 
+  private findFooterMount(): HTMLElement | null {
+    const footers = [...this.doc.querySelectorAll<HTMLElement>(".timeline-footer-controls")];
+    // The threaded-reader script (楼中楼) renders a hidden duplicate footer
+    // inside its .ldt-native-timeline panel; prefer the native footer so the
+    // toggle is not nested inside an element that script keeps hidden.
+    return footers.find((footer) => !footer.closest(".ldt-native-timeline")) ?? null;
+  }
+
   private syncOwnerControl(): void {
     const topicId = this.getTopicId();
     const shouldShow = this.active && this.config.ownerOnlyEnabled && Boolean(topicId) && !this.isHiddenHostTopic();
@@ -457,7 +465,7 @@ export class TopicToolsController {
         });
       });
     }
-    const mount = this.doc.querySelector<HTMLElement>(".timeline-footer-controls");
+    const mount = this.findFooterMount();
     if (!mount) {
       button.remove();
       return;

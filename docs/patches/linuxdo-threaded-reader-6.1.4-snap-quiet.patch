@@ -1,0 +1,64 @@
+diff --git a/linuxdo-comments.user.js b/linuxdo-comments.user.js
+index 1005bc9..1c700da 100644
+--- a/linuxdo-comments.user.js
++++ b/linuxdo-comments.user.js
+@@ -1,7 +1,8 @@
+ // ==UserScript==
+ // @name         Linux DO 楼中楼阅读
+ // @namespace    local.linuxdo.threaded-reading
+-// @version      6.1.4
++// @version      6.1.4.1
++// @note         本地修复版：抑制拖拽/加载后的滚动回弹震荡（LDU 兼容补丁）
+ // @icon         data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAABj1BMVEVHcEz/ogDv9P/////s///w8PDt/f/w8PD////s///w8PDw8PDw8PD/pAD////////s//8AAAD///8AAAAAAAD////p///r///v9v/v9f/v8/vw8O/v7+/v8/z03qvt/f/v9v/////7+/v/pQD///+zs7P+/v0UFBYLCw35+fn///8AAAD/////////////rgDt/v//qwDt/f/r////pgDs///v8/vv9v//pQD+/v79/f35+fn6+vrw8PAcHB7/sAP////w7+zs7OwdHR/v9v//sATz4br/qgDAwMAHBwn/rgD/sgoVFRft+/8iIiQeHiB0dHX/sgkhISP6+vr/sAXv8/sjIyX/sQX/sAL126H5y2UTExWqqqoXFxn/rQD7+/vw8O/7wkT5y2bv7+/x693/qAD126L/pwDw7urw8vfz4rwfHyEWFhj39/e/v8AJCQvv8/zq6urf398AAALCwsIAAACrq6uLi4wVFRj/sQZISEmzs7N2dnf30n//sQj5y2f03qz8vTQjIyRVVVdWVlc7UZSyAAAAPXRSTlMA9xIFBsDm/AYFn1H5+JABkPfm+fgQBgcBARz7+6b5EP4Hpvn++RL+/PxR+8Cmn/4Q/J9R+ab8wPsSEhwc+9z1RgAAAcJJREFUOMuF0WdXwjAUBuALCiLIHm5xgwqKewarOCl7qSji3uAW3KD+cG8LOI6tfT7knOS9yU1aAJZahkN3r60rHO6y9XbjRKaGH8oAjPbw49ND1uPJPjw9hu1GdrEEt6uSGX+P3nqWSJxZ9T3+TFLFLhe0wLhuY11vCflOXejUF7Lo1zd0nRgU909RAa3H53J+cfk82gA1WTijDDqpd0PI7/zFHzJ8UBPMPfCyuoAh5vzjzRDQMbEMVHfamItDTHunYpoYL2+vz5c5nF/fXuJrofWq4ya9xCF903HVigW7qXaKR3tqF0BBGmZ5NRAFyEkV4VVF5CAhFfwFFUQC/8RsCRABwgWCLQQvKfhMBamf4VWPHwq2jpvneDQfb+G/aNxrOlngdNK014gF5qPD/UVO+4dHZgATaA5E9DwHWnSgwbgGQLqjpKf/oJU7UmDiShB7t5XBldWf6epKULntFWOIyqHOGxe56ch3HqHdori3DiNWNYila5ttfS/Be6b3ffClr21zTSrGoAgLNRfPkbGhfjfqHxqLPF9ooLSfga0cw9Hca54pyL/mosMOKPQvqTXhMDgwOhKNjowODOLEVFtIPgHpQNRAEcfpZgAAAABJRU5ErkJggg==
+ // @downloadURL  https://github.com/mengxiaoww/linuxdo-threaded-reader/raw/refs/heads/main/linuxdo-comments.user.js
+ // @updateURL    https://github.com/mengxiaoww/linuxdo-threaded-reader/raw/refs/heads/main/linuxdo-comments.user.js
+@@ -975,8 +976,11 @@
+   function updateReader(s) {
+     if (s !== state) return;
+     const boundary = readerStartBoundary(s);
+-    if (s.dragRatio === undefined && !s.locating && boundary !== null && s.lastScrollY !== undefined && window.scrollY < s.lastScrollY - 2 && window.scrollY < boundary - 2) {
++    // LDU 兼容补丁：脚本自身的滚动修正（补偿/定位）会伪装成“向上滚动”，
++    // 立即触发上边界回弹并加载上一批，形成来回震荡；静默窗口内忽略。
++    if (s.dragRatio === undefined && !s.locating && Date.now() >= (s.snapQuietUntil || 0) && boundary !== null && s.lastScrollY !== undefined && window.scrollY < s.lastScrollY - 2 && window.scrollY < boundary - 2) {
+       window.scrollTo({ top: boundary, behavior: 'auto' });
++      s.snapQuietUntil = Date.now() + 400;
+       readerPrevious(s);
+     }
+     const now = Date.now();
+@@ -1016,7 +1020,7 @@
+     const upward = s.lastScrollY !== undefined && window.scrollY < s.lastScrollY - 2;
+     s.lastScrollY = window.scrollY;
+     const first = s.nodes.get(s.headNumber)?.getBoundingClientRect();
+-    if (s.dragRatio === undefined && !s.locating && upward && !s.host.hidden && s.headCursor > 0 && !s.loadingPrevious && first?.top > header - 240 && first.top < bottom + 240) readerPrevious(s);
++    if (s.dragRatio === undefined && !s.locating && Date.now() >= (s.snapQuietUntil || 0) && upward && !s.host.hidden && s.headCursor > 0 && !s.loadingPrevious && first?.top > header - 240 && first.top < bottom + 240) readerPrevious(s);
+     const complete = s.tailOnly || s.cursor >= s.ids.length && !s.rootRemaining?.size;
+     const atEnd = complete && rect.bottom <= bottom + 24;
+     const position = Math.max(0, Math.min(1, (header + 12 - rect.top) / Math.max(1, rect.height)));
+@@ -1041,6 +1045,7 @@
+     if (!node) { location.assign(`/t/topic/${s.id}/${number}`); return; }
+     window.scrollTo({ top: window.scrollY + node.getBoundingClientRect().top - headerBottom() - 12, behavior: 'auto' });
+     s.lastScrollY = window.scrollY;
++    s.snapQuietUntil = Date.now() + 800;
+     node.classList.add('ldt-focus');
+     setTimeout(() => node.classList.remove('ldt-focus'), 1600);
+     updateReader(s);
+@@ -1051,6 +1056,7 @@
+     const bottom = Math.min(window.innerHeight, composer ? composer.getBoundingClientRect().top : Infinity);
+     window.scrollTo({ top: Math.max(0, window.scrollY + s.more.getBoundingClientRect().bottom - bottom), behavior: 'auto' });
+     s.lastScrollY = window.scrollY;
++    s.snapQuietUntil = Date.now() + 800;
+     updateReader(s);
+   }
+ 
+@@ -1498,7 +1504,10 @@
+     if (s.style.textContent !== css) s.style.textContent = css;
+     if (anchor && anchorTop !== undefined) {
+       const delta = anchor.getBoundingClientRect().top - anchorTop;
+-      if (Math.abs(delta) > 1) window.scrollBy(0, delta);
++      if (Math.abs(delta) > 1) {
++        window.scrollBy(0, delta);
++        s.snapQuietUntil = Date.now() + 800;
++      }
+     }
+     updateProgress(s);
+     updateConnectors();

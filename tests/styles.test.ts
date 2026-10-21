@@ -27,7 +27,10 @@ describe("split reading styles", () => {
 
   it("keeps host and embedded rules in separate style payloads", () => {
     expect(APP_STYLES).not.toContain("data-ldu-embedded-topic");
-    expect(APP_STYLES).not.toContain("data-ldu-embedded-list");
+    // Host styles may *exclude* embedded documents for a few shared selectors
+    // (html:not([data-ldu-embedded-list="true"]) .timeline-container …), but
+    // must not add positively-scoped embedded rules.
+    expect(APP_STYLES).not.toMatch(/(?<!:not\()\[data-ldu-embedded-list="true"\]/)
     expect(EMBEDDED_STYLES).not.toContain("#ldu-layout-shell");
     expect(EMBEDDED_STYLES).not.toContain(".ldu-settings-panel");
     expect(EMBEDDED_STYLES).toMatch(/data-ldu-embedded-topic[^}]+\.d-header[^}]+display:\s*none\s*!important/s);

@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.18
+// @version      0.6.19
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -2930,6 +2930,80 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
   .ldu-donate-menu a { transition-duration: 0ms !important; }
 }
 
+/* Force the topic timeline (jump-to-post scroller + footer controls) to stay
+   visible even on narrow viewports. Discourse hides .topic-navigation entirely
+   when the viewport drops below its desktop breakpoint (924px) or when the
+   page is zoomed-in, leaving an empty column on the right. It does that by
+   collapsing .container.posts to a single-column grid ("posts") and adding
+   display: none to .timeline-container:not(.timeline-fullscreen). We reverse
+   both. */
+html:not([data-ldu-embedded-list="true"]) .container.posts {
+  grid-template-areas: "posts timeline" !important;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, max-content) !important;
+}
+
+@media screen and (width <= 924px) {
+  html:not([data-ldu-embedded-list="true"]) .container.posts {
+    grid-template-areas: "posts timeline" !important;
+    grid-template-columns: minmax(0, 1fr) minmax(7rem, max-content) !important;
+  }
+  html:not([data-ldu-embedded-list="true"]) .topic-navigation {
+    grid-area: timeline !important;
+    display: block !important;
+    min-width: 7rem !important;
+    width: auto !important;
+  }
+  html:not([data-ldu-embedded-list="true"]) .timeline-container,
+  html:not([data-ldu-embedded-list="true"]) .topic-timeline {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  html:not([data-ldu-embedded-list="true"]) .timeline-container:not(.timeline-fullscreen) {
+    display: block !important;
+  }
+}
+
+html:not([data-ldu-embedded-list="true"]) .topic-navigation {
+  display: block !important;
+  min-width: 7rem !important;
+  width: 100% !important;
+}
+
+html:not([data-ldu-embedded-list="true"]) .timeline-container,
+html:not([data-ldu-embedded-list="true"]) .topic-timeline {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+html:not([data-ldu-embedded-list="true"]) .timeline-container:not(.timeline-fullscreen) {
+  display: block !important;
+}
+
+html:not([data-ldu-embedded-list="true"]) .timeline-footer-controls {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: .35rem !important;
+}
+
+html:not([data-ldu-embedded-list="true"]) .timeline-footer-controls .btn,
+html:not([data-ldu-embedded-list="true"]) .timeline-footer-controls .d-button,
+html:not([data-ldu-embedded-list="true"]) .timeline-footer-controls .topic-notifications-button,
+html:not([data-ldu-embedded-list="true"]) .timeline-footer-controls .topic-notifications-button > button {
+  display: inline-flex !important;
+  visibility: visible !important;
+}
+
+/* Respect footers hidden by other layers: the threaded-reader script (\u697C\u4E2D\u697C)
+   keeps a duplicate .timeline-footer-controls hidden inside .ldt-native-timeline
+   via its own display:none. The forcing rules above out-rank that hide and would
+   overlap its copy with the native buttons and the reader status line, so keep
+   that footer hidden regardless. */
+html:not([data-ldu-embedded-list="true"]) .ldt-native-timeline .timeline-footer-controls {
+  display: none !important;
+}
+
 ${BASE64_TOOL_STYLES}
 `;
   var EMBEDDED_STYLES = `
@@ -3058,6 +3132,10 @@ html[data-ldu-embedded-topic="true"] .timeline-footer-controls .reply-to-post,
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button,
 html[data-ldu-embedded-topic="true"] .timeline-footer-controls .topic-notifications-button > button {
   width: 100% !important;
+}
+
+html[data-ldu-embedded-topic="true"] .ldt-native-timeline .timeline-footer-controls {
+  display: none !important;
 }
 
 ${BASE64_TOOL_STYLES}
@@ -9907,6 +9985,10 @@ ${tab.url}`;
       if (next) this.navigateWithOwnerFilter(ownerUsername);
       else this.navigateWithoutOwnerFilter();
     }
+    findFooterMount() {
+      const footers = [...this.doc.querySelectorAll(".timeline-footer-controls")];
+      return footers.find((footer) => !footer.closest(".ldt-native-timeline")) ?? null;
+    }
     syncOwnerControl() {
       const topicId = this.getTopicId();
       const shouldShow = this.active && this.config.ownerOnlyEnabled && Boolean(topicId) && !this.isHiddenHostTopic();
@@ -9953,7 +10035,7 @@ ${tab.url}`;
           });
         });
       }
-      const mount = this.doc.querySelector(".timeline-footer-controls");
+      const mount = this.findFooterMount();
       if (!mount) {
         button.remove();
         return;

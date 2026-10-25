@@ -1,10 +1,9 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.19",
-  "publishedAt": "2026-10-21",
-  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.19",
+  "version": "0.6.20",
+  "publishedAt": "2026-10-25",
+  "releaseUrl": "https://github.com/jzcangshu/linuxdo-ultimate/releases/tag/v0.6.20",
   "changelog": [
-    "修复窄宽度/页面缩放时右侧帖子时间线（快速跳转楼层条与「只看楼主 / 通知 / 回复」等控件）被 Discourse 隐藏的问题，现在强制保留并自适应最小宽度。",
-    "修复与「Linux DO 楼中楼阅读」用户脚本共存时，时间线底部控件与「已加载」状态文字重叠的问题：不再显示楼中楼面板内被对方隐藏的重复控件，「只看楼主」按钮改挂载到原生控件区。"
+    "修复设置面板中更新日志卡片左侧被截断无法显示的问题：更新菜单改锚定到页脚右侧按钮组（贴合面板右缘），不再从「检查更新」按钮向左溢出面板边界。"
   ]
 }

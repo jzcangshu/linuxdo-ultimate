@@ -1080,7 +1080,11 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-btn-ghost { border-color: transparent; background: transparent; color: var(--primary-medium, #8b949e); }
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
-.ldu-settings-panel .ldu-update-wrap { position: relative; }
+/* The update menu anchors to .dc-footer-right (position: relative, flush with
+   the panel's right edge), not to the narrower button wrap: a 400px menu opened
+   from the leftmost footer button would otherwise extend past the panel's left
+   edge and be clipped by its overflow: hidden. */
+.ldu-settings-panel .ldu-update-wrap { position: static; }
 .ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
   right: 0;
   box-sizing: border-box;

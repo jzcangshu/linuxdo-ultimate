@@ -106,6 +106,11 @@ describe("split reading styles", () => {
     expect(APP_STYLES).toMatch(/\.ldu-settings-panel \.dc-modal\s*\{[^}]+overflow:\s*hidden/s);
     expect(APP_STYLES).not.toContain(".dc-child-row");
     expect(APP_STYLES).toMatch(/\.dc-dropdown-menu\.ldu-update-menu\s*\{[^}]+box-sizing:\s*border-box[^}]+width:\s*min\(400px,\s*calc\(100vw - 24px\)\)[^}]+padding:\s*16px/s);
+    // The menu must anchor to the full footer-right cluster (flush with the
+    // panel edge), never to the narrow button wrap, or the panel's
+    // overflow: hidden clips the card's left half.
+    expect(APP_STYLES).toMatch(/\.ldu-update-wrap\s*\{[^}]+position:\s*static/s);
+    expect(APP_STYLES).toMatch(/\.dc-footer-right\s*\{[^}]+position:\s*relative/s);
     expect(APP_STYLES).toMatch(/\.ldu-update-summary\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);
     expect(APP_STYLES).toMatch(/\.ldu-settings-version\s*\{[^}]+font-size:\s*var\(--font-down-2,/s);
     expect(APP_STYLES).toMatch(/\.ldu-tab-group-header\s*\{[^}]+font-size:\s*var\(--font-down-1,/s);

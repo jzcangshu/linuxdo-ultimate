@@ -2,7 +2,7 @@
 // @name         Linux Do Ultimate
 // @name:zh-CN   Linux Do Ultimate
 // @namespace    https://linux.do/
-// @version      0.6.19
+// @version      0.6.20
 // @description  Independent split reading, in-page topic tabs, reliable view tracking and multi-tab link previews for Linux.do.
 // @description:zh-CN 持久化分屏阅读、页内帖子标签、阅读计数修复、403 自动过盾与多标签链接预览。
 // @author       Linux.do Community
@@ -2771,7 +2771,11 @@ body.ldu-layout-three:not(.has-sidebar-page) .ldu-resize-before { display: none;
 .ldu-settings-panel .dc-btn-ghost { border-color: transparent; background: transparent; color: var(--primary-medium, #8b949e); }
 .ldu-settings-panel .dc-btn-ghost:hover { border-color: transparent; background: color-mix(in srgb, var(--danger, #e45735) 10%, transparent); color: var(--danger, #e45735); }
 .ldu-settings-panel .dc-footer-right { position: relative; display: flex; gap: 8px; }
-.ldu-settings-panel .ldu-update-wrap { position: relative; }
+/* The update menu anchors to .dc-footer-right (position: relative, flush with
+   the panel's right edge), not to the narrower button wrap: a 400px menu opened
+   from the leftmost footer button would otherwise extend past the panel's left
+   edge and be clipped by its overflow: hidden. */
+.ldu-settings-panel .ldu-update-wrap { position: static; }
 .ldu-settings-panel .dc-dropdown-menu.ldu-update-menu {
   right: 0;
   box-sizing: border-box;
